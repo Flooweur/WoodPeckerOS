@@ -1,0 +1,104 @@
+# LOCKED CORE. Changes to this directory are never applied by the agent on its
+# own: they require human approval (enforced from Phase 3 on, when the agent
+# gains the ability to rebuild the system).
+#
+# woody-execd: the only root component the agent can talk to.
+#   /run/woody/exec.sock     action requests   (group woody, agent uid only)
+#   /run/woody/approve.sock  human approvals   (group woody-hud, HUD gateway uid or root)
+#   /var/log/woody/audit.jsonl                 hash-chained, append-only
+#   /var/lib/woody-execd/engagement.json       the scope in force (root-owned, written by a human)
+{ config, lib, pkgs, settings, ... }:
+let
+  woody-execd = pkgs.rustPlatform.buildRustPackage {
+    pname = "woody-execd";
+    version = "0.1.0";
+    src = ../../executor;
+    cargoLock.lockFile = ../../executor/Cargo.lock;
+    meta.mainProgram = "woody-execd";
+  };
+
+  auditPath = "/var/log/woody/audit.jsonl";
+
+  configFile = pkgs.writeText "woody-execd.json" (builtins.toJSON {
+    agent_user = "woody";
+    hud_user = "woody-hud";
+    exec_socket = "/run/woody/exec.sock";
+    approve_socket = "/run/woody/approve.sock";
+    audit_path = auditPath;
+    engagement_path = "/var/lib/woody-execd/engagement.json";
+    permanent_deny = settings.permanentDeny;
+    systemctl = "${config.systemd.package}/bin/systemctl";
+    journalctl = "${config.systemd.package}/bin/journalctl";
+    # Units the agent may never restart, approval or not.
+    forbidden_units = [
+      "woody-execd.service"
+      "nftables.service"
+      "firewall.service"
+      "sshd.service"
+      "systemd-journald.service"
+    ];
+    approval_ttl_ms = 600000;
+  });
+
+  prepareAudit = pkgs.writeShellScript "woody-execd-prepare" ''
+    set -eu
+    if [ ! -e ${auditPath} ]; then
+      install -m 0640 /dev/null ${auditPath}
+    fi
+    # Append-only at the filesystem level: even root must clear this flag
+    # before the file can be truncated or rewritten.
+    ${pkgs.e2fsprogs}/bin/chattr +a ${auditPath} \
+      || echo "warning: could not set the append-only flag on ${auditPath}" >&2
+  '';
+in
+{
+  # The agent's identity. It gets no sudo, no wheel, no login shell.
+  users.groups.woody = { };
+  users.users.woody = {
+    isSystemUser = true;
+    group = "woody";
+    home = "/var/lib/woody";
+    createHome = true;
+    description = "Woody agent (unprivileged reasoning process)";
+  };
+
+  # The HUD gateway's identity: the only non-root uid allowed to approve.
+  users.groups.woody-hud = { };
+  users.users.woody-hud = {
+    isSystemUser = true;
+    group = "woody-hud";
+    description = "HUD gateway (carries human approvals)";
+  };
+
+  systemd.services.woody-execd = {
+    description = "WoodPecker privileged executor";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network.target" ];
+    path = [ pkgs.coreutils ];
+    serviceConfig = {
+      ExecStartPre = "${prepareAudit}";
+      ExecStart = "${woody-execd}/bin/woody-execd serve --config ${configFile}";
+      Restart = "always";
+      RestartSec = 2;
+
+      RuntimeDirectory = "woody";
+      RuntimeDirectoryMode = "0755";
+      StateDirectory = "woody-execd";
+      StateDirectoryMode = "0755";
+      LogsDirectory = "woody";
+      LogsDirectoryMode = "0750";
+
+      # It runs as root by design, but needs nothing from these.
+      NoNewPrivileges = true;
+      ProtectHome = true;
+      PrivateTmp = true;
+      ProtectKernelModules = true;
+      ProtectKernelTunables = true;
+      LockPersonality = true;
+      RestrictSUIDSGID = true;
+    };
+  };
+
+  # `woodyctl` for the human administrator.
+  environment.systemPackages = [ woody-execd ];
+}
