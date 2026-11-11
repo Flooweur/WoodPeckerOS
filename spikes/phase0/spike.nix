@@ -16,7 +16,15 @@ let
   # Set to false to force software rendering and compare the FPS counter.
   gpuAccel = true;
 
-  kioskCommand = lib.concatStringsSep " " ([
+  # Wrapper: software cursor (hardware cursor planes are a known trouble spot
+  # for wlroots on vmwgfx) and all compositor/browser output to the journal
+  # instead of the console. Read it with:  journalctl -t woody-kiosk -b
+  kioskCommand = "${pkgs.writeShellScript "woody-kiosk" ''
+    export WLR_NO_HARDWARE_CURSORS=1
+    exec ${pkgs.systemd}/bin/systemd-cat -t woody-kiosk ${kioskArgs}
+  ''}";
+
+  kioskArgs = lib.concatStringsSep " " ([
     "${pkgs.cage}/bin/cage" "-s" "--"
     "${pkgs.chromium}/bin/chromium"
     "--kiosk"
