@@ -54,12 +54,12 @@ export function createToolServer(exec: ExecutorClient, notify: Notify, files: Fi
     }
   }
 
-  async function run(action: string, params: Record<string, unknown>): Promise<ToolResult> {
+  async function run(action: string, params: Record<string, unknown>, timeoutMs?: number): Promise<ToolResult> {
     // Drop parameters the model left out, so the executor sees only what was set.
     const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined));
     let reply: ExecReply;
     try {
-      reply = await exec.action(action, clean);
+      reply = await exec.action(action, clean, timeoutMs);
     } catch (err) {
       return failure(`${action} could not be sent: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -84,6 +84,38 @@ export function createToolServer(exec: ExecutorClient, notify: Notify, files: Fi
     }
     notify({ type: "approval_resolved", approval_id: approvalId, status: "expired" });
     return failure(`${action} was not approved in time.`);
+  }
+
+  /**
+   * Follows a configuration change until it finishes or the wait runs out.
+   * Applying a change can restart the executor, so a few failed polls in a
+   * row are expected and tolerated.
+   */
+  async function followConfig(candidate: string, waitMs: number): Promise<ToolResult> {
+    const deadline = Date.now() + waitMs;
+    let last: unknown = null;
+    let misses = 0;
+    for (;;) {
+      try {
+        const reply = await exec.action("config.status", { candidate });
+        if (reply.status === "ok") {
+          misses = 0;
+          last = reply.result;
+          const st = reply.result as { finished?: boolean; state?: string; step?: string; message?: string };
+          notify({ type: "config_progress", candidate, state: st.state, step: st.step, message: st.message });
+          if (st.finished) return data(reply.result);
+        } else if (reply.status !== "pending") {
+          return settle(reply, "config.status");
+        }
+      } catch {
+        misses += 1;
+        if (misses > 30) return failure("config.status: lost contact with the executor for over a minute.");
+      }
+      if (Date.now() >= deadline) {
+        return data({ still_running: true, last_status: last, note: "Call config_status again to keep following it." });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+    }
   }
 
   function local(fn: () => unknown): ToolResult {
@@ -168,6 +200,54 @@ export function createToolServer(exec: ExecutorClient, notify: Notify, files: Fi
         run("service.stop", { unit: args.unit }), { annotations: { destructiveHint: true } }),
       tool("service_restart", `Restart one systemd unit. ${needsApproval}`, { unit }, async (args) =>
         run("service.restart", { unit: args.unit }), { annotations: { destructiveHint: true } }),
+
+      // ---- change the system configuration -------------------------------
+      tool(
+        "config_propose",
+        "Stage a change to this machine's NixOS configuration. The running configuration is readable at /etc/woodpecker/source (a copy of the repository). Give the complete new content of each changed file, with paths relative to the repository root, either inline in 'files' or by drafting them under a workspace directory that mirrors the repository layout and passing 'workspace_dir'. Nothing changes on the system: the executor copies the configuration, applies your files, evaluates it, and reports which files changed, whether any locked-core path is touched, whether anything in the privilege fingerprint changed (services, users, sudo, firewall, SSH and similar), and therefore whether applying it will need the operator's approval. An evaluation error is returned so you can fix the files. Put packages and your own settings in nix/modules/woody.nix.",
+        {
+          summary: z.string().max(200).describe("One line saying what the change does; it becomes the commit message"),
+          files: z
+            .array(z.object({ path: z.string(), content: z.string() }))
+            .optional()
+            .describe("Files to create or replace, complete content"),
+          workspace_dir: z.string().optional().describe("Workspace directory holding drafted files at their repository paths"),
+          delete: z.array(z.string()).optional().describe("Repository paths to delete"),
+        },
+        async (args) => {
+          let proposed = args.files ?? [];
+          if (args.workspace_dir) {
+            try {
+              proposed = [...proposed, ...files.collect(args.workspace_dir)];
+            } catch (err) {
+              return failure(err instanceof Error ? err.message : String(err));
+            }
+          }
+          // Evaluating the configuration takes a while, more so the first time.
+          return run("config.propose", { summary: args.summary, files: proposed, delete: args.delete }, 15 * 60_000);
+        },
+      ),
+      tool(
+        "config_apply",
+        "Apply a staged configuration change (the candidate id from config_propose). The executor takes a snapshot, builds the new system, activates it on trial, checks that the core services are healthy, and only then makes it permanent; on any failure it restores the previous system by itself. If the change touches the locked core or the privilege fingerprint, it first waits for the operator's approval in the HUD, where they see the diff. This call follows the job for up to ten minutes; if it is still running, continue with config_status. If your own code changed, you will be restarted during the job: check config_status afterwards.",
+        { candidate: z.string().describe("Candidate id returned by config_propose") },
+        async (args) => {
+          const started = await run("config.apply", { candidate: args.candidate });
+          if (started.isError) return started;
+          return followConfig(args.candidate, 10 * 60_000);
+        },
+        { annotations: { destructiveHint: true } },
+      ),
+      tool(
+        "config_status",
+        "Progress or outcome of a configuration change: proposed, starting, running (with the current step), applied, or failed (with the reason; a failed change has been rolled back).",
+        {
+          candidate: z.string(),
+          wait_seconds: z.number().int().min(0).max(300).optional().describe("Keep following it for this long, default 0"),
+        },
+        async (args) => followConfig(args.candidate, (args.wait_seconds ?? 0) * 1000),
+        READ_ONLY,
+      ),
 
       // ---- files (local, unprivileged) -----------------------------------
       tool(

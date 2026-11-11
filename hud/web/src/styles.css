@@ -149,6 +149,11 @@ pre {
   border: 2px solid var(--red);
   padding: 22px 24px;
 }
+.modal.wide { width: min(1100px, 100%); }
+.alert-text { color: var(--red); }
+pre.diff { max-height: 42vh; }
+pre.diff .add { color: var(--ok); }
+pre.diff .del { color: var(--red); }
 .modal h2 { margin: 0 0 4px; color: var(--red); letter-spacing: 0.18em; text-transform: uppercase; font-size: 17px; }
 .modal p { margin: 4px 0 14px; }
 .modal dl { display: grid; grid-template-columns: 110px 1fr; gap: 8px 14px; margin: 0 0 16px; }

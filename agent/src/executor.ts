@@ -48,8 +48,8 @@ export class ExecutorClient {
     });
   }
 
-  action(action: string, params: Record<string, unknown>): Promise<ExecReply> {
-    return this.call({ op: "action", action, params }, 60_000);
+  action(action: string, params: Record<string, unknown>, timeoutMs = 60_000): Promise<ExecReply> {
+    return this.call({ op: "action", action, params }, timeoutMs);
   }
 
   /** Long-poll for an approval decision. Returns "pending" again if nothing happened. */

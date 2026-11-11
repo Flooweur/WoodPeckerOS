@@ -18,6 +18,16 @@ type Approval = {
   action_hash: string;
   created_ms: number;
   expires_ms: number;
+  /** Extra context from the executor; for config.apply, the staged change. */
+  detail?: ConfigChange | null;
+};
+type ConfigChange = {
+  summary?: string;
+  changed?: Array<{ path: string; kind: string }>;
+  locked_paths?: string[];
+  privilege_changes?: string[];
+  diff?: string;
+  diff_truncated?: boolean;
 };
 
 type Item =
@@ -421,19 +431,70 @@ function ApprovalModal({
   const denyRef = useRef<HTMLButtonElement | null>(null);
   // Focus starts on Deny so a stray Enter can never approve.
   useEffect(() => denyRef.current?.focus(), [approval.approval_id]);
+  const change = approval.action === "config.apply" && approval.detail ? approval.detail : null;
 
   return (
     <div className="scrim" role="dialog" aria-modal="true" aria-labelledby="approval-title">
-      <div className="modal">
+      <div className={change ? "modal wide" : "modal"}>
         <h2 id="approval-title">Approval needed</h2>
-        <p className="dim">Woody is asking to run an action that changes the system.</p>
+        <p className="dim">
+          {change
+            ? "Woody is asking to change this system's configuration in a way that touches the locked core."
+            : "Woody is asking to run an action that changes the system."}
+        </p>
         <dl>
           <dt>action</dt>
           <dd className="strong">{approval.action}</dd>
-          <dt>parameters</dt>
-          <dd>
-            <pre>{JSON.stringify(approval.params, null, 2)}</pre>
-          </dd>
+          {change ? (
+            <>
+              <dt>change</dt>
+              <dd>{change.summary}</dd>
+              <dt>files</dt>
+              <dd>
+                {(change.changed ?? []).map((f) => (
+                  <div key={f.path}>
+                    <span className="dim">{f.kind}</span> {f.path}
+                  </div>
+                ))}
+              </dd>
+              <dt>why it asks</dt>
+              <dd>
+                {(change.locked_paths ?? []).map((p) => (
+                  <div key={p} className="alert-text">locked file: {p}</div>
+                ))}
+                {(change.privilege_changes ?? []).map((p) => (
+                  <div key={p} className="alert-text">privilege change: {p}</div>
+                ))}
+              </dd>
+              <dt>diff</dt>
+              <dd>
+                <pre className="diff">
+                  {(change.diff ?? "").split("\n").map((line, i) => (
+                    <span
+                      key={i}
+                      className={
+                        line.startsWith("+") && !line.startsWith("+++")
+                          ? "add"
+                          : line.startsWith("-") && !line.startsWith("---")
+                            ? "del"
+                            : undefined
+                      }
+                    >
+                      {line + "\n"}
+                    </span>
+                  ))}
+                </pre>
+                {change.diff_truncated && <p className="alert-text">The diff is longer than shown here.</p>}
+              </dd>
+            </>
+          ) : (
+            <>
+              <dt>parameters</dt>
+              <dd>
+                <pre>{JSON.stringify(approval.params, null, 2)}</pre>
+              </dd>
+            </>
+          )}
           <dt>request</dt>
           <dd className="dim">
             {approval.approval_id} · sha256 {approval.action_hash.slice(0, 16)}…

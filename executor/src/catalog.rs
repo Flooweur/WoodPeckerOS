@@ -4,6 +4,7 @@
 
 use crate::config::Config;
 use crate::scope::Decision;
+use crate::selfmod;
 use nix::unistd::{Uid, User};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -98,6 +99,24 @@ pub const ACTIONS: &[ActionDef] = &[
         tier: Tier::Approval,
         description: "Restart one systemd unit. Needs human approval.",
         params: "{unit: string}",
+    },
+    ActionDef {
+        name: "config.propose",
+        tier: Tier::Reversible,
+        description: "Stage a change to the system configuration and report whether it touches the locked core. Changes nothing on the running system.",
+        params: "{summary: string, files?: [{path, content}], delete?: [path]}",
+    },
+    ActionDef {
+        name: "config.apply",
+        tier: Tier::Approval,
+        description: "Build, test and apply a staged change, with automatic rollback. Needs human approval when it touches the locked core or changes anything in the privilege fingerprint; otherwise runs at once.",
+        params: "{candidate: string}",
+    },
+    ActionDef {
+        name: "config.status",
+        tier: Tier::Read,
+        description: "Progress and outcome of a configuration change.",
+        params: "{candidate: string}",
     },
 ];
 
@@ -266,9 +285,46 @@ pub fn classify(action: &str, params: &Value, cfg: &Config) -> Result<Tier, Stri
                 return Ok(Tier::Forbidden);
             }
         }
+        "config.propose" => {
+            only_keys(map, &["summary", "files", "delete"])?;
+            if cfg.selfmod.is_none() {
+                return Err("self-modification is not configured on this system".into());
+            }
+            selfmod::parse_proposal(map)?;
+        }
+        "config.apply" => {
+            only_keys(map, &["candidate"])?;
+            // Free unless the change touches the locked core.
+            return Ok(if selfmod::classify_apply(cfg, candidate_param(map)?)? { Tier::Approval } else { Tier::Reversible });
+        }
+        "config.status" => {
+            only_keys(map, &["candidate"])?;
+            candidate_param(map)?;
+        }
         _ => return Err("unknown action".into()),
     }
     Ok(def.tier)
+}
+
+fn candidate_param(map: &Map<String, Value>) -> Result<&str, String> {
+    let id = map.get("candidate").and_then(Value::as_str).ok_or("missing parameter: candidate")?;
+    if !selfmod::valid_id(id) {
+        return Err("invalid candidate id".into());
+    }
+    Ok(id)
+}
+
+/// Parameters as they are written to the audit log.
+pub fn audit_params(action: &str, params: &Value) -> Value {
+    if action == "config.propose" { selfmod::audit_params(params) } else { params.clone() }
+}
+
+/// Extra context shown to the human who is asked to approve.
+pub fn approval_detail(action: &str, params: &Value, cfg: &Config) -> Option<Value> {
+    match action {
+        "config.apply" => selfmod::approval_detail(cfg, params.get("candidate")?.as_str()?),
+        _ => None,
+    }
 }
 
 fn run_cmd(program: &str, args: &[&str]) -> Result<String, String> {
@@ -525,6 +581,9 @@ pub fn run(
             run_cmd(&cfg.systemctl, &[verb, &unit])?;
             Ok(json!({ "unit": unit, "done": verb }))
         }
+        "config.propose" => selfmod::propose(cfg, map),
+        "config.apply" => selfmod::apply(cfg, candidate_param(map)?),
+        "config.status" => selfmod::status(cfg, candidate_param(map)?),
         _ => Err("unknown action".into()),
     }
 }

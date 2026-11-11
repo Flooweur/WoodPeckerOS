@@ -32,6 +32,29 @@ pub struct Config {
     pub osquery_tables: Vec<String>,
     #[serde(default = "default_ttl")]
     pub approval_ttl_ms: u64,
+    /// Self-modification of the system configuration. The config.* actions
+    /// are refused when unset.
+    #[serde(default)]
+    pub selfmod: Option<SelfMod>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SelfMod {
+    /// The configuration the running system was built from (a path that
+    /// resolves into the Nix store).
+    pub source: String,
+    /// Root-owned directory for candidates and job status.
+    pub state_dir: String,
+    pub nix: String,
+    pub diff: String,
+    pub timeout: String,
+    pub systemd_run: String,
+    /// The root job script: `check`, and `apply <candidate dir>`.
+    pub script: String,
+    /// Repository paths that always need human approval. A trailing "/"
+    /// means everything below.
+    #[serde(default)]
+    pub locked_paths: Vec<String>,
 }
 
 fn default_ttl() -> u64 {

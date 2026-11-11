@@ -42,6 +42,8 @@ struct Approval {
     params: Value,
     /// Hash of the exact action and parameters; what the human approves.
     action_hash: String,
+    /// Extra context for the human (for example the diff of a config change).
+    detail: Option<Value>,
     created_ms: u64,
     state: ApprovalState,
 }
@@ -142,6 +144,15 @@ impl State {
             "action": action, "action_hash": action_hash(action, params), "via": via,
             "ok": ok, "result_sha256": digest, "result_bytes": size, "error": error,
         }));
+        // The outcome of a configuration change is recorded in full, once.
+        if let Ok(v) = &result {
+            if action == "config.status" && v.get("first_report") == Some(&json!(true)) {
+                self.audit("config_outcome", json!({
+                    "candidate": v.get("candidate"), "state": v.get("state"),
+                    "step": v.get("step"), "message": v.get("message"), "summary": v.get("summary"),
+                }));
+            }
+        }
         result
     }
 
@@ -194,12 +205,13 @@ impl State {
         let action = req.get("action").and_then(Value::as_str).unwrap_or("");
         let params = req.get("params").cloned().unwrap_or_else(|| json!({}));
         let hash = action_hash(action, &params);
+        let logged = catalog::audit_params(action, &params);
 
         let tier = match catalog::classify(action, &params, &self.cfg) {
             Ok(t) => t,
             Err(reason) => {
                 self.audit("request", json!({
-                    "uid": uid, "action": action, "params": params, "action_hash": hash,
+                    "uid": uid, "action": action, "params": logged, "action_hash": hash,
                     "decision": "refused", "reason": reason,
                 }));
                 return json!({ "status": "denied", "reason": reason });
@@ -209,7 +221,7 @@ impl State {
         match tier {
             Tier::Read | Tier::Reversible => {
                 self.audit("request", json!({
-                    "uid": uid, "action": action, "params": params, "action_hash": hash,
+                    "uid": uid, "action": action, "params": logged, "action_hash": hash,
                     "tier": tier, "decision": "run",
                 }));
                 match self.execute(action, &params, "direct") {
@@ -219,7 +231,7 @@ impl State {
             }
             Tier::Forbidden => {
                 self.audit("request", json!({
-                    "uid": uid, "action": action, "params": params, "action_hash": hash,
+                    "uid": uid, "action": action, "params": logged, "action_hash": hash,
                     "tier": tier, "decision": "refused", "reason": "forbidden",
                 }));
                 json!({ "status": "denied", "reason": "forbidden" })
@@ -231,7 +243,7 @@ impl State {
                 if pending >= MAX_PENDING {
                     drop(map);
                     self.audit("request", json!({
-                        "uid": uid, "action": action, "params": params, "action_hash": hash,
+                        "uid": uid, "action": action, "params": logged, "action_hash": hash,
                         "tier": tier, "decision": "refused", "reason": "too-many-pending-approvals",
                     }));
                     return json!({ "status": "denied", "reason": "too-many-pending-approvals" });
@@ -245,12 +257,13 @@ impl State {
                     action: action.to_string(),
                     params: params.clone(),
                     action_hash: hash.clone(),
+                    detail: catalog::approval_detail(action, &params, &self.cfg),
                     created_ms: now_ms(),
                     state: ApprovalState::Pending,
                 });
                 drop(map);
                 self.audit("request", json!({
-                    "uid": uid, "action": action, "params": params, "action_hash": hash,
+                    "uid": uid, "action": action, "params": logged, "action_hash": hash,
                     "tier": tier, "decision": "pending-approval", "approval_id": id,
                 }));
                 self.changed.notify_all();
@@ -301,7 +314,7 @@ impl State {
                     .iter()
                     .map(|a| json!({
                         "approval_id": a.id, "action": a.action, "params": a.params,
-                        "action_hash": a.action_hash, "created_ms": a.created_ms,
+                        "action_hash": a.action_hash, "detail": a.detail, "created_ms": a.created_ms,
                         "expires_ms": a.created_ms + self.cfg.approval_ttl_ms,
                     }))
                     .collect();

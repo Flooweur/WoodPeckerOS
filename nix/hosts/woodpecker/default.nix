@@ -9,6 +9,7 @@
     ../../modules/secrets.nix
     ../../modules/kiosk.nix
     ../../modules/agent.nix
+    ../../modules/woody.nix
     ../../locked/executor.nix
     ../../locked/hud.nix
   ];

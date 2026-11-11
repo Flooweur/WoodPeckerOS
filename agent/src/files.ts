@@ -115,6 +115,38 @@ export class Files {
     };
   }
 
+  /**
+   * Every regular file below a workspace directory, as {path, content} with
+   * paths relative to that directory. Used to send a drafted configuration
+   * change to the executor. Symlinks are refused, not followed.
+   */
+  collect(input: string, maxFiles = 60, maxBytes = 600 * 1024): Array<{ path: string; content: string }> {
+    const top = this.readable(input);
+    if (!inside(top, this.workspace)) throw new FileError("the directory must be inside the workspace");
+    if (!fs.statSync(top).isDirectory()) throw new FileError(`not a directory: ${top}`);
+    const out: Array<{ path: string; content: string }> = [];
+    let total = 0;
+    const walk = (dir: string, prefix: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+        const full = path.join(dir, entry.name);
+        if (entry.isSymbolicLink()) throw new FileError(`symlinks cannot be proposed: ${rel}`);
+        if (entry.isDirectory()) {
+          walk(full, rel);
+        } else if (entry.isFile()) {
+          const buffer = fs.readFileSync(full);
+          if (buffer.includes(0)) throw new FileError(`only text files can be proposed: ${rel}`);
+          total += buffer.length;
+          if (out.length >= maxFiles) throw new FileError(`too many files (limit ${maxFiles})`);
+          if (total > maxBytes) throw new FileError(`too large (limit ${maxBytes} bytes)`);
+          out.push({ path: rel, content: buffer.toString("utf8") });
+        }
+      }
+    };
+    walk(top, "");
+    return out;
+  }
+
   write(input: string, content: string): { path: string; bytes: number } {
     const target = this.absolute(input);
     if (!inside(target, this.workspace) || target === this.workspace) {

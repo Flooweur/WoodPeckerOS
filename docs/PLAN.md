@@ -37,7 +37,7 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 | 0 | Spikes | Done |
 | 1 | Base system and rollback | Done |
 | 2 | Privileged core, agent, thin HUD | Done |
-| 3 | System hands (3a observe and operate; 3b self-modification; 3c screenshots and clipboard) | 3a done, 3b next |
+| 3 | System hands (3a observe and operate; 3b self-modification; 3c screenshots and clipboard) | 3a done, 3b built (VM test pending), 3c next |
 | 4 | **Mind loop**: events, state, memory, goals, journal, alarms, pacer, web access | Designed |
 | 5 | **Full HUD**, designed around the loop | Planned |
 | 6 | **Security toolkit** | Planned |
@@ -68,6 +68,14 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 
 - Observe and operate: processes, services (start, stop and restart need approval; locked-core units are refused), journal search, osquery restricted to 29 tables, files (read `/etc` and `/nix/store`, write only in the workspace), HUD notices.
 - Tested in containers and then in the VM.
+
+## Phase 3b results (2026-11-12)
+
+- Woody can change its own NixOS configuration: propose, then apply with snapshot, trial activation, health check, automatic rollback, and a commit in the admin's checkout. Details in [SELFMOD.md](SELFMOD.md).
+- The locked core is enforced two ways: a list of locked paths, and a privilege fingerprint of the evaluated system that catches indirect changes.
+- Changed from the plan: Woody does not keep a git clone. It sends file contents to the executor, which works on its own root-owned copy. No path supplied by the agent is ever read by root.
+- Known limit: the fingerprint is a tripwire, not a proof (see SELFMOD.md).
+- The apply job is untested outside the VM.
 
 ## Review of the original brief: what changes and why
 

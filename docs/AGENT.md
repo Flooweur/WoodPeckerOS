@@ -9,6 +9,7 @@ Today the agent answers when you write to it. Phase 4 turns it into an always-pr
 - It has **no built-in tools**: no shell, no web. Its tools (`agent/src/tools.ts`) are typed wrappers around executor actions, plus a few it can safely do itself as an unprivileged process.
 - **Observe:** `system_info`, `process_list`, `service_list`, `service_status`, `journal_query`, `osquery`, `scope_check`.
 - **Operate (approval):** `service_start`, `service_stop`, `service_restart`.
+- **Change the system:** `config_propose`, `config_apply`, `config_status`. Free except for the locked core, which needs approval; see [SELFMOD.md](SELFMOD.md).
 - **Files (local):** `fs_list` and `fs_read` under its workspace, `/etc` and `/nix/store`; `fs_write` only inside its workspace (`/var/lib/woody/workspace`). Symlinks that lead out of those areas are refused.
 - **HUD:** `hud_notify` raises a notice on the HUD.
 - It runs under systemd hardening with no capabilities and a read-only view of the system. Its only writable place is `/var/lib/woody`.

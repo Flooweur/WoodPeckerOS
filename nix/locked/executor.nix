@@ -7,8 +7,10 @@
 #   /run/woody/approve.sock  human approvals   (group woody-hud, HUD gateway uid or root)
 #   /var/log/woody/audit.jsonl                 hash-chained, append-only
 #   /var/lib/woody-execd/engagement.json       the scope in force (root-owned, written by a human)
-{ config, lib, pkgs, settings, ... }:
+{ config, lib, pkgs, settings, self, ... }:
 let
+  selfmodJob = import ./selfmod-job.nix { inherit pkgs config settings; };
+
   woody-execd = pkgs.rustPlatform.buildRustPackage {
     pname = "woody-execd";
     version = "0.1.0";
@@ -53,6 +55,33 @@ let
       "listening_ports" "process_open_sockets" "processes"
       "users" "groups" "logged_in_users" "last" "systemd_units"
     ];
+
+    # Self-modification (see docs/SELFMOD.md). Woody may propose changes to
+    # this repository. A change to any path below, or one that alters the
+    # privilege fingerprint (./fingerprint.nix), waits for human approval.
+    selfmod = {
+      # A fixed path, not the store path: the store path differs for every
+      # candidate and would make the executor unit look changed each time.
+      source = "/etc/woodpecker/source";
+      state_dir = "/var/lib/woody-execd/selfmod";
+      nix = "${config.nix.package}/bin/nix";
+      diff = "${pkgs.diffutils}/bin/diff";
+      timeout = "${pkgs.coreutils}/bin/timeout";
+      systemd_run = "${config.systemd.package}/bin/systemd-run";
+      script = "${selfmodJob}/bin/woody-selfmod";
+      locked_paths = [
+        "nix/locked/"
+        "executor/"
+        "hud/"
+        "flake.nix"
+        "flake.lock"
+        "nix/hosts/"
+        "nix/modules/base.nix"
+        "nix/modules/secrets.nix"
+        "nix/modules/snapshots.nix"
+        "lab/"
+      ];
+    };
   });
 
   prepareAudit = pkgs.writeShellScript "woody-execd-prepare" ''
@@ -98,14 +127,15 @@ in
 
       RuntimeDirectory = "woody";
       RuntimeDirectoryMode = "0755";
-      StateDirectory = "woody-execd";
+      StateDirectory = "woody-execd woody-execd/selfmod";
       StateDirectoryMode = "0755";
       LogsDirectory = "woody";
       LogsDirectoryMode = "0750";
 
       # It runs as root by design, but needs nothing from these.
       NoNewPrivileges = true;
-      ProtectHome = true;
+      # Read-only: the repository check reads the admin's checkout.
+      ProtectHome = "read-only";
       PrivateTmp = true;
       ProtectKernelModules = true;
       ProtectKernelTunables = true;
@@ -113,6 +143,9 @@ in
       RestrictSUIDSGID = true;
     };
   };
+
+  # The configuration this system was built from, where Woody can read it.
+  environment.etc."woodpecker/source".source = self.outPath;
 
   # `woodyctl` for the human administrator.
   environment.systemPackages = [ woody-execd ];

@@ -29,5 +29,12 @@
         ./nix/hosts/woodpecker
       ];
     };
+
+    # What the executor compares before applying a change Woody proposes.
+    # See nix/locked/fingerprint.nix.
+    fingerprint = import ./nix/locked/fingerprint.nix {
+      inherit (nixpkgs) lib;
+      config = self.nixosConfigurations.woodpecker.config;
+    };
   };
 }

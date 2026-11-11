@@ -9,5 +9,6 @@ pub mod audit;
 pub mod catalog;
 pub mod config;
 pub mod scope;
+pub mod selfmod;
 pub mod server;
 pub mod util;
