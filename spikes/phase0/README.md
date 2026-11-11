@@ -79,11 +79,15 @@ Also try: resizing the VMware window, full screen, and leaving it running for 10
 
 Escape hatches: **Ctrl+Alt+F2** for a text console, or SSH from Windows (`ip a` in the console shows the VM address).
 
-To compare against software rendering, set `gpuAccel = false;` near the top of `spike.nix`, rebuild, and restart the session:
+### Findings so far (VMware Workstation, NixOS 26.05)
 
-```bash
-sudo systemctl restart greetd
-```
+| Variant | Result |
+|---|---|
+| cage (GPU) + Chromium Wayland (GPU) | Chromium crashes: `importing the supplied dmabufs failed` on vmwgfx |
+| cage (GPU) + Chromium via X11 layer | Did not work |
+| cage `WLR_RENDERER=pixman` + Chromium Wayland | **Works.** 28 fps avg / 18 fps 1% low at 3238×1193, WebGL unavailable, verdict MARGINAL |
+
+`spike.nix` now boots the third variant. Everything is software-rendered, so frame rate scales with resolution: a smaller VM window should be noticeably faster. Still to try if we want real GPU acceleration: an Xorg-based kiosk instead of Wayland.
 
 ## 6. Test B — Agent SDK as a service
 

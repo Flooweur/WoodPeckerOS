@@ -13,14 +13,15 @@
 let
   testPage = "file://${./kiosk-test}/index.html";
 
-  # Set to false to force software rendering and compare the FPS counter.
-  gpuAccel = true;
-
   # Wrapper: software cursor (hardware cursor planes are a known trouble spot
   # for wlroots on vmwgfx) and all compositor/browser output to the journal
   # instead of the console. Read it with:  journalctl -t woody-kiosk -b
   kioskCommand = "${pkgs.writeShellScript "woody-kiosk" ''
     export WLR_NO_HARDWARE_CURSORS=1
+    # Phase 0 finding: Chromium's GPU buffers (dmabuf) cannot be imported by
+    # the compositor on vmwgfx and Chromium crashes. With the compositor in
+    # software mode Chromium falls back to shared-memory buffers and works.
+    export WLR_RENDERER=pixman
     exec ${pkgs.systemd}/bin/systemd-cat -t woody-kiosk ${kioskArgs}
   ''}";
 
@@ -34,11 +35,6 @@ let
     "--disable-infobars"
     "--disable-session-crashed-bubble"
     "--user-data-dir=/home/kiosk/.chromium-spike"
-  ] ++ lib.optionals gpuAccel [
-    "--ignore-gpu-blocklist"
-    "--enable-gpu-rasterization"
-  ] ++ lib.optionals (!gpuAccel) [
-    "--disable-gpu"
   ] ++ [ testPage ]);
 
   agentSrc = ./agent-hello;
