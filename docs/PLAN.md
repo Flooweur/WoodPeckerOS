@@ -11,7 +11,7 @@ The repo (`D:\Git\WoodPeckerOS`) holds only a README; this is a greenfield build
 | Topic | Decision |
 |---|---|
 | Hypervisor | VMware Workstation Pro on Windows 11 Pro (32 GB host) |
-| Claude auth | Both: subscription token for interactive chat, API key for background work |
+| Claude auth | API key only for now (subscription token deferred; credential stays a config switch) |
 | Background budget | About $50/month on the API key, hard-capped |
 | Languages | TypeScript (agent, MCP tools, HUD) + Rust (privileged executor) |
 | System autonomy | Tiered: read-only free; reversible logged; system-level needs approval |
@@ -22,6 +22,13 @@ The repo (`D:\Git\WoodPeckerOS`) holds only a README; this is a greenfield build
 | Interaction | HUD chat in VM, HUD from Windows host browser, terminal panel in HUD. **No voice.** |
 | HUD look | Amber/orange on black, woodpecker-red for alerts |
 | User experience | New to NixOS, fine with Linux: keep Nix structure simple and documented |
+
+## Phase 0 results (2026-11-11)
+
+- **Kiosk graphics:** GPU-accelerated Chromium under cage does not work on VMware (`vmwgfx` rejects Chromium's dmabuf buffers). The working setup is cage with `WLR_RENDERER=pixman` (software). Measured 28 fps at 3238×1193 and about 55 fps at a smaller window. Consequences: the HUD ships with a low-effects mode as default and effects as an opt-in; the kiosk uses Chromium `--app=` mode because `--kiosk` left the browser bars visible. An Xorg-based kiosk is the untested route to real GPU acceleration, kept as an optional later experiment.
+- **Agent SDK as a service:** works as an unprivileged user under the full planned systemd hardening, with nix-ld, using an API key.
+- **Auth decision changed:** API key only for now. The subscription path was not tested and is deferred.
+- **Cost finding:** the SDK defaults to `claude-opus-5-5`; a one-line reply cost $0.073, nearly all from caching the default ~14.5k-token system prompt. Phase 2 must set the model per task (cheap model for triage and routines), keep the prompt cache warm, and meter interactive chat as well as background work, since both now bill to the API key. The $50/month figure covered background use only and needs a second number for chat.
 
 ## Review of the original brief: what changes and why
 

@@ -128,14 +128,16 @@ If it fails, the usual suspects in order:
 
 | Question | Result |
 |---|---|
-| WebGL renderer string | |
-| FPS avg / 1% low, GPU on | |
-| FPS avg / 1% low, GPU off | |
-| Resize / full screen behave? | |
-| SDK runs with API key? | |
-| SDK runs with subscription token? | |
-| Extra nix-ld libraries needed | |
-| Hardening options that had to be relaxed | |
+| WebGL renderer string | WebGL unavailable (software path) |
+| FPS avg / 1% low, GPU on | Chromium crashes (dmabuf import fails on vmwgfx) |
+| FPS avg / 1% low, software compositor | 28 / 18 at 3238×1193; about 55 avg at a smaller window |
+| Resize / full screen behave? | Page follows the window size |
+| SDK runs with API key? | Yes. `WOODY ONLINE` in 3 s, all hardening on |
+| SDK runs with subscription token? | Not tested (deferred; API key only for now) |
+| Extra nix-ld libraries needed | None beyond the configured C++ runtime |
+| Hardening options that had to be relaxed | None |
+
+Cost note from the agent run: the SDK defaulted to `claude-opus-5-5` and one trivial reply cost **$0.073**, almost all of it the SDK's roughly 14,500-token default system prompt being written to the cache. The real agent must pick the model per task and keep prompts cached.
 
 Decisions these feed:
 

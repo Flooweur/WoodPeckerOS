@@ -35,7 +35,10 @@ let
     "--disable-infobars"
     "--disable-session-crashed-bubble"
     "--user-data-dir=/home/kiosk/.chromium-spike"
-  ] ++ [ testPage ]);
+    # --kiosk alone left the tab and address bars visible here; app mode
+    # opens the page in a chromeless window, which cage then fills the screen with.
+    "--app=${testPage}"
+  ]);
 
   agentSrc = ./agent-hello;
 in
