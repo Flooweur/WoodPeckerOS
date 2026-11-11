@@ -10,15 +10,23 @@ The only root component Woody can talk to. Source in `executor/`, NixOS module i
 - **Scope.** A target is refused unless an active, unexpired engagement allows it. Loopback, link-local and the permanent deny list (the Windows host and VMware gateways) are refused whatever the engagement says.
 - **Audit.** Every request, decision and result goes to `/var/log/woody/audit.jsonl`. Records are hash-chained and the file is append-only; if the log cannot be written, the executor stops.
 
-## Actions (Phase 2)
+## Actions
 
 | Action | Tier | Parameters |
 |---|---|---|
 | `system.info` | read | none |
+| `process.list` | read | `sort` (memory, cpu), `limit` (1–100) |
+| `service.list` | read | `state` (running, failed, active, inactive, exited) |
 | `service.status` | read | `unit` |
 | `journal.tail` | read | `unit`, `lines` (1–200) |
+| `journal.query` | read | `unit`, `priority` (0–7), `since` (-15m, -2h, -1d), `grep` (plain phrase), `lines` |
+| `osquery.query` | read | `sql`: one SELECT over an allow-listed set of tables |
 | `scope.check` | read | `target` |
-| `service.restart` | approval | `unit` (locked-core units are forbidden) |
+| `service.start` / `service.stop` / `service.restart` | approval | `unit` (locked-core units are forbidden) |
+
+**osquery.** The query must be a single SELECT. Which tables it can read is enforced by osquery itself (`--enable_tables`), set in `nix/locked/executor.nix`. Tables that expose secrets or reach the network (`shadow`, `process_envs`, `curl`, `file`, `shell_history`, `augeas` and others) are not in the list, so they do not exist for a query. Queries are stopped after 20 seconds and results capped at 500 rows.
+
+**Files are not an executor action.** The agent reads world-readable files under `/etc` and `/nix/store` and writes only in its own workspace, using its own unprivileged process (see AGENT.md).
 
 ## Protocol
 
@@ -100,4 +108,4 @@ sudo woodyctl audit-verify
 
 ## Tests
 
-`cargo test` runs in the Nix build (29 tests: scope rules, audit chain, parameter validation). The build fails if any test fails.
+`cargo test` runs in the Nix build (34 tests: scope rules, audit chain, parameter validation). The build fails if any test fails.

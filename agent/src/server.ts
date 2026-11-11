@@ -12,6 +12,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { WebSocket, WebSocketServer } from "ws";
 import { Budget } from "./budget.js";
 import { ExecutorClient } from "./executor.js";
+import { Files } from "./files.js";
 import { TOOL_SERVER_NAME, createToolServer } from "./tools.js";
 
 // ---- configuration -------------------------------------------------------
@@ -36,6 +37,7 @@ const SYSTEM_PROMPT = `You are Woody, the operator of WoodPecker-OS: a single-pu
 How you act on the system:
 - Your only way to observe or change anything is the ${TOOL_PREFIX}* tools. Each one is a typed request to a privileged executor that validates it, logs it, and decides whether it runs.
 - Some actions need the operator's approval. When you call one, the HUD shows them a prompt and your call waits for their decision. You cannot approve anything yourself, and a refusal is final: say what was refused and stop, rather than looking for another route.
+- You can read files under /etc and /nix/store and keep your own notes and drafts in your workspace. You cannot write anywhere else.
 - Security testing is only ever aimed at targets inside the active engagement scope. Check a target with scope_check before proposing work against it. If it is out of scope, say so plainly.
 
 Untrusted content:
@@ -95,7 +97,8 @@ function stateMessage(): Record<string, unknown> {
   };
 }
 
-const toolServer = createToolServer(exec, broadcast);
+const files = new Files(path.join(STATE_DIR, "workspace"));
+const toolServer = createToolServer(exec, broadcast, files);
 
 // ---- one chat turn -------------------------------------------------------
 

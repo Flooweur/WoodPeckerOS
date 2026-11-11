@@ -27,6 +27,8 @@ type Item =
   | { kind: "meta"; key: number; text: string }
   | { kind: "error"; key: number; text: string };
 
+type Notice = { key: number; title: string; body: string; level: "info" | "warn" | "alert" };
+
 type Link = "connecting" | "open" | "closed" | "no-token";
 
 // ---- token ----------------------------------------------------------------
@@ -62,6 +64,7 @@ export function App() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [deciding, setDeciding] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [notices, setNotices] = useState<Notice[]>([]);
 
   const socket = useRef<WebSocket | null>(null);
   const nextKey = useRef(1);
@@ -136,6 +139,14 @@ export function App() {
           setApprovals(msg.items ?? []);
           setExecutorUp(Boolean(msg.executor_up));
           break;
+        case "notify": {
+          const key = nextKey.current++;
+          const level = msg.level === "alert" || msg.level === "warn" ? msg.level : "info";
+          setNotices((prev) => [...prev.slice(-4), { key, title: String(msg.title ?? ""), body: String(msg.body ?? ""), level }]);
+          // Alerts stay until dismissed; the rest clear themselves.
+          if (level !== "alert") window.setTimeout(() => setNotices((prev) => prev.filter((n) => n.key !== key)), 15000);
+          break;
+        }
         case "decide_result":
           setDeciding(null);
           if (!msg.ok) push({ kind: "error", text: `Decision not applied: ${msg.error ?? "unknown error"}` });
@@ -299,6 +310,18 @@ export function App() {
           </button>
         )}
       </footer>
+
+      {notices.length > 0 && (
+        <div className="notices" aria-live="polite">
+          {notices.map((n) => (
+            <button key={n.key} className={`notice ${n.level}`} onClick={() => setNotices((prev) => prev.filter((x) => x.key !== n.key))}>
+              <strong>{n.title}</strong>
+              {n.body && <span>{n.body}</span>}
+              <em>click to dismiss</em>
+            </button>
+          ))}
+        </div>
+      )}
 
       {pending && (
         <ApprovalModal

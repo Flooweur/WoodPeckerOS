@@ -123,6 +123,20 @@ pre {
 .composer textarea::placeholder { color: var(--amber-dim); }
 .composer button { align-self: stretch; min-width: 96px; }
 
+/* ---- notices from Woody ---- */
+.notices { position: fixed; top: 64px; right: 18px; width: min(380px, calc(100% - 36px)); display: flex; flex-direction: column; gap: 8px; }
+.notice {
+  display: grid; gap: 4px; text-align: left; text-transform: none; letter-spacing: 0;
+  padding: 10px 12px; background: var(--panel); color: var(--text);
+  border: 1px solid var(--line-strong); border-left: 4px solid var(--amber);
+}
+.notice strong { color: var(--amber); }
+.notice span { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+.notice em { font-style: normal; font-size: 11px; color: var(--amber-dim); }
+.notice.warn { border-left-color: #ff8a00; }
+.notice.alert { border-color: var(--red); border-left-color: var(--red); }
+.notice.alert strong { color: var(--red); }
+
 /* ---- approval modal ---- */
 .scrim {
   position: fixed; inset: 0; background: rgba(0, 0, 0, 0.78);

@@ -29,15 +29,30 @@ let
     permanent_deny = settings.permanentDeny;
     systemctl = "${config.systemd.package}/bin/systemctl";
     journalctl = "${config.systemd.package}/bin/journalctl";
-    # Units the agent may never restart, approval or not.
+    # Units the agent may never start, stop or restart, approval or not.
     forbidden_units = [
       "woody-execd.service"
       "nftables.service"
       "firewall.service"
       "sshd.service"
       "systemd-journald.service"
+      "woody-hud.service"
     ];
     approval_ttl_ms = 600000;
+
+    # osquery: read-only SQL over host state. Only these tables exist for a
+    # query; password hashes (shadow), process environments (process_envs),
+    # the curl table, file contents and shell history are deliberately absent.
+    osqueryi = "${pkgs.osquery}/bin/osqueryi";
+    timeout_bin = "${pkgs.coreutils}/bin/timeout";
+    osquery_tables = [
+      "os_version" "system_info" "uptime" "time" "osquery_info"
+      "kernel_info" "kernel_modules" "cpu_info" "cpu_time" "memory_info" "load_average"
+      "mounts" "block_devices" "usb_devices" "pci_devices"
+      "interface_addresses" "interface_details" "routes" "arp_cache" "dns_resolvers" "etc_hosts"
+      "listening_ports" "process_open_sockets" "processes"
+      "users" "groups" "logged_in_users" "last" "systemd_units"
+    ];
   });
 
   prepareAudit = pkgs.writeShellScript "woody-execd-prepare" ''

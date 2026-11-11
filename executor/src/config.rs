@@ -17,9 +17,19 @@ pub struct Config {
     pub permanent_deny: Vec<String>,
     pub systemctl: String,
     pub journalctl: String,
-    /// Units the agent may never restart (the locked core).
+    /// Units the agent may never start, stop or restart (the locked core).
     #[serde(default)]
     pub forbidden_units: Vec<String>,
+    /// Path to osqueryi. osquery.query is refused when unset.
+    #[serde(default)]
+    pub osqueryi: Option<String>,
+    /// Path to coreutils `timeout`, used to bound osquery's run time.
+    #[serde(default)]
+    pub timeout_bin: Option<String>,
+    /// The only osquery tables a query may read. Anything else (password
+    /// hashes, process environments, the curl table) does not exist for it.
+    #[serde(default)]
+    pub osquery_tables: Vec<String>,
     #[serde(default = "default_ttl")]
     pub approval_ttl_ms: u64,
 }

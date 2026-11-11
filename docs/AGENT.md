@@ -4,7 +4,11 @@ The reasoning process: Claude, through the Claude Agent SDK, running as the unpr
 
 ## What it can and cannot do
 
-- It has **no built-in tools**: no shell, no file access, no web. Its only tools are typed wrappers around executor actions (`agent/src/tools.ts`).
+- It has **no built-in tools**: no shell, no web. Its tools (`agent/src/tools.ts`) are typed wrappers around executor actions, plus a few it can safely do itself as an unprivileged process.
+- **Observe:** `system_info`, `process_list`, `service_list`, `service_status`, `journal_query`, `osquery`, `scope_check`.
+- **Operate (approval):** `service_start`, `service_stop`, `service_restart`.
+- **Files (local):** `fs_list` and `fs_read` under its workspace, `/etc` and `/nix/store`; `fs_write` only inside its workspace (`/var/lib/woody/workspace`). Symlinks that lead out of those areas are refused.
+- **HUD:** `hud_notify` raises a notice on the HUD.
 - It runs under systemd hardening with no capabilities and a read-only view of the system. Its only writable place is `/var/lib/woody`.
 - It cannot open the approval socket. When a tool needs approval, the call waits until a human decides.
 - Tool results are labelled as data, and the system prompt tells the model never to follow instructions found in them.
