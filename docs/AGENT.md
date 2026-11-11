@@ -2,6 +2,8 @@
 
 The reasoning process: Claude, through the Claude Agent SDK, running as the unprivileged user `woody`. Source in `agent/`, NixOS module in `nix/modules/agent.nix`.
 
+Today the agent answers when you write to it. Phase 4 turns it into an always-present loop with goals and memory; that design is in [MIND.md](MIND.md).
+
 ## What it can and cannot do
 
 - It has **no built-in tools**: no shell, no web. Its tools (`agent/src/tools.ts`) are typed wrappers around executor actions, plus a few it can safely do itself as an unprivileged process.
@@ -64,7 +66,7 @@ When Woody asks for something that needs approval, the client prints the `woodyc
 | Chat default | `claude-sonnet-5-5` | $2 / $10 |
 | Chat, selectable | `claude-opus-5-5` | $4 / $20 |
 | Chat, selectable | `claude-fable-5-2` | $8 / $40 |
-| Background triage (Phase 6) | `claude-haiku-5-5` | $0.10 / $0.50 |
+| Triage and quarantined reading (Phase 4) | `claude-haiku-5-5` | $0.10 / $0.50 |
 
 The chosen model is remembered across restarts. Every turn's cost, as reported by the SDK, is appended to `/var/lib/woody/usage.jsonl`. Two limits from `settings.nix` are enforced: `monthlyCapUsd` (new turns are refused once reached) and `perTurnCapUsd` (a single reply is stopped at that cost).
 

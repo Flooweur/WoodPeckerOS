@@ -36,7 +36,7 @@ in
   services.greetd = {
     enable = true;
     settings = {
-      # Auto-login into the kiosk. A real greeter comes in Phase 4.
+      # Auto-login into the kiosk. A real greeter comes in Phase 5.
       initial_session = { command = "${session}"; user = "kiosk"; };
       default_session = { command = "${session}"; user = "kiosk"; };
     };

@@ -2,7 +2,7 @@
 
 What you see when the VM boots: a full-screen page for talking to Woody and approving what it asks to do. Source in `hud/`, NixOS module in `nix/locked/hud.nix`.
 
-This is the thin Phase 2 version: chat, model picker, spend meter, approval prompt. Meters, activity feed, engagement panel, log stream, terminal and the visual pass come in Phase 4.
+This is the thin Phase 2 version: chat, model picker, spend meter, approval prompt. Plain views for Woody's state, inbox, goals and journal come with the mind loop in Phase 4 (see [MIND.md](MIND.md)). The full HUD, designed around that loop (goals board, memory panel, meters, log stream, terminal, visual pass), is Phase 5.
 
 ## Parts
 
@@ -54,5 +54,5 @@ sudo systemctl restart greetd
 
 ## Known limits
 
-- VMware does not pass AltGr to the VM, so characters like `#` or `@` are hard to type in the kiosk. Access from the Windows host browser (Phase 4) will solve this.
+- VMware does not pass AltGr to the VM, so characters like `#` or `@` are hard to type in the kiosk. Access from the Windows host browser (Phase 5) will solve this.
 - The page is reachable only inside the VM for now.

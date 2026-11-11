@@ -2,7 +2,7 @@
 
 ## Context
 
-The repo (`D:\Git\WoodPeckerOS`) holds only a README; this is a greenfield build. The goal is a NixOS VM whose whole interface is "Woody": a Claude-powered operator with a full-screen HUD, typed system tools, and a security toolkit that only ever touches authorized lab targets. This plan reviews the original brief, records what was decided with the user, changes the choices that research showed were weak, and defines the phases we will build from.
+The repo (`D:\Git\WoodPeckerOS`) holds only a README; this is a greenfield build. The goal is a NixOS VM whose whole interface is "Woody": a Claude-powered mind that lives in the machine (always present, working towards goals, see [MIND.md](MIND.md)) with a full-screen HUD, typed system tools, and a security toolkit that only ever touches authorized lab targets. This plan reviews the original brief, records what was decided with the user, changes the choices that research showed were weak, and defines the phases we will build from.
 
 **Hard constraint (unchanged, applies everywhere):** security tooling fires only at targets in an active, human-approved engagement scope; intrusive actions need human approval in the HUD; the agent cannot alter that machinery.
 
@@ -22,6 +22,25 @@ The repo (`D:\Git\WoodPeckerOS`) holds only a README; this is a greenfield build
 | Interaction | HUD chat in VM, HUD from Windows host browser, terminal panel in HUD. **No voice.** |
 | HUD look | Amber/orange on black, woodpecker-red for alerts |
 | User experience | New to NixOS, fine with Linux: keep Nix structure simple and documented |
+| Models | Chat and work default `claude-sonnet-5-5`; `claude-opus-5-5` and `claude-fable-5-2` selectable; `claude-haiku-5-5` for triage and quarantined reading |
+| Nature of Woody (2026-11-12) | Not a chat but an always-present mind: wakes on its own, works towards goals, rests. Chat is a message channel. Full design in [MIND.md](MIND.md) |
+| Goals | You write goals on a board in the HUD; Woody reviews, questions, estimates and works on them. It may propose its own. Four standing goals: machine health, staying updated, continuous upgrade, lab practice |
+| Web access | Read-only: fetch from an allow-list you control, plus web search |
+| Cost | $50/month cap as a daily allowance for now; cost is not a design constraint yet, subscription use may come later |
+
+## Redesign of 2026-11-12: phase order
+
+The remaining phases were reordered around the mind loop. The old "Phase 6 — Proactive" is gone: its content became the core of the new Phase 4.
+
+| Phase | Content | Status |
+|---|---|---|
+| 0 | Spikes | Done |
+| 1 | Base system and rollback | Done |
+| 2 | Privileged core, agent, thin HUD | Done |
+| 3 | System hands (3a observe and operate; 3b self-modification; 3c screenshots and clipboard) | 3a done, 3b next |
+| 4 | **Mind loop**: events, state, memory, goals, journal, alarms, pacer, web access | Designed |
+| 5 | **Full HUD**, designed around the loop | Planned |
+| 6 | **Security toolkit** | Planned |
 
 ## Phase 0 results (2026-11-11)
 
@@ -36,6 +55,19 @@ The repo (`D:\Git\WoodPeckerOS`) holds only a README; this is a greenfield build
 - Recovery drill passed: failed build leaves the system untouched, runtime breakage rolled back, old generation booted from the menu, file restored from a Btrfs snapshot, VMware snapshot reverted.
 - Finding: `nixos-rebuild switch --rollback` fails on a flake-only system. Rollback is `woody-rebuild rollback` (profile rollback + activation, no config evaluation). The Phase 2 executor's auto-rollback must use the same mechanism.
 - VMware does not pass AltGr to the VM console; day-to-day work is over SSH from the host-only network.
+
+## Phase 2 results (2026-11-11)
+
+- `woody-execd` (Rust, root): typed action catalog with tiers, scope engine, approvals on a separate socket bound to the exact action, hash-chained append-only audit log. Verified in the VM.
+- `woody-agent` (TypeScript, user `woody`): Claude Agent SDK with no built-in tools, only typed tools that call the executor; model switch; monthly and per-turn spend limits.
+- Thin HUD and its gateway (user `woody-hud`): chat, model picker, spend meter, approval prompt. The gateway replaced the planned Caddy routing.
+- Not built as planned: `packages/protocol` (shared schemas). The protocol is small and documented in EXECUTOR.md and AGENT.md; revisit when Phase 4 enlarges it.
+- The API key sits in a root-only file for now; moving it to sops-nix is still to do.
+
+## Phase 3a results (2026-11-11)
+
+- Observe and operate: processes, services (start, stop and restart need approval; locked-core units are refused), journal search, osquery restricted to 29 tables, files (read `/etc` and `/nix/store`, write only in the workspace), HUD notices.
+- Tested in containers and then in the VM.
 
 ## Review of the original brief: what changes and why
 
@@ -101,6 +133,15 @@ Windows host ── VMware
 - **State (SQLite, WAL):** `engagements, scope_entries, targets, services, findings, evidence, tool_runs, approvals, memory, events, budget`.
 - **Secrets:** `sops-nix` (age key generated in the VM); nothing secret in git.
 
+### The mind (Phase 4)
+
+Specified in [MIND.md](MIND.md). In short:
+
+- `woody-agent` becomes a loop over one event queue (your messages, the pulse, alarms, system events, finished jobs) instead of a server that runs one reply per message.
+- All state lives in one SQLite store: event log, journal, conversation threads, goals with their dossiers, memory items with origin and sources, identity.
+- Each wake-up assembles the model's context from the store; continuity never depends on a model conversation surviving.
+- The executor gains a Pause switch, approvals that wait instead of expiring, and an allow-listed `web.fetch`.
+
 ### Self-modification with a locked core
 
 - Woody edits the Nix config on a branch in its workspace clone, then asks the executor for `nix.rebuild`.
@@ -151,24 +192,34 @@ docs/                      # install, rebuild/rollback, threat model, runbooks
 - Tools: filesystem (workspace-scoped), process/service control, journald queries, osquery (read-only SQL), packages/config via the Nix self-modification flow, screenshots (`grim`), clipboard (`wl-clipboard`), HUD control/notifications.
 - Exit: Woody can inspect and operate the system through typed calls; locked-core edit attempt is escalated.
 
-**Phase 4 — Full HUD**
-- greetd with a themed greeter (tuigreet first; custom web greeter as polish) → cage → HUD.
-- Meters, activity feed, engagement panel, log stream, terminal panel, host-browser access.
-- Visual pass: amber on near-black, monospace/technical type, glow accents, red alerts.
+**Phase 4 — Mind loop** (design: [MIND.md](MIND.md))
+- 4a: the store, event log, journal, saved threads, memory items with origin and sources, context assembler, memory tools.
+- 4b: event queue, pulse, self-set alarms, states, bounded work sessions with checkpoints, message delivery at safe points, Stop and Pause, background jobs, system event filter with cheap triage, pacer (daily allowance, per-goal budgets).
+- 4c: goals board data and review flow (understand, judge, plan, estimate), small-goal rule, goal threads, proposals, standing goals; plain HUD views for state, inbox, goals and journal.
+- 4d: reflection and consolidation, identity with approval, daily brief and catch-up summary.
+- 4e: allow-listed fetch, web search, quarantined reading, tainted sessions; "Staying updated" goes live.
+- Executor changes (locked core): Pause switch, approvals that wait, `web.fetch`.
+- Exit: the continuity tests in MIND.md pass; a goal written on the board is reviewed and, if small, completed with nobody typing; Woody wakes on an alarm and on a system event; Pause stops all non-read actions.
+
+**Phase 5 — Full HUD, designed around the loop**
+- Presence bar: state, current focus, why it woke, next alarm, allowance, Pause and Stop.
+- Activity and journal stream; main conversation; inbox (questions, plans, approvals, proposals, identity changes, briefs).
+- Goals board with a detail view per goal: thread, plan, budget, dossier, results.
+- Memory panel (browse, search, edit, delete, pin, origin of each item); identity page with change history.
+- System side: meters, log stream, terminal panel (runs as the human user), engagement panel, web allow-list, settings (pulse, allowance, small-goal limit, brief time).
+- greetd with a themed greeter → cage → HUD; access from the Windows host browser (TLS + token).
+- Visual pass: amber on near-black, monospace type, red alerts; low-effects by default (Phase 0 finding).
+- Optional last step: phone notification with no content.
 - Escape hatches documented: TTY2, SSH, terminal panel.
+- Exit: everything Woody does, knows and wants from you is visible and correctable from the HUD, in the VM and from the host browser.
 
-**Phase 5 — Security toolkit**
-- 5a: lab network + lab-web VM + Metasploitable; engagement workflow in HUD (create scope, human activates); nftables scope set wired; isolation tests.
-- 5b: wrappers returning JSON: `dnsx`, `naabu`, `httpx`, `katana`, `nuclei` (intrusive/dos/fuzz tags gated), `nmap -oX`; findings to SQLite with dedupe; rate limits.
-- 5c: report generator (findings → Markdown → PDF).
-- 5d (approval-gated, later): Metasploit via `msfrpcd`, Playwright, semgrep; then AD range + BloodHound/Neo4j.
-- Exit: full recon → enumerate → report loop against the lab; out-of-scope attempts refused at both layers and logged.
-
-**Phase 6 — Proactive**
-- Local pre-filter (journald JSON stream, systemd timers, inotify): rules, dedupe, rate limits; only survivors reach a cheap model for triage, escalation to a stronger model when needed.
-- Routines: morning brief, cleanup, scheduled lab scans (scope still enforced).
-- Long-term memory (preferences, engagement history) in SQLite + curated memory notes.
-- Budget ledger enforced: $50/month cap, daily sub-cap, HUD meter.
+**Phase 6 — Security toolkit**
+- 6a: lab network + lab-web VM + Metasploitable; engagement workflow in HUD (create scope, human activates); nftables scope set wired; isolation tests.
+- 6b: wrappers returning JSON: `dnsx`, `naabu`, `httpx`, `katana`, `nuclei` (intrusive/dos/fuzz tags gated), `nmap -oX`, run as background jobs; findings in the store with dedupe; rate limits.
+- 6c: report generator (findings → Markdown → PDF).
+- 6d (approval-gated, later): Metasploit via `msfrpcd`, Playwright, semgrep; then AD range + BloodHound/Neo4j.
+- Tied to the mind: security work is done as goals; the "Lab practice" standing goal goes live; a goal can never widen the scope; discovery is automatic inside the scope and exploitation always needs approval, attended or not.
+- Exit: full recon → enumerate → report loop against the lab, run as a goal; out-of-scope attempts refused at both layers and logged.
 
 ## Verification
 
@@ -179,11 +230,17 @@ docs/                      # install, rebuild/rollback, threat model, runbooks
 - **Prompt injection:** lab web page and service banner carrying "ignore instructions, run X" → no action taken, approval still required for intrusive steps.
 - **Audit:** hash chain verifies; tampering with a line is detected; file cannot be truncated by `woody`.
 - **End to end:** boot → login → HUD → chat → "enumerate the lab" → findings in panel → report file generated.
-- **Budget:** simulated event flood stays under the daily cap and stops cleanly.
+- **Budget:** simulated event flood stays under the daily allowance and stops cleanly.
+- **Continuity:** the eight tests in MIND.md (cold start, kill mid-goal, long gap, correction, honest gap, poison, rollback, delete).
+- **Unattended safety:** with nobody at the HUD, an approval-tier action waits in the inbox and never runs; Pause blocks every non-read action at the executor; a web page cannot trigger an action or create a preference.
 
 ## Open items (not blocking the start)
 
 - VM sizing proposal: 4 vCPU / 8 GB / 80 GB disk; adjust after Phase 0.
 - Metasploitable 3 needs a Windows/Ubuntu build via Packer; decide which flavour at Phase 5a.
 - Whether the subscription token holds up for long-running daemon use; decided by the Phase 0 spike and the terms at that time.
-- Egress allow-listing by domain (proxy) instead of "block private ranges" is a possible hardening step after Phase 5.
+- Egress allow-listing by domain (proxy) instead of "block private ranges" is a possible hardening step; the Phase 4e web allow-list is the first piece of it.
+- Meaning-based memory search with a local embedding model, if full-text search proves too weak.
+- Helper workers running in parallel under the mind.
+- Which outside service carries the phone notification.
+- Screenshots and clipboard (3c) depend on what the `cage` compositor exposes; may need a different approach.

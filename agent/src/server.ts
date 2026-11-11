@@ -23,7 +23,7 @@ export const CHAT_MODELS = [
   { id: "claude-fable-5-2", label: "Fable 5.2", note: "most capable, about 4x the cost" },
 ] as const;
 const DEFAULT_MODEL = "claude-sonnet-5-5";
-/** Reserved for background event triage (Phase 6). Not selectable for chat. */
+/** Reserved for background event triage (Phase 4). Not selectable for chat. */
 export const TRIAGE_MODEL = "claude-haiku-5-5";
 
 const STATE_DIR = process.env.WOODY_STATE_DIR ?? path.resolve("state");
