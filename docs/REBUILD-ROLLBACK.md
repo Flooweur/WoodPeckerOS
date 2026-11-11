@@ -8,7 +8,7 @@ There are three safety nets, from fastest to heaviest:
 
 | Net | Covers | How to use |
 |---|---|---|
-| NixOS generations | System configuration, packages, services | `sudo nixos-rebuild switch --rollback`, or pick an older entry in the boot menu |
+| NixOS generations | System configuration, packages, services | `woody-rebuild rollback`, or pick an older entry in the boot menu |
 | Btrfs snapshots | Files in `/` and `/home` (not the Nix store, not `/var/log`) | Copy files back from `/.snapshots/<name>/` |
 | VMware snapshots | The entire VM | VM → Snapshot → Revert |
 
@@ -46,7 +46,17 @@ ls /.snapshots
 **The new system runs but is wrong:**
 
 ```bash
-sudo nixos-rebuild switch --rollback
+woody-rebuild rollback
+```
+
+`woody-rebuild rollback` does not read the repo, so it works even when the config is broken. Do not use `nixos-rebuild switch --rollback`: it fails on this flake-only system. The same thing by hand, if `woody-rebuild` itself is unavailable:
+
+```bash
+sudo nix-env --profile /nix/var/nix/profiles/system --rollback
+```
+
+```bash
+sudo /nix/var/nix/profiles/system/bin/switch-to-configuration switch
 ```
 
 **The new system does not boot or the screen is unusable:** reboot, and in the boot menu choose *NixOS - All configurations*, then the previous generation. Once in, run the rollback command above to make it the default again.
@@ -82,7 +92,7 @@ woody-rebuild
    Expected: the kiosk goes black. On **Ctrl+Alt+F2**:
 
 ```bash
-sudo nixos-rebuild switch --rollback
+woody-rebuild rollback
 ```
 
    Expected: the kiosk page returns. Undo the edit with `git checkout nix/modules/kiosk.nix`.

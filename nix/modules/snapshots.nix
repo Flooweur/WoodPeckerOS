@@ -13,12 +13,21 @@ let
       action="''${1:-switch}"
 
       case "$action" in
-        switch|test|boot|build|dry-activate) ;;
-        *) echo "usage: woody-rebuild [switch|test|boot|build|dry-activate]" >&2; exit 2 ;;
+        switch|test|boot|build|dry-activate|rollback) ;;
+        *) echo "usage: woody-rebuild [switch|test|boot|build|dry-activate|rollback]" >&2; exit 2 ;;
       esac
 
       if [ "$(id -u)" -ne 0 ]; then
         exec sudo WOODY_REPO="$repo" "$0" "$@"
+      fi
+
+      # Rollback does not evaluate any configuration: it points the system
+      # profile at the previous generation and activates it. This works even
+      # when the repo is broken. (`nixos-rebuild switch --rollback` does not
+      # work on a flake-only system: it looks for a channel-based config.)
+      if [ "$action" = "rollback" ]; then
+        nix-env --profile /nix/var/nix/profiles/system --rollback
+        exec /nix/var/nix/profiles/system/bin/switch-to-configuration switch
       fi
 
       if [ ! -e "$repo/flake.nix" ]; then
