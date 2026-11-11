@@ -30,6 +30,13 @@ The repo (`D:\Git\WoodPeckerOS`) holds only a README; this is a greenfield build
 - **Auth decision changed:** API key only for now. The subscription path was not tested and is deferred.
 - **Cost finding:** the SDK defaults to `claude-opus-5-5`; a one-line reply cost $0.073, nearly all from caching the default ~14.5k-token system prompt. Phase 2 must set the model per task (cheap model for triage and routines), keep the prompt cache warm, and meter interactive chat as well as background work, since both now bill to the API key. The $50/month figure covered background use only and needs a second number for chat.
 
+## Phase 1 results (2026-11-11)
+
+- Installed from the flake with disko (Btrfs subvolumes, hybrid BIOS/UEFI boot); `flake.lock` generated and validated in the VM.
+- Recovery drill passed: failed build leaves the system untouched, runtime breakage rolled back, old generation booted from the menu, file restored from a Btrfs snapshot, VMware snapshot reverted.
+- Finding: `nixos-rebuild switch --rollback` fails on a flake-only system. Rollback is `woody-rebuild rollback` (profile rollback + activation, no config evaluation). The Phase 2 executor's auto-rollback must use the same mechanism.
+- VMware does not pass AltGr to the VM console; day-to-day work is over SSH from the host-only network.
+
 ## Review of the original brief: what changes and why
 
 **Kept:** NixOS + generations, systemd-managed Agent SDK service, reasoning/executor split, MCP-style typed tools returning JSON, greetd + cage kiosk, SQLite, osquery, ProjectDiscovery suite, nmap XML, append-only audit.
