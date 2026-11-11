@@ -10,5 +10,6 @@
     ../../modules/kiosk.nix
     ../../modules/agent.nix
     ../../locked/executor.nix
+    ../../locked/hud.nix
   ];
 }

@@ -5,10 +5,11 @@
 #    compositor on VMware's vmwgfx driver, so the compositor runs in software.
 #  * --app=URL instead of --kiosk: --kiosk left the browser bars visible.
 #
-# The page is the render-test placeholder until the HUD exists (Phase 2).
+# The session opens the bootstrap page written by the HUD gateway
+# (nix/locked/hud.nix), which loads the HUD with its access token.
 { lib, pkgs, ... }:
 let
-  page = "file://${../../spikes/phase0/kiosk-test}/index.html";
+  page = "file:///run/woody-hud/boot.html";
 
   session = pkgs.writeShellScript "woody-kiosk" ''
     export WLR_NO_HARDWARE_CURSORS=1
