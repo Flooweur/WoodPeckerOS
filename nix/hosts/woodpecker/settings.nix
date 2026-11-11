@@ -1,13 +1,12 @@
 # The only file you should need to edit for your own machine.
-# Check the values marked CHECK against the old install before reinstalling:
-#   grep -E "keyMap|timeZone|defaultLocale|layout" /etc/nixos/configuration.nix
+# Time zone, locale and keyboard were confirmed against the Phase 0 install.
 {
   # Human admin account (not the agent).
   adminUser = "flooweur";
 
-  timeZone = "Europe/Paris";      # CHECK
-  locale = "fr_FR.UTF-8";         # CHECK
-  consoleKeyMap = "fr";           # CHECK: a wrong value makes console passwords hard to type
+  timeZone = "Europe/Paris";
+  locale = "en_US.UTF-8";
+  consoleKeyMap = "fr";
 
   # VMware "LSI Logic" SCSI disk. `lsblk` in the installer shows the real name.
   disk = "/dev/sda";
