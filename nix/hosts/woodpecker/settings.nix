@@ -26,6 +26,11 @@
     "192.168.130.254"
   ];
 
+  # Claude API spend limits enforced by the agent (USD). The monthly cap covers
+  # chat and background work together; the per-turn cap stops one runaway reply.
+  monthlyCapUsd = 50;
+  perTurnCapUsd = 2;
+
   # Where this repo is cloned inside the VM.
   repoPath = "/home/flooweur/WoodPeckerOS";
 

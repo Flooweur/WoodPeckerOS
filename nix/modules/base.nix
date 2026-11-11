@@ -77,6 +77,7 @@ in
   programs.git.enable = true;
   environment.systemPackages = with pkgs; [
     btrfs-progs
+    e2fsprogs     # lsattr / chattr
     htop
     nano
     tree

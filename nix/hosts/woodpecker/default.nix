@@ -8,6 +8,7 @@
     ../../modules/snapshots.nix
     ../../modules/secrets.nix
     ../../modules/kiosk.nix
+    ../../modules/agent.nix
     ../../locked/executor.nix
   ];
 }
