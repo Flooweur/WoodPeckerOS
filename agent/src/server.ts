@@ -384,6 +384,23 @@ function ownDecision(): OwnDecision {
   return d;
 }
 
+/**
+ * When Woody's next moment of its own is, in words, for the operator. Every
+ * reason that holds one back is named here, not only those the decision itself
+ * knows: a pause, the pace, a goal that comes first.
+ */
+function ownNext(): string {
+  if (busy) return sessionOwn ? "it is having one now" : "it is busy with something else, and its own time comes after that";
+  const decision = ownDecision();
+  if (!decision.start) return decision.why;
+  const block = autonomyBlock();
+  if (block) return `it would take one now, but it may not act by itself: ${block.why}`;
+  const work = store.nextGoalWork();
+  if (work && !(asleep() && work.kind === "standing")) return `it would take one now, but a goal comes first: "${work.goal.title}"`;
+  if (store.queueDepth().autonomous > 0) return "it would take one now, but something else is waiting for it first";
+  return `within a minute or two (${decision.why})`;
+}
+
 /** What the HUD shows of Woody's day. */
 function lifeNow(): Record<string, unknown> {
   const r = rhythm();
@@ -1670,10 +1687,9 @@ function mindRequest(msg: Record<string, unknown>): unknown {
     case "life": {
       // Woody's own life, for the operator to see: its day, its share, its interests, what it did with its time.
       const r = rhythm();
-      const decision = ownDecision();
       return {
         ...lifeNow(),
-        next: busy && sessionOwn ? "it is having a moment of its own now" : decision.start ? `soon: ${decision.why}` : decision.why,
+        next: ownNext(),
         budget: budget.status().own,
         session_usd: OWN_SESSION_CAP_USD,
         today: store.eventsSince(dayStartOf(dayKey(new Date(), r), r), ["own_time"]).map((e) => ({ ts: e.ts, ...e.data })),
