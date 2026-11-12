@@ -88,7 +88,7 @@ export function PanelView({
     : panel.kind === "memory" ? "MEMORY"
     : panel.kind === "identity" ? "WHO WOODY IS"
     : panel.kind === "logs" ? "SYSTEM LOG"
-    : panel.kind === "web" ? "WEB ALLOW-LIST"
+    : panel.kind === "web" ? "BLOCKED SITES"
     : panel.kind === "terminal" ? "TERMINAL"
     : panel.kind === "needs" ? "NEEDS YOU"
     : panel.kind === "talk" ? "CONVERSATION"
@@ -200,8 +200,8 @@ function WebList({ tx, gateway }: { tx: Send; gateway: GatewayResult | null }) {
   return (
     <div className="stack">
       <p className="dim small">
-        Woody can fetch https pages only from these sites. An entry starting with *. covers every subdomain. Web search is separate and can return any site,
-        but opening a result still needs its site to be here.
+        Woody may read any public site except the ones listed here. Blocking a site blocks everything under it; an entry starting with *. blocks its subdomains
+        only. Only you change this list. Private addresses and this machine's host are never reachable, whatever the list says.
       </p>
       <form
         className="search"
@@ -211,16 +211,16 @@ function WebList({ tx, gateway }: { tx: Send; gateway: GatewayResult | null }) {
           setAdding("");
         }}
       >
-        <label className="small dim" htmlFor="web-add">Add a site (example.org, or *.example.org)</label>
+        <label className="small dim" htmlFor="web-add">Block a site (example.org, or *.example.org)</label>
         <input id="web-add" value={adding} onChange={(e) => setAdding(e.target.value)} />
-        <button disabled={!adding.trim()}>add</button>
+        <button disabled={!adding.trim()}>block</button>
       </form>
       {error && <p className="problem">{error}</p>}
-      {domains === null ? <p className="dim">Loading…</p> : domains.length === 0 ? <p className="dim">The list is empty: Woody cannot read any site.</p> : null}
+      {domains === null ? <p className="dim">Loading…</p> : domains.length === 0 ? <p className="dim">Nothing is blocked.</p> : null}
       {(domains ?? []).map((d) => (
         <div key={d} className="record inline">
           <span>{d}</span>
-          <button className="ghost mini" onClick={() => tx({ type: "web_remove", domain: d })}>remove</button>
+          <button className="ghost mini" onClick={() => tx({ type: "web_remove", domain: d })}>unblock</button>
         </div>
       ))}
     </div>

@@ -40,7 +40,7 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 | 6 | Change of goal: security material removed, documents rewritten | Done (2026-11-12); awaits the VM rebuild |
 | 7 | **The canvas**: the frame, things, the kit, making | Done (7a to 7d), tested in the VM |
 | 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | 8a (inner state) done, tested in the VM. 8b (a life of its own) and 8c (identity and face) built; they await the VM test |
-| 9 | **Learning and showing**: open reading, studies, explainers, web pictures | Planned |
+| 9 | **Learning and showing**: open reading, studies, explainers, web pictures | 9a (open reading) built; awaits the VM test. 9b (studies and explainers) is next, then 9c (web pictures) |
 | 10 | **Reshaping itself**: free change of its own program | Planned |
 | 11 | **Sound and voice** | Planned |
 | 12 | **Programs on the canvas** | Planned |
@@ -266,6 +266,35 @@ Decided with the operator before building: one identity change a day of at most 
 - **Not tested:** what a real model does with its identity and its lattice. Whether a quarter of the words is the right step can only be judged over days in the VM.
 - **Not in 8c:** the lattice's colour does not follow the inner state by itself. Woody is told its inner state and chooses colours in its own designs.
 
+## Phase 9a results (2026-11-12): open reading
+
+Decided with the operator before building, for the whole of Phase 9:
+
+| Question | Decision |
+|---|---|
+| What the block list holds | Your own list, empty at the start. No public malware list |
+| What a session may fetch once it has read the web | Only addresses that code found in the pages and search results it was given |
+| robots.txt | Not followed. Woody reads under its own name, slowly, with an hourly ceiling |
+| Who starts a study | You, and Woody itself from its interests with its own share |
+| Size of a study | $1.50 and five reading sessions by default, settable for each study |
+| Pictures | A separate model that cannot act describes a picture to Woody; Woody never sees it |
+| An explainer's sources | Listed by the frame from the record of pages actually fetched |
+
+Built in 9a (a change to the locked core, which you apply by rebuilding):
+
+- **The block list replaces the allow-list.** `web.fetch` reads any public site that is not on `/var/lib/woody-execd/web-block.json`. Blocking a name blocks everything under it. Only you edit the list: in the HUD ("Blocked sites") or with `woodyctl web-block`. Woody has no action that changes it. The old allow-list file is deleted at the next start of the executor.
+- **Redirects are followed** by the executor, three at most, and each hop passes the same checks as the first address: https, a named host, not blocked, a public address, the connection pinned to it.
+- **Pacing in the executor:** one second between two requests to the same host, and 120 requests an hour.
+- **A firewall rule for the fetch user:** whatever runs as `woody-web` reaches public addresses on port 443 and nothing else. It is the second barrier behind the executor's own address check.
+- **Links only after reading.** Once a session has read a page or a search result, `web_fetch` accepts only addresses that code extracted from what it was given. The reader is shown the page's links and may point Woody to up to six of them.
+- **Addresses are cleaned from lasting text.** In such a session, an address it was not given is removed from memories, interest notes, goal checkpoints and goal proposals.
+- **Tests:** 37 executor tests (block list, redirect targets, pacing), 76 agent tests (6 new), the firewall rules pass the system's build-time check, and the Nix builds succeed.
+- **Not tested:** a real fetch through the new firewall rule, and redirects against real sites. Both need the VM.
+- **Known limits:**
+  - The links-only rule is enforced by the agent, which is Woody's own program. Like the "uninvited" mark, it must move behind the executor before Phase 10 lets Woody change that program.
+  - A search query is still written by Woody, so a fooled session could put private data into a query. It goes to the search provider, not to the page's author.
+  - Cleaning removes addresses with `http://` or `https://` in front. A session could still note a bare host name in words.
+
 ## Architecture
 
 Today:
@@ -380,6 +409,8 @@ The whole of it:
   - nothing Woody said or showed reproaches you for absence.
 
 ### Phase 9: learning and showing
+
+Built in three steps: 9a open reading (built: see "Phase 9a results"), 9b studies and explainers, 9c web pictures.
 
 - **Open reading:** the executor's allow-list becomes a block list; any public site may be read through the quarantined reader. This is a change to the locked core, approved by the operator. With it, the fetch user gets its own firewall rule (it may reach public addresses on port 443 only).
 - **Studies:** a subject to learn becomes a dossier of notes with their sources, built over reading sessions.

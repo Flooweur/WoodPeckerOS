@@ -257,7 +257,7 @@ wss.on("connection", (ws) => {
       { ts: Date.now() - 60000, unit: "backup.service", priority: 3, message: "Main process exited, code=exited, status=1/FAILURE" },
       { ts: Date.now() - 30000, unit: "sshd.service", priority: 4, message: "Failed password for invalid user admin from 192.168.222.1 port 51234 ssh2" },
       { ts: Date.now() - 5000, unit: "kernel", priority: 4, message: "btrfs: free space is low on /" }] });
-    if (m.type === "web_list" || m.type === "web_add" || m.type === "web_remove") send({ type: "web_list", ok: true, domains: ["*.nixos.org", "docs.anthropic.com", "github.com", "nixos.org"] });
+    if (m.type === "web_list" || m.type === "web_add" || m.type === "web_remove") send({ type: "web_list", ok: true, domains: ["*.tracker.example", "blocked.example"] });
     if (m.type === "play") send({ type: "moment", name: m.name });
     if (m.type === "pause") { paused = Boolean(m.on); sendApprovals(); send(state()); }
     if (m.type === "interrupt") {

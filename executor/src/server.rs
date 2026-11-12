@@ -308,8 +308,8 @@ impl State {
             }
             Some("decide") => self.op_decide(req, uid),
             Some("status") => json!({ "status": "ok", "result": self.status() }),
-            // The web allow-list is the human's: they can read and edit it here directly.
-            Some("web_list") => match web::allowlist(&self.cfg) {
+            // The web block list is the human's: only they read and edit it, here.
+            Some("web_list") => match web::blocklist(&self.cfg) {
                 Ok(v) => json!({ "status": "ok", "result": v }),
                 Err(e) => json!({ "status": "error", "error": e }),
             },
@@ -318,10 +318,10 @@ impl State {
                 if !web::valid_entry(&domain) {
                     return json!({ "status": "error", "error": "not a valid host name (example.org, or *.example.org for its subdomains)" });
                 }
-                let done = if op == "web_add" { web::allow_add(&self.cfg, &domain) } else { web::allow_remove(&self.cfg, &domain) };
+                let done = if op == "web_add" { web::block_add(&self.cfg, &domain) } else { web::block_remove(&self.cfg, &domain) };
                 match done {
                     Ok(v) => {
-                        self.audit("web_allowlist_changed", json!({ "op": op, "domain": domain, "by_uid": uid }));
+                        self.audit("web_blocklist_changed", json!({ "op": op, "domain": domain, "by_uid": uid }));
                         json!({ "status": "ok", "result": v })
                     }
                     Err(e) => json!({ "status": "error", "error": e }),

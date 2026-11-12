@@ -32,7 +32,7 @@ export function interestLines(i: Interest, notes = 4): string[] {
 }
 
 /** `tainted` says whether the session in progress has read web content. */
-export function createLifeTools(store: Store, tainted: () => boolean) {
+export function createLifeTools(store: Store, tainted: () => boolean, scrub: (text: string) => string = (t) => t) {
   return [
     tool(
       "interest_add",
@@ -69,7 +69,7 @@ export function createLifeTools(store: Store, tainted: () => boolean) {
       async (args) =>
         guarded(() => {
           // A note taken after reading the web is kept, labelled as what strangers wrote.
-          store.noteInterest(args.id, args.note, tainted());
+          store.noteInterest(args.id, scrub(args.note), tainted());
           return ok(`Noted on interest #${args.id}.`);
         }),
     ),

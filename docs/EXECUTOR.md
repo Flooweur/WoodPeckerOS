@@ -22,9 +22,8 @@ The only root component Woody can talk to. Source in `executor/`, NixOS module i
 | `journal.query` | read | `unit`, `priority` (0–7), `since` (-15m, -2h, -1d), `grep` (plain phrase), `lines` |
 | `osquery.query` | read | `sql`: one SELECT over an allow-listed set of tables |
 | `screen.capture` | read | `scale` (0.25–1, default 0.5) |
-| `web.fetch` | read | `url` (https, port 443, a host on the allow-list) |
-| `web.allowlist` | read | none |
-| `web.allow_add` | approval | `domain`, `reason` |
+| `web.fetch` | read | `url` (https, port 443, any public host that is not on the block list) |
+| `web.blocklist` | read | none |
 | `service.start` / `service.stop` / `service.restart` | approval | `unit` (locked-core units are forbidden) |
 | `config.propose` | reversible | `summary`, `files` (`path`, `content`), `delete` |
 | `config.apply` | approval if the locked core is touched, otherwise reversible | `candidate` |
@@ -34,9 +33,18 @@ The only root component Woody can talk to. Source in `executor/`, NixOS module i
 
 **osquery.** The query must be a single SELECT. Which tables it can read is enforced by osquery itself (`--enable_tables`), set in `nix/locked/executor.nix`. Tables that expose secrets or reach the network (`shadow`, `process_envs`, `curl`, `file`, `shell_history`, `augeas` and others) are not in the list, so they do not exist for a query. Queries are stopped after 20 seconds and results capped at 500 rows.
 
-**Web.** `web.fetch` reads one page from an allow-listed host: it resolves the name itself, refuses non-public addresses and the permanent deny list (the Windows host and VMware's gateways, `permanentDeny` in `settings.nix`), pins the connection, does not follow redirects, and runs `curl` as the unprivileged user `woody-web`. The allow-list is `/var/lib/woody-execd/web-allow.json`, root-owned; edit it as root, or approve Woody's requests. See MIND.md for how the agent handles what comes back.
+**Web.** `web.fetch` reads one page from any public site that is not on the block list. For each address it:
 
-**Web list by hand.** `sudo woodyctl web-list`, `web-add <domain>` and `web-remove <domain>` read and edit the allow-list; the HUD's WEB LIST view does the same. Each change is audited.
+- accepts only `https://` on port 443 to a named host;
+- refuses a host on the block list (`/var/lib/woody-execd/web-block.json`, root-owned; a blocked name covers everything under it);
+- resolves the name itself and refuses non-public addresses and the permanent deny list (the Windows host and VMware's gateways, `permanentDeny` in `settings.nix`);
+- pins the connection to the address it checked;
+- waits one second between two requests to the same host, and refuses beyond 120 requests an hour;
+- runs `curl` as the unprivileged user `woody-web`, which a firewall rule confines to public addresses on port 443.
+
+A redirect is followed three times at most, and each target goes through the same list. Woody has no action that edits the block list. See MIND.md for how the agent handles what comes back.
+
+**Block list by hand.** `sudo woodyctl web-blocked`, `web-block <domain>` and `web-unblock <domain>` read and edit the block list; the HUD's "Blocked sites" record does the same. Each change is audited.
 
 **Screenshots.** While the operator's terminal is open in the HUD, `screen.capture` is refused. `screen.capture` runs `grim` as the kiosk user against that user's display and returns a JPEG. The audit log records its size and hash, not the picture.
 

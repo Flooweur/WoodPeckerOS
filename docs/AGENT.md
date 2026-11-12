@@ -17,7 +17,7 @@ The agent is a loop: it answers when you write, and it also wakes by itself on a
 - **Alarms:** `alarm_set`, `alarm_list`, `alarm_cancel`.
 - **Its own state:** `inner_state` returns how Woody is and the real events behind it. See "The inner state" in [MIND.md](MIND.md).
 - **Its interests:** `interest_add`, `interest_list`, `interest_note`, `interest_drop`: what Woody is curious about and where each interest came from. See "A life of its own" in [MIND.md](MIND.md).
-- **The web:** `web_search`, `web_fetch`, `web_allowlist`, `web_allow_request`. Woody only ever gets notes written by a separate reader that cannot act, and a session that used them can only observe and take notes afterwards.
+- **The web:** `web_search`, `web_fetch`, `web_blocklist`. Woody may read any public site you have not blocked. It only ever gets notes written by a separate reader that cannot act; a session that used them can only observe and take notes afterwards, and can fetch only addresses found in what it was given. See "Open reading" in [MIND.md](MIND.md).
 - **Reflection and identity:** `memory_merge`, `identity_change` (only during the daily reflection, one small step a day, no approval; you are shown the change and can restore any version).
 - **Its face:** `face_list`, `face_design`, `face_reset` to redraw the lattice's designs and invent expressions, and `express` to show one. See "Identity and face" in [MIND.md](MIND.md).
 - **Goals:** `goal_board`, `goal_get`, `goal_review`, `goal_checkpoint`, `goal_propose`. Woody cannot create a goal in your name, accept a plan or raise a budget.

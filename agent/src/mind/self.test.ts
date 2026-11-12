@@ -318,7 +318,7 @@ test("an older store gains the new columns and keeps its identity versions", () 
   first.setMeta("schema_version", "7");
   first.close();
   const again = new Store(file);
-  assert.equal(again.getMeta("schema_version"), "8");
+  assert.equal(again.getMeta("schema_version"), "9");
   const history = again.identityHistory();
   assert.deepEqual(history.map((v) => v.author), ["woody", "initial"]);
   assert.ok(history.every((v) => v.seen));

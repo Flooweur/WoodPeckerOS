@@ -163,7 +163,7 @@ Goals stay as Woody's working method for anything longer than a moment: review, 
 
 ## Learning and showing
 
-- **Reading.** Woody may read any public site. The protections of Phase 4e stay whole: a separate model with no tools reads the page and writes notes; the session that read cannot act; nothing from the web becomes a preference, a method or a rule. You keep a block list, and private addresses and the host are never reachable.
+- **Reading.** Woody may read any public site. The protections of Phase 4e stay whole: a separate model with no tools reads the page and writes notes; the session that read cannot act; nothing from the web becomes a preference, a method or a rule. You keep a block list, and private addresses and the host are never reachable. Once a session has read the web it may fetch only addresses found in what it was given, so that a page cannot make it send your data to a stranger inside an address.
 - **Studying.** "Learn about orbital mechanics" becomes a study: reading sessions that produce notes with their sources, kept in a dossier.
 - **Showing.** In a later session, from its notes, Woody builds something that explains what it understood: text, drawings, a model you can play with. Its sources are listed on the thing.
 - **Pictures from the web** are fetched by the executor into a local store, checked and re-encoded, and shown with their source. Things never load anything from the network themselves.

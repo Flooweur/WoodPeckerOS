@@ -57,11 +57,12 @@ let
       "users" "groups" "logged_in_users" "last" "systemd_units"
     ];
 
-    # Read-only web access. Woody can only fetch https pages from hosts in
-    # the allow-list file, which is root-owned and seeded from the list
-    # below on first start. Woody can ask to add a host; a human approves.
+    # Read-only web access (Phase 9): Woody may fetch https pages from any
+    # public site except those in the block-list file. The file is
+    # root-owned and only you edit it, from the HUD or with woodyctl. It
+    # does not exist until you block a first site.
     web = {
-      allow_path = "/var/lib/woody-execd/web-allow.json";
+      block_path = "/var/lib/woody-execd/web-block.json";
       user = "woody-web";
       curl = "${lib.getBin pkgs.curl}/bin/curl";
       setpriv = "${pkgs.util-linux}/bin/setpriv";
@@ -106,21 +107,10 @@ let
     };
   });
 
-  # The hosts Woody may read from, until the human edits the list.
-  defaultWebAllow = pkgs.writeText "web-allow.json" (builtins.toJSON {
-    domains = [
-      "nixos.org" "*.nixos.org"
-      "github.com" "api.github.com" "raw.githubusercontent.com"
-      "docs.anthropic.com" "www.anthropic.com" "docs.claude.com" "platform.claude.com" "code.claude.com"
-      "www.kernel.org" "lwn.net"
-    ];
-  });
-
   prepareAudit = pkgs.writeShellScript "woody-execd-prepare" ''
     set -eu
-    if [ ! -e /var/lib/woody-execd/web-allow.json ]; then
-      install -m 0644 ${defaultWebAllow} /var/lib/woody-execd/web-allow.json
-    fi
+    # Until Phase 9 there was an allow-list here. It is no longer read.
+    rm -f /var/lib/woody-execd/web-allow.json
     if [ ! -e ${auditPath} ]; then
       install -m 0640 /dev/null ${auditPath}
     fi
@@ -147,6 +137,31 @@ in
     isSystemUser = true;
     group = "woody-web";
     description = "Woody's read-only web fetches";
+  };
+
+  # The second barrier around web fetches. The executor already refuses any
+  # address that is not public before it starts curl. This rule holds even if
+  # that check were wrong: whatever runs as woody-web can reach public
+  # addresses on port 443 and nothing else. Not this machine, not a private
+  # network, not the Windows host, no other port, not even DNS (the executor
+  # resolves the name itself and hands curl the address).
+  networking.nftables.tables.woody_web = {
+    family = "inet";
+    content = ''
+      chain refuse {
+        limit rate 6/minute log prefix "woody-web-drop: "
+        counter drop
+      }
+      chain output {
+        type filter hook output priority filter; policy accept;
+        meta skuid != "woody-web" accept
+        oifname "lo" jump refuse
+        ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.168.0.0/16, 198.18.0.0/15, 224.0.0.0/4, 240.0.0.0/4 } jump refuse
+        ip6 daddr { ::/127, 64:ff9b::/96, fc00::/7, fe80::/10, ff00::/8 } jump refuse
+        tcp dport 443 accept
+        jump refuse
+      }
+    '';
   };
 
   # The HUD gateway's identity: the only non-root uid allowed to approve.

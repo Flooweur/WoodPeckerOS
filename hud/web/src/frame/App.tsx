@@ -927,7 +927,7 @@ export function App() {
                 <span className="code" /> SYSTEM LOG
               </button>
               <button onClick={() => openRecord({ kind: "web" })}>
-                <span className="code" /> WEB LIST
+                <span className="code" /> BLOCKED SITES
               </button>
               {door.terminal && (
                 <button onClick={() => openRecord({ kind: "terminal" })}>

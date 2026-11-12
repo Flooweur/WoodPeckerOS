@@ -34,7 +34,7 @@ Everything the three-column HUD showed is still there, one click or one key away
 | `F9` | Machine | Woody's state, next alarm, queue and allowance; how Woody is (energy, ease, curiosity, attention to you, unease) and why; the machine's meters (read by the gateway from `/proc` every two seconds), failed services, and which services answer |
 | `F10` | Activity | The latest events |
 | | System log | The system journal, filtered by unit and severity |
-| | Web list | The sites Woody may read; you can add and remove them |
+| | Blocked sites | The sites Woody never reads; only you add and remove them. Everything else that is public may be read |
 | | Terminal | A shell, on the VM's own screen only |
 
 `Esc` lets go of one thing at a time: the line being typed, the menu, the open record and, with nothing open, Woody's current work.

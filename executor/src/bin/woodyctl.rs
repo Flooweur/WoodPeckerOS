@@ -5,9 +5,9 @@
 //!   sudo woodyctl deny <id>                deny one
 //!   sudo woodyctl audit-tail [n]           last audit records
 //!   sudo woodyctl pause | resume | status  stop or allow everything that is not read-only
-//!   sudo woodyctl web-list                 the sites Woody may read
-//!   sudo woodyctl web-add <domain>         add one (example.org, or *.example.org)
-//!   sudo woodyctl web-remove <domain>      remove one
+//!   sudo woodyctl web-blocked              the sites Woody never reads
+//!   sudo woodyctl web-block <domain>       block one (example.org and all under it, or *.example.org)
+//!   sudo woodyctl web-unblock <domain>     take one off the list
 //!   sudo woodyctl audit-verify [file]      verify the audit hash chain
 //!
 //! Testing as the agent (must run as the agent's user):
@@ -50,7 +50,7 @@ fn print_and_exit(result: Result<Value, String>) -> ! {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: woodyctl pending | approve <id> | deny <id> | pause | resume | status | web-list | web-add <d> | web-remove <d> | audit-tail [n] | audit-verify [file]\n       woodyctl catalog | request <action> [json] | wait <id>   (as the agent user)"
+        "usage: woodyctl pending | approve <id> | deny <id> | pause | resume | status | web-blocked | web-block <d> | web-unblock <d> | audit-tail [n] | audit-verify [file]\n       woodyctl catalog | request <action> [json] | wait <id>   (as the agent user)"
     );
     std::process::exit(2);
 }
@@ -73,9 +73,9 @@ fn main() {
         ["pause"] => print_and_exit(call(&approve, json!({ "op": "pause", "on": true }))),
         ["resume"] => print_and_exit(call(&approve, json!({ "op": "pause", "on": false }))),
         ["status"] => print_and_exit(call(&approve, json!({ "op": "status" }))),
-        ["web-list"] => print_and_exit(call(&approve, json!({ "op": "web_list" }))),
-        ["web-add", domain] => print_and_exit(call(&approve, json!({ "op": "web_add", "domain": domain }))),
-        ["web-remove", domain] => print_and_exit(call(&approve, json!({ "op": "web_remove", "domain": domain }))),
+        ["web-blocked"] => print_and_exit(call(&approve, json!({ "op": "web_list" }))),
+        ["web-block", domain] => print_and_exit(call(&approve, json!({ "op": "web_add", "domain": domain }))),
+        ["web-unblock", domain] => print_and_exit(call(&approve, json!({ "op": "web_remove", "domain": domain }))),
         ["audit-verify"] | ["audit-verify", _] => {
             let path = args.get(1).copied().unwrap_or("/var/log/woody/audit.jsonl");
             match woody_exec::audit::verify(path) {

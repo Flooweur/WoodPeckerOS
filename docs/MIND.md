@@ -19,7 +19,7 @@ The safety rules do not change: tiers, human approval for system-level actions, 
 | Starting a goal | Woody reviews every goal. It starts alone only if the plan is read-only (observe, research, write in its workspace) and under a cost limit you set. Everything else waits for you to accept the plan |
 | Woody's own goals | It may propose goals; they wait in "Proposed" until you accept, edit or reject |
 | Standing goals | Continuous upgrade, Staying updated, Machine health |
-| Web access | Read-only fetch from an allow-list you control, plus read-only web search |
+| Web access | Read-only fetch plus read-only web search. Until Phase 9 from an allow-list you controlled; since then from any public site except those you block |
 | Memory access | You can read, edit, delete and pin; every memory records where it came from |
 | Identity | A short "who I am" document that Woody may propose changes to; you approve. Safety rules are separate and not editable by it |
 | Reaching you | HUD inbox, plus later a phone notification that carries no details |
@@ -407,7 +407,7 @@ Limits to know:
 
 - The reader is a model, and a model can be fooled into writing misleading notes. The design does not rely on the reader being right: it relies on notes not being able to *do* anything, and on nothing trusted being written from them without a mark or your approval.
 - Search results can come from any site; only fetching is restricted to the allow-list.
-- The fetch user is not yet confined by a firewall rule of its own; the allow-list is enforced by the executor. A per-user rule is a later hardening step.
+- When 4e was built the fetch user had no firewall rule of its own. Phase 9a added one.
 - A session that read the web cannot act even if you ask it to in the same message. Ask again in your next message; Woody then works from what it noted.
 
 ### Test status
@@ -419,6 +419,48 @@ Limits to know:
 | Poison: a page cannot create a preference or a method | Agent test at the tool level (34 in total) | To do with a real page |
 | Tainted session refuses to act | Rule in code; not exercised with a model | To do |
 | Search | Not exercised: it needs the API | To do |
+
+## Open reading (Phase 9a)
+
+Code: `executor/src/web.rs` (block list, redirects, pacing), the firewall rule in `nix/locked/executor.nix`, `agent/src/links.ts` (the addresses a session was given), the web tools in `agent/src/tools.ts`.
+
+What 4e built stays whole: the quarantined reader, the tainted session, web-origin memory. What changed:
+
+| Before | Since 9a |
+|---|---|
+| Only sites on an allow-list; Woody could ask to add one | Any public site except those on your block list; only you edit it |
+| Redirects returned to Woody, not followed | Followed by the executor, three hops at most, each hop checked like the first address |
+| No pacing | One second between requests to one host; 120 requests an hour |
+| The address check in the executor was the only barrier | A firewall rule also confines the fetch user to public addresses on port 443 |
+| Woody could fetch any allowed address at any time | Once a session has read the web, only addresses it was given |
+
+### Only the links it was given
+
+The new risk of open reading is not that a page makes Woody act: a session that read the web still cannot. It is that a page talks Woody into fetching a stranger's address with your data written into it.
+
+- Before a session has read anything, Woody may fetch any address. Nothing from the web has reached it yet.
+- When a page is fetched, code extracts its links. When a search runs, code extracts the addresses in the results. These are the addresses the session "was given".
+- From its first page or search result on, `web_fetch` refuses any other address. Woody can follow links and search again; it cannot compose an address.
+- The reader that sees the page knows nothing of Woody's memory, so an address taken from a page cannot carry your data.
+- The reader is shown the page's links and may name up to six worth following. If it writes an address that was not on the page, the fetch is refused.
+- In such a session, an address it was not given is removed from what it writes down for later: memories, interest notes, goal checkpoints and proposals. A later session therefore does not find a crafted address waiting in its notes.
+- Each page actually fetched is recorded as an event (`page_read`), whatever the model says it read.
+
+Limits to know:
+
+- The rule lives in the agent, which is Woody's own program. It must move behind the executor before Phase 10.
+- A search query is written by Woody. A fooled session could put private data into one; it reaches the search provider, not the page's author.
+- Cleaning recognises addresses that start with `http://` or `https://`. A host name written in words is not removed.
+- A site that needs JavaScript to show its text gives the reader little or nothing. Woody reads pages; it does not run them.
+
+### Test status
+
+| What | In containers | In the VM |
+|---|---|---|
+| Block list matching, redirect targets, pacing decisions | Executor tests (37 in total) | |
+| The firewall rules are well formed | The system's build-time ruleset check | To do: a fetch still works, and `woody-web` cannot reach the host |
+| Links found by code; only given addresses fetched; addresses cleaned from lasting text | 6 agent tests | To do with a real page |
+| A redirect chain on a real site; the hourly ceiling | Not exercised | To do |
 
 ## The inner state (Phase 8a)
 
@@ -563,7 +605,7 @@ Decided on 2026-11-12 and specified in [VISION.md](VISION.md). The last column s
 | Acting on its own, Woody is in observe-only mode and must propose a goal for any change | Woody changes the canvas and its own program freely, with undo; only the locked core needs approval | 7 (canvas), 10 (program) |
 | Woody proposes goals of its own and waits | A share of the budget is its own, for interests and projects it chooses | 8b: built, see "A life of its own" above |
 | No inner state beyond Working, Resting and so on | A few slow values with real causes (energy, ease, curiosity, attention, unease) that shape behaviour | 8a: built, see "The inner state" above |
-| Web reading only from an allow-list you approve | Any public site through the quarantined reader; you keep a block list | 9 |
+| Web reading only from an allow-list you approve | Any public site through the quarantined reader; you keep a block list | 9a: built, see "Open reading" above |
 | $50 a month | $100 a month, a quarter of it Woody's own | 8b: built |
 
 What does not change: the store as the mind, the event log, memory with origin and trust, the quarantined reader, the rule that a session which read the web cannot act, Pause and Stop, approvals for the locked core.

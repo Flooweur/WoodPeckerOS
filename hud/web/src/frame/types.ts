@@ -172,7 +172,7 @@ export type Meters = {
 };
 
 export type LogEntry = { ts: number; unit: string; priority: number; message: string };
-/** Answers from the gateway itself (not the agent): the journal and the web allow-list. */
+/** Answers from the gateway itself (not the agent): the journal and the list of blocked sites. */
 export type GatewayResult =
   | { seq: number; type: "logs"; ok: boolean; entries: LogEntry[]; error?: string }
   | { seq: number; type: "web_list"; ok: boolean; domains: string[] | null; error?: string | null };

@@ -159,11 +159,12 @@ in
   };
   # The build checks the rules in a place where no "kiosk" user exists. Give
   # the check a user list that has one (the number does not matter there).
+  # The same goes for "woody-web", named by the rule in executor.nix.
   networking.nftables.checkRulesetRedirects = {
     "/etc/hosts" = config.environment.etc.hosts.source;
     "/etc/protocols" = config.environment.etc.protocols.source;
     "/etc/services" = config.environment.etc.services.source;
-    "/etc/passwd" = pkgs.writeText "passwd-for-the-ruleset-check" "kiosk:x:1001:100::/var/empty:/bin/sh\n";
+    "/etc/passwd" = pkgs.writeText "passwd-for-the-ruleset-check" "kiosk:x:1001:100::/var/empty:/bin/sh\nwoody-web:x:990:990::/var/empty:/bin/sh\n";
   };
 
   # For `sudo -u woody-hud woody-hud set-password`.

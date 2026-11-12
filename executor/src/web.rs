@@ -1,13 +1,17 @@
-//! Read-only web access for Woody, through an allow-list the human controls.
+//! Read-only web access for Woody: any public site, except those on a block
+//! list the human controls (Phase 9; until then it was an allow-list).
 //!
-//! * Only `https://` URLs on port 443, to hosts on the allow-list.
+//! * Only `https://` URLs on port 443, to hosts that are not on the block list.
 //! * The host is resolved here, every address must be a public one (never
-//!   loopback, private, link-local, the lab or the permanent deny list), and
-//!   the connection is pinned to the address that was checked.
-//! * Redirects are not followed: the target is returned, and must pass the
-//!   same checks if Woody asks for it.
-//! * The request is made by `curl` running as a user with no privileges.
-//! * Adding a host to the allow-list is an approval-tier action.
+//!   loopback, private, link-local or the permanent deny list), and the
+//!   connection is pinned to the address that was checked.
+//! * A redirect is followed here, a few hops at most, and every hop passes
+//!   the same checks as the first address.
+//! * Requests are paced: a pause between two requests to one host, and a
+//!   ceiling per hour.
+//! * The request is made by `curl` running as a user with no privileges,
+//!   which the firewall confines to public addresses on port 443.
+//! * Only the human edits the block list.
 //!
 //! What comes back is untrusted. The agent never shows the page to the
 //! working model directly (see agent/src/web.ts).
@@ -17,14 +21,63 @@ use crate::net;
 use ipnet::IpNet;
 use nix::unistd::User;
 use serde_json::{json, Value};
+use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
 use std::os::unix::fs::MetadataExt;
 use std::process::Command;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 const MAX_URL: usize = 2000;
 const MAX_BODY_BYTES: usize = 3_000_000;
 const MAX_RETURN_CHARS: usize = 600_000;
 const MAX_DOMAINS: usize = 300;
+/// A page may send the reader on to another address this many times.
+const MAX_REDIRECTS: usize = 3;
+/// Woody reads like one person's browser, not like a crawler.
+const HOST_GAP: Duration = Duration::from_millis(1000);
+const MAX_PER_HOUR: usize = 120;
+const HOUR: Duration = Duration::from_secs(3600);
+
+/// When each host was last asked, and the requests of the last hour.
+struct Pace {
+    last: HashMap<String, Instant>,
+    recent: VecDeque<Instant>,
+}
+
+static PACE: Mutex<Option<Pace>> = Mutex::new(None);
+
+/// What a request must do before it goes out: wait this long, or not go at all.
+pub fn pace_decision(last_to_host: Option<Duration>, in_last_hour: usize) -> Result<Duration, String> {
+    if in_last_hour >= MAX_PER_HOUR {
+        return Err(format!("the ceiling of {MAX_PER_HOUR} page requests an hour is reached; read on later"));
+    }
+    Ok(match last_to_host {
+        Some(ago) if ago < HOST_GAP => HOST_GAP - ago,
+        _ => Duration::ZERO,
+    })
+}
+
+/// Counts this request against the hourly ceiling and waits out the pause owed to its host.
+fn pace(host: &str) -> Result<(), String> {
+    let wait = {
+        let mut guard = PACE.lock().map_err(|_| "the pacing record is damaged".to_string())?;
+        let p = guard.get_or_insert_with(|| Pace { last: HashMap::new(), recent: VecDeque::new() });
+        let now = Instant::now();
+        while p.recent.front().is_some_and(|t| now.duration_since(*t) >= HOUR) {
+            p.recent.pop_front();
+        }
+        p.last.retain(|_, t| now.duration_since(*t) < HOUR);
+        let wait = pace_decision(p.last.get(host).map(|t| now.duration_since(*t)), p.recent.len())?;
+        p.recent.push_back(now);
+        p.last.insert(host.to_string(), now + wait);
+        wait
+    };
+    if !wait.is_zero() {
+        std::thread::sleep(wait);
+    }
+    Ok(())
+}
 
 fn settings(cfg: &Config) -> Result<&Web, String> {
     cfg.web.as_ref().ok_or_else(|| "web access is not configured on this system".to_string())
@@ -73,16 +126,50 @@ pub fn parse_url(url: &str) -> Result<(String, String), String> {
     Ok((host.clone(), format!("https://{host}{tail}")))
 }
 
-/// An allow-list entry: `example.org`, or `*.example.org` for any subdomain.
+/// A block-list entry: `example.org` (the site and everything under it), or
+/// `*.example.org` for its subdomains only.
 pub fn valid_entry(entry: &str) -> bool {
     valid_host(entry.strip_prefix("*.").unwrap_or(entry))
 }
 
-pub fn host_allowed(host: &str, list: &[String]) -> bool {
+/// Blocking a name blocks what is under it too: that is what blocking a site means.
+pub fn host_blocked(host: &str, list: &[String]) -> bool {
+    let under = |base: &str| host.len() > base.len() + 1 && host.ends_with(base) && host.as_bytes()[host.len() - base.len() - 1] == b'.';
     list.iter().any(|e| match e.strip_prefix("*.") {
-        Some(base) => host.len() > base.len() + 1 && host.ends_with(base) && host.as_bytes()[host.len() - base.len() - 1] == b'.',
-        None => host == e,
+        Some(base) => under(base),
+        None => host == e || under(e),
     })
+}
+
+/// Where a redirect points, as a full URL. `location` may be absolute,
+/// start at the host's root, or be relative to the page that sent it.
+pub fn resolve_location(base: &str, location: &str) -> Result<String, String> {
+    let location = location.trim();
+    if location.is_empty() {
+        return Err("the redirect names no address".into());
+    }
+    if location.starts_with("https://") {
+        return Ok(location.to_string());
+    }
+    if let Some(rest) = location.strip_prefix("//") {
+        return Ok(format!("https://{rest}"));
+    }
+    if location.contains("://") {
+        return Err("the redirect leaves https".into());
+    }
+    let (host, _) = parse_url(base)?;
+    if location.starts_with('/') {
+        return Ok(format!("https://{host}{location}"));
+    }
+    if location.starts_with('?') {
+        let page = base.split(['?', '#']).next().unwrap_or(base);
+        return Ok(format!("{page}{location}"));
+    }
+    // Relative to the directory of the page that redirected.
+    let page = base.split(['?', '#']).next().unwrap_or(base);
+    let dir = &page[..page.rfind('/').map(|i| i + 1).unwrap_or(page.len())];
+    let dir = if dir.len() <= "https://".len() { format!("{page}/") } else { dir.to_string() };
+    Ok(format!("{dir}{location}"))
 }
 
 fn in_any(ip: IpAddr, nets: &[&str]) -> bool {
@@ -109,51 +196,52 @@ pub fn is_public(ip: IpAddr) -> bool {
     )
 }
 
-/// The allow-list file is only honoured if it is root's and nobody else can write it.
-pub fn load_allowlist(path: &str) -> Result<Vec<String>, String> {
+/// The block-list file is only honoured if it is root's and nobody else can write it.
+/// No file means nothing is blocked.
+pub fn load_blocklist(path: &str) -> Result<Vec<String>, String> {
     let meta = match std::fs::metadata(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
-        Err(e) => return Err(format!("web allow-list: {e}")),
+        Err(e) => return Err(format!("web block list: {e}")),
         Ok(m) => m,
     };
     #[cfg(not(test))]
     if meta.uid() != 0 || meta.mode() & 0o022 != 0 {
-        return Err("the web allow-list must be owned by root and not group/world writable".into());
+        return Err("the web block list must be owned by root and not group/world writable".into());
     }
     let _ = &meta;
-    let text = std::fs::read_to_string(path).map_err(|e| format!("web allow-list: {e}"))?;
-    let v: Value = serde_json::from_str(&text).map_err(|e| format!("web allow-list: {e}"))?;
+    let text = std::fs::read_to_string(path).map_err(|e| format!("web block list: {e}"))?;
+    let v: Value = serde_json::from_str(&text).map_err(|e| format!("web block list: {e}"))?;
     Ok(v.get("domains")
         .and_then(Value::as_array)
         .map(|a| a.iter().filter_map(Value::as_str).map(str::to_ascii_lowercase).filter(|d| valid_entry(d)).collect())
         .unwrap_or_default())
 }
 
-/// Adds one entry to the allow-list (after the human approved it).
+/// Adds one entry to the block list (the human's decision, from the HUD or woodyctl).
 pub fn add_domain(path: &str, entry: &str) -> Result<Vec<String>, String> {
     let entry = entry.to_ascii_lowercase();
     if !valid_entry(&entry) {
         return Err("not a valid host name".into());
     }
-    let mut list = load_allowlist(path)?;
+    let mut list = load_blocklist(path)?;
     if !list.contains(&entry) {
         if list.len() >= MAX_DOMAINS {
-            return Err("the allow-list is full".into());
+            return Err("the block list is full".into());
         }
         list.push(entry);
         list.sort();
         let tmp = format!("{path}.tmp");
         let text = serde_json::to_string_pretty(&json!({ "domains": list })).map_err(|e| e.to_string())?;
-        std::fs::write(&tmp, text + "\n").map_err(|e| format!("write allow-list: {e}"))?;
-        std::fs::rename(&tmp, path).map_err(|e| format!("write allow-list: {e}"))?;
+        std::fs::write(&tmp, text + "\n").map_err(|e| format!("write block list: {e}"))?;
+        std::fs::rename(&tmp, path).map_err(|e| format!("write block list: {e}"))?;
     }
     Ok(list)
 }
 
-/// Removes one entry from the allow-list (the human's decision, from the HUD or woodyctl).
+/// Removes one entry from the block list (the human's decision, from the HUD or woodyctl).
 pub fn remove_domain(path: &str, entry: &str) -> Result<Vec<String>, String> {
     let entry = entry.to_ascii_lowercase();
-    let mut list = load_allowlist(path)?;
+    let mut list = load_blocklist(path)?;
     let before = list.len();
     list.retain(|d| d != &entry);
     if list.len() == before {
@@ -161,8 +249,8 @@ pub fn remove_domain(path: &str, entry: &str) -> Result<Vec<String>, String> {
     }
     let tmp = format!("{path}.tmp");
     let text = serde_json::to_string_pretty(&json!({ "domains": list })).map_err(|e| e.to_string())?;
-    std::fs::write(&tmp, text + "\n").map_err(|e| format!("write allow-list: {e}"))?;
-    std::fs::rename(&tmp, path).map_err(|e| format!("write allow-list: {e}"))?;
+    std::fs::write(&tmp, text + "\n").map_err(|e| format!("write block list: {e}"))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("write block list: {e}"))?;
     Ok(list)
 }
 
@@ -212,32 +300,28 @@ fn is_text(content_type: &str) -> bool {
         || matches!(t, "application/json" | "application/xml" | "application/xhtml+xml" | "application/rss+xml" | "application/atom+xml" | "application/feed+json")
 }
 
-pub fn allowlist(cfg: &Config) -> Result<Value, String> {
+pub fn blocklist(cfg: &Config) -> Result<Value, String> {
     let w = settings(cfg)?;
-    Ok(json!({ "domains": load_allowlist(&w.allow_path)? }))
+    Ok(json!({ "domains": load_blocklist(&w.block_path)? }))
 }
 
 /// Checks a fetch request without making it (used to classify and to run).
 pub fn check_url(cfg: &Config, url: &str) -> Result<(String, String), String> {
     let w = settings(cfg)?;
     let (host, url) = parse_url(url)?;
-    let list = load_allowlist(&w.allow_path)?;
-    if !host_allowed(&host, &list) {
-        return Err(format!(
-            "{host} is not on the web allow-list. Ask the operator with web_allow_request if this site is worth adding."
-        ));
+    let list = load_blocklist(&w.block_path)?;
+    if host_blocked(&host, &list) {
+        return Err(format!("{host} is on the operator's block list; it is not read"));
     }
     Ok((host, url))
 }
 
-pub fn fetch(cfg: &Config, url: &str) -> Result<Value, String> {
-    let w = settings(cfg)?;
-    let (host, url) = check_url(cfg, url)?;
-
+/// One request to one address that has passed every check. Nothing is followed here.
+fn request(cfg: &Config, w: &Web, host: &str, url: &str) -> Result<Response, String> {
     // Resolve here, refuse anything that is not a public address, and pin the
     // connection to the address that was checked.
     let deny = net::parse_deny(&cfg.permanent_deny)?;
-    let addrs = net::system_resolve(&host).map_err(|e| format!("could not resolve {host}: {e}"))?;
+    let addrs = net::system_resolve(host).map_err(|e| format!("could not resolve {host}: {e}"))?;
     if addrs.is_empty() {
         return Err(format!("could not resolve {host}"));
     }
@@ -249,6 +333,7 @@ pub fn fetch(cfg: &Config, url: &str) -> Result<Value, String> {
         IpAddr::V4(v4) => format!("{host}:443:{v4}"),
         IpAddr::V6(v6) => format!("{host}:443:[{v6}]"),
     };
+    pace(host)?;
 
     let user = User::from_name(&w.user)
         .map_err(|e| format!("lookup user {}: {e}", w.user))?
@@ -258,9 +343,9 @@ pub fn fetch(cfg: &Config, url: &str) -> Result<Value, String> {
         .args([
             w.curl.as_str(), "-q", "--silent", "--show-error", "--proto", "=https", "--tlsv1.2", "--noproxy", "*",
             "--max-redirs", "0", "--max-time", "20", "--max-filesize", &MAX_BODY_BYTES.to_string(),
-            "--resolve", &pin, "--user-agent", "WoodPecker-OS/0.1 (read-only fetch)",
+            "--resolve", &pin, "--user-agent", "WoodPecker-OS/0.2 (a personal assistant reading for one person)",
             "--header", "Accept: text/html,application/xhtml+xml,application/json,application/xml;q=0.9,text/plain;q=0.8",
-            "--dump-header", "-", "--output", "-", "--", &url,
+            "--dump-header", "-", "--output", "-", "--", url,
         ])
         .env_clear()
         .env("LC_ALL", "C")
@@ -278,15 +363,31 @@ pub fn fetch(cfg: &Config, url: &str) -> Result<Value, String> {
             return Err(format!("the request failed (curl {}): {err}", code.unwrap_or(-1)));
         }
     }
-    let r = split_response(&out.stdout)?;
-    if (300..400).contains(&r.status) {
-        // A relative target is on the same host; spell it out so it can be fetched.
-        let target = r.location.map(|l| if l.starts_with('/') && !l.starts_with("//") { format!("https://{host}{l}") } else { l });
-        return Ok(json!({
-            "url": url, "status": r.status, "redirect": target, "untrusted": true,
-            "note": "Redirects are not followed. Fetch the target yourself if it is on the allow-list.",
-        }));
-    }
+    split_response(&out.stdout)
+}
+
+pub fn fetch(cfg: &Config, url: &str) -> Result<Value, String> {
+    let w = settings(cfg)?;
+    let (mut host, mut url) = check_url(cfg, url)?;
+    // The addresses passed through on the way, in order.
+    let mut redirects: Vec<String> = Vec::new();
+    let r = loop {
+        let r = request(cfg, w, &host, &url)?;
+        if !(300..400).contains(&r.status) {
+            break r;
+        }
+        if redirects.len() >= MAX_REDIRECTS {
+            return Err(format!("{url} redirects again after {MAX_REDIRECTS} redirects; given up"));
+        }
+        let location = r.location.ok_or_else(|| format!("{url} redirects without saying where"))?;
+        // The target passes the same checks as an address Woody asked for:
+        // https, a named host, not on the block list, and (in `request`) a public address.
+        let target = resolve_location(&url, &location).and_then(|t| check_url(cfg, &t));
+        let (next_host, next_url) = target.map_err(|e| format!("{url} redirects to an address that is refused: {e}"))?;
+        redirects.push(url);
+        host = next_host;
+        url = next_url;
+    };
     if !r.body.is_empty() && !is_text(&r.content_type) {
         return Err(format!("not a text page (content type: {})", if r.content_type.is_empty() { "unknown" } else { &r.content_type }));
     }
@@ -294,19 +395,19 @@ pub fn fetch(cfg: &Config, url: &str) -> Result<Value, String> {
     let truncated = text.chars().count() > MAX_RETURN_CHARS;
     let body: String = text.chars().take(MAX_RETURN_CHARS).collect();
     Ok(json!({
-        "url": url, "status": r.status, "content_type": r.content_type,
+        "url": url, "status": r.status, "content_type": r.content_type, "redirected_from": redirects,
         "bytes": r.body.len(), "truncated": truncated, "untrusted": true, "body": body,
     }))
 }
 
-pub fn allow_remove(cfg: &Config, entry: &str) -> Result<Value, String> {
+pub fn block_remove(cfg: &Config, entry: &str) -> Result<Value, String> {
     let w = settings(cfg)?;
-    Ok(json!({ "removed": entry.to_ascii_lowercase(), "domains": remove_domain(&w.allow_path, entry)? }))
+    Ok(json!({ "removed": entry.to_ascii_lowercase(), "domains": remove_domain(&w.block_path, entry)? }))
 }
 
-pub fn allow_add(cfg: &Config, entry: &str) -> Result<Value, String> {
+pub fn block_add(cfg: &Config, entry: &str) -> Result<Value, String> {
     let w = settings(cfg)?;
-    Ok(json!({ "added": entry.to_ascii_lowercase(), "domains": add_domain(&w.allow_path, entry)? }))
+    Ok(json!({ "added": entry.to_ascii_lowercase(), "domains": add_domain(&w.block_path, entry)? }))
 }
 
 #[cfg(test)]
@@ -336,24 +437,54 @@ mod tests {
     }
 
     #[test]
-    fn allow_list_matches_exactly_or_by_subdomain() {
-        let list = vec!["nixos.org".to_string(), "*.github.com".to_string()];
-        assert!(host_allowed("nixos.org", &list));
-        assert!(!host_allowed("search.nixos.org", &list)); // not a wildcard entry
-        assert!(!host_allowed("evilnixos.org", &list));
-        assert!(!host_allowed("nixos.org.evil.example", &list));
-        assert!(host_allowed("api.github.com", &list));
-        assert!(host_allowed("a.b.github.com", &list));
-        assert!(!host_allowed("github.com", &list)); // the wildcard does not cover the apex
-        assert!(!host_allowed("evilgithub.com", &list));
-        assert!(!host_allowed("github.com.evil.example", &list));
-        assert!(!host_allowed("nixos.org", &[]));
+    fn a_blocked_name_covers_what_is_under_it() {
+        let list = vec!["example.org".to_string(), "*.tracker.net".to_string()];
+        assert!(host_blocked("example.org", &list));
+        assert!(host_blocked("www.example.org", &list)); // blocking a site blocks its subdomains
+        assert!(host_blocked("a.b.example.org", &list));
+        assert!(!host_blocked("evilexample.org", &list));
+        assert!(!host_blocked("example.org.elsewhere.net", &list));
+        assert!(host_blocked("ads.tracker.net", &list));
+        assert!(!host_blocked("tracker.net", &list)); // the wildcard form leaves the apex readable
+        assert!(!host_blocked("nixos.org", &list));
+        assert!(!host_blocked("nixos.org", &[])); // an empty list blocks nothing
         for ok in ["example.org", "*.example.org", "a-b.example.co.uk"] {
             assert!(valid_entry(ok), "{ok}");
         }
         for bad in ["", "*", "*.", "org", "*.org.", "10.0.0.1", "*.*.example.org", "exa mple.org", "example.org/path", "https://example.org", "EXAMPLE.org"] {
             assert!(!valid_entry(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_redirect_is_resolved_to_a_full_address() {
+        let base = "https://example.org/docs/page.html?x=1";
+        assert_eq!(resolve_location(base, "https://other.net/a").unwrap(), "https://other.net/a");
+        assert_eq!(resolve_location(base, "//other.net/a").unwrap(), "https://other.net/a");
+        assert_eq!(resolve_location(base, "/top").unwrap(), "https://example.org/top");
+        assert_eq!(resolve_location(base, "next.html").unwrap(), "https://example.org/docs/next.html");
+        assert_eq!(resolve_location(base, "?page=2").unwrap(), "https://example.org/docs/page.html?page=2");
+        assert_eq!(resolve_location("https://example.org", "next").unwrap(), "https://example.org/next");
+        // Leaving https is refused here; everything else is judged by parse_url afterwards.
+        for bad in ["http://example.org/", "ftp://example.org/x", "file:///etc/shadow", "", "  "] {
+            assert!(resolve_location(base, bad).is_err(), "{bad}");
+        }
+        // What a redirect may point to is checked like any other address.
+        for refused in ["//127.0.0.1/", "//192.168.222.1/admin", "https://localhost/", "//user@evil.example/", "https://example.org:8443/"] {
+            assert!(parse_url(&resolve_location(base, refused).unwrap()).is_err(), "{refused}");
+        }
+    }
+
+    #[test]
+    fn requests_are_paced() {
+        // Nothing asked of this host lately: go at once.
+        assert_eq!(pace_decision(None, 0), Ok(Duration::ZERO));
+        assert_eq!(pace_decision(Some(Duration::from_secs(5)), 10), Ok(Duration::ZERO));
+        // Asked 300 ms ago: wait out the rest of the second.
+        assert_eq!(pace_decision(Some(Duration::from_millis(300)), 10), Ok(Duration::from_millis(700)));
+        // The hour's ceiling: not at all.
+        assert!(pace_decision(None, MAX_PER_HOUR).unwrap_err().contains("ceiling"));
+        assert!(pace_decision(None, MAX_PER_HOUR - 1).is_ok());
     }
 
     #[test]
@@ -385,11 +516,11 @@ mod tests {
     }
 
     #[test]
-    fn the_allow_list_file_round_trips() {
+    fn the_block_list_file_round_trips() {
         let path = std::env::temp_dir().join(format!("woody-web-{}.json", std::process::id()));
         let path = path.display().to_string();
         let _ = std::fs::remove_file(&path);
-        assert_eq!(load_allowlist(&path).unwrap(), Vec::<String>::new()); // no file: nothing is allowed
+        assert_eq!(load_blocklist(&path).unwrap(), Vec::<String>::new()); // no file: nothing is blocked
         assert!(add_domain(&path, "not a host").is_err());
         assert_eq!(add_domain(&path, "NixOS.org").unwrap(), vec!["nixos.org"]);
         assert_eq!(add_domain(&path, "*.github.com").unwrap(), vec!["*.github.com", "nixos.org"]);
@@ -397,7 +528,7 @@ mod tests {
         assert_eq!(remove_domain(&path, "NixOS.org").unwrap(), vec!["*.github.com"]);
         assert!(remove_domain(&path, "nixos.org").is_err()); // already gone
         std::fs::write(&path, r#"{"domains": ["ok.example.org", "10.0.0.1", 7, "bad host"]}"#).unwrap();
-        assert_eq!(load_allowlist(&path).unwrap(), vec!["ok.example.org"]); // invalid entries are ignored
+        assert_eq!(load_blocklist(&path).unwrap(), vec!["ok.example.org"]); // invalid entries are ignored
         let _ = std::fs::remove_file(&path);
     }
 }
