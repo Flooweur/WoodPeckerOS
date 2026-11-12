@@ -454,7 +454,7 @@ The loop handles your messages first, then events, then goals. When none of thes
 | It is night | "it is night: it sleeps" |
 | Its share of today's allowance is used | "its own share of the allowance is used for now" |
 | Its energy is low (below 0.34) | "it is tired and resting" |
-| You wrote in the last ten minutes | "you are talking with it" |
+| You wrote in the last ten minutes | "you are talking with it: you wrote 3 minutes ago, …" |
 | It has had six moments today | the most in a day |
 | The last moment was less than two hours ago | with the minutes left |
 

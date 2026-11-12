@@ -111,7 +111,11 @@ export function ownTime(f: OwnFacts): OwnDecision {
   if (f.phase === "night") return no("it is night: it sleeps");
   if (f.ownUsd < OWN.minUsd) return no("its own share of the allowance is used for now");
   if (f.energy < 0.34) return no("it is tired and resting");
-  if (f.lastOperatorMessage && f.now - f.lastOperatorMessage < OWN.talkingMinutes * 60_000) return no("you are talking with it");
+  if (f.lastOperatorMessage && f.now - f.lastOperatorMessage < OWN.talkingMinutes * 60_000) {
+    // The time is part of the reason, so that it is plain when this stops holding.
+    const ago = Math.floor((f.now - f.lastOperatorMessage) / 60_000);
+    return no(`you are talking with it: you wrote ${ago < 1 ? "less than a minute" : ago === 1 ? "a minute" : `${ago} minutes`} ago, and it stays with you for ${OWN.talkingMinutes} minutes after your last message`);
+  }
   if (f.ownToday >= OWN.maxPerDay) return no(`it has had ${OWN.maxPerDay} moments of its own today, which is the most in a day`);
   let gap = OWN.gapMinutes;
   const reasons: string[] = [];

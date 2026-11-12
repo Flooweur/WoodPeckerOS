@@ -3,7 +3,7 @@
 // with the time that was its own. The operator's handles are here too: turn
 // its own time off, set the hours of its day, set how much it may add to the
 // canvas unasked, suggest an interest or remove one.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CanvasState } from "../canvas/types";
 import type { JournalEntry, Life, MindResult, Send } from "./types";
 import { clock, day, money } from "./types";
@@ -16,16 +16,28 @@ export function LifeRecord({ tx, incoming, version, canvas }: { tx: Send; incomi
   const [topic, setTopic] = useState("");
   const [hours, setHours] = useState({ day: "", night: "" });
   const [dropped, setDropped] = useState(false);
+  /** The hours as the agent last reported them, so that a refresh does not overwrite hours being typed. */
+  const reported = useRef("");
   const mind = (op: string, extra: Record<string, unknown> = {}) => tx({ type: "mind", op, ...extra });
 
   // Asked again whenever the agent says something changed.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => mind("life"), [version]);
+  // The reason for the next moment depends on the clock: while the record is open, it is asked again every minute.
+  useEffect(() => {
+    const timer = window.setInterval(() => mind("life"), 60_000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     if (!incoming?.ok) return;
     if (incoming.op === "life") {
       setLife(incoming.result);
-      setHours({ day: incoming.result.day_start, night: incoming.result.night_start });
+      const key = `${incoming.result.day_start} ${incoming.result.night_start}`;
+      if (key !== reported.current) {
+        reported.current = key;
+        setHours({ day: incoming.result.day_start, night: incoming.result.night_start });
+      }
     } else if (LIFE_OPS.includes(incoming.op)) {
       if (incoming.op === "interest_suggest") setTopic("");
       mind("life");
