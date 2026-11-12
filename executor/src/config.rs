@@ -45,7 +45,43 @@ pub struct Config {
     /// are refused when unset.
     #[serde(default)]
     pub selfmod: Option<SelfMod>,
+    /// The workbench, where Woody runs programs. work.run is refused when unset.
+    #[serde(default)]
+    pub work: Option<Work>,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Work {
+    /// The unprivileged user scripts run as. It owns nothing but the workbench.
+    pub user: String,
+    /// The workbench's disk: the only part of /var a run can see.
+    pub root: String,
+    /// The folder a run starts in, shared with Woody and with the operator (in/, out/).
+    pub dir: String,
+    /// HOME for a run: caches and settings of the programs it uses. Inside `root`.
+    pub home: String,
+    /// Where the executor writes the script of a run. Root-owned, inside `root`.
+    pub run_dir: String,
+    pub systemd_run: String,
+    pub bash: String,
+    pub nix: String,
+    pub timeout: String,
+    pub head: String,
+    pub ca_bundle: String,
+    /// Directories of the programs every run has (coreutils, grep, sed, tar and the like).
+    pub path: Vec<String>,
+    /// Paths a run must not even see, besides everything under /var and /home.
+    #[serde(default)]
+    pub hidden: Vec<String>,
+    /// The most memory a run may use, as systemd writes it ("2G").
+    #[serde(default = "default_work_memory")]
+    pub memory_max: String,
+}
+
+fn default_work_memory() -> String {
+    "2G".into()
+}
+
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Web {

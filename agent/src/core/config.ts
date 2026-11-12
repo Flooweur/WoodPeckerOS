@@ -8,6 +8,8 @@ export type Config = {
   stateDir: string;
   workspace: string;
   execSocket: string;
+  /** The workbench's folder, where Woody's programs run and files are exchanged with the operator. Absent on a machine without a workbench. */
+  benchDir?: string;
   /** The monthly spending cap: it covers everything, the operator's conversations included. */
   monthlyCapUsd: number;
   /** The most one session may cost. */
@@ -41,6 +43,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
     stateDir,
     workspace: path.join(stateDir, "workspace"),
     execSocket: env.WOODY_EXEC_SOCKET ?? "/run/woody/exec.sock",
+    benchDir: env.WOODY_BENCH_DIR || undefined,
     monthlyCapUsd: Number(env.WOODY_MONTHLY_CAP_USD ?? "100"),
     perTurnCapUsd: Number(env.WOODY_TURN_CAP_USD ?? "2"),
     ownShare: Number(env.WOODY_OWN_SHARE ?? "0.25"),

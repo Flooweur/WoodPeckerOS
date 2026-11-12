@@ -87,6 +87,32 @@ let
       block_file = "/run/woody-hud/terminal-open";
     };
 
+    # The workbench: where Woody runs programs, as a user of its own that sees
+    # only the workbench's disk (./workbench.nix, docs/WORKBENCH.md).
+    work = {
+      user = "woody-work";
+      root = "/var/lib/woody-work";
+      dir = "/var/lib/woody-work/files";
+      home = "/var/lib/woody-work/home";
+      run_dir = "/var/lib/woody-work/run";
+      systemd_run = "${config.systemd.package}/bin/systemd-run";
+      bash = "${pkgs.bash}/bin/bash";
+      nix = "${config.nix.package}/bin/nix";
+      timeout = "${pkgs.coreutils}/bin/timeout";
+      head = "${pkgs.coreutils}/bin/head";
+      ca_bundle = "/etc/ssl/certs/ca-certificates.crt";
+      # The programs every run has without asking. Anything else is named in
+      # the request and taken from the package set this system was built from.
+      path = map (p: "${lib.getBin p}/bin") (with pkgs; [
+        bash coreutils findutils gnugrep gnused gawk diffutils file which less
+        gnutar gzip bzip2 xz zstd unzip zip
+        curl git jq python3
+      ]);
+      # Besides everything under /var and /home, which a run never sees.
+      hidden = [ "/run/woody" "/run/woody-agent" "/run/woody-hud" "/run/woody-term" "/run/woody-embed" "/run/wrappers" "/run/user" ];
+      memory_max = "2G";
+    };
+
     # Self-modification (see docs/SELFMOD.md). Woody may propose changes to
     # this repository. A change to any path below, or one that alters the
     # privilege fingerprint (./fingerprint.nix), waits for human approval.

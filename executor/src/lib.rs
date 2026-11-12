@@ -12,3 +12,4 @@ pub mod selfmod;
 pub mod server;
 pub mod util;
 pub mod web;
+pub mod work;

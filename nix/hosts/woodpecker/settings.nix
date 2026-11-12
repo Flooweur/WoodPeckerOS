@@ -50,6 +50,15 @@
     "192.168.130.254"
   ];
 
+  # The workbench, where Woody runs programs (nix/locked/workbench.nix).
+  # Its disk has a fixed size, in gigabytes; a run can fill it and nothing else.
+  # The size is used when the disk is first made: to change it later, delete
+  # /var/lib/woody-bench/bench.img (and what is in it) and rebuild.
+  workbenchSizeGb = 10;
+  # The DNS servers a run that was given the network may ask. This is the
+  # network's resolver (see /etc/resolv.conf): change it when the machine moves.
+  workbenchDns = [ "192.168.130.2" ];
+
   # Claude API spend limits enforced by the agent (USD). The monthly cap covers
   # chat and background work together; the per-turn cap stops one runaway reply.
   monthlyCapUsd = 100;

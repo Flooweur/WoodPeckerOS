@@ -124,6 +124,9 @@ export function fakeExec(): FakeExec {
     paused: false,
     action: async (action, params) => {
       exec.asked.push({ action, params });
+      if (!exec.replies[action] && action === "work.run") {
+        return { status: "ok", result: { exit_code: 0, output: params.network ? "fetched https://example.org/data.csv" : "done", output_cut: false, timed_out: false, seconds: 0.2, prepare_seconds: 0, network: params.network === true } };
+      }
       return exec.replies[action]?.(params) ?? { status: "ok", result: {} };
     },
     wait: async () => ({ status: "denied", reason: "no approvals in a test" }),
@@ -155,6 +158,7 @@ export function harness(overrides: Partial<Config> = {}, keepDuties = false): Ha
     stateDir,
     workspace: path.join(stateDir, "workspace"),
     execSocket: path.join(stateDir, "none.sock"),
+    benchDir: path.join(stateDir, "bench"),
     monthlyCapUsd: 100,
     perTurnCapUsd: 2,
     ownShare: 0.25,
@@ -165,6 +169,8 @@ export function harness(overrides: Partial<Config> = {}, keepDuties = false): Ha
     ownModel: "own-model",
     ...overrides,
   };
+  // The workbench's folder, as the system prepares it.
+  for (const d of ["in", "out"]) fs.mkdirSync(path.join(stateDir, "bench", d), { recursive: true });
   const model = scriptedModel();
   const restore = useQuery(model.query);
   const exec = fakeExec();

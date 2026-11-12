@@ -21,7 +21,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { createCanvasTools } from "../canvas.js";
+import { setExtraContext } from "../mind/context.js";
 import { createGoalTools } from "../mind/goal-tools.js";
+import { innerLines } from "../mind/inner.js";
 import { createLifeTools } from "../mind/life-tools.js";
 import { createMethodTools } from "../mind/method-tools.js";
 import { createSelfTools } from "../mind/self-tools.js";
@@ -111,7 +113,7 @@ export function createAgent(deps: AgentDeps): Agent {
   };
   /** The HUD gateway's connection for the canvas. The gateway keeps the canvas and its rules. */
   const canvasLink = new CanvasLink();
-  const files = new Files(cfg.workspace);
+  const files = new Files(cfg.workspace, cfg.benchDir);
   const clients = new Set<Client>();
   const apiBlock = { until: 0, failures: 0, reason: "" };
 
@@ -334,6 +336,24 @@ export function createAgent(deps: AgentDeps): Agent {
 
   Object.assign(core, { send, broadcast, moment, note, stateMessage, historyMessage, historyItem, setMind, hasCredential, noteApiFailure, recordBackgroundCost, recordAsideCost, aside, failedUnits, recall, embedPending });
 
+  /** The files the operator put in the workbench for Woody, for the context of a session. */
+  function benchLines(): string[] {
+    if (!files.bench) return [];
+    try {
+      const waiting = files.list(path.join(files.bench, "in")).entries.filter((e) => e.type === "file" || e.type === "dir");
+      if (!waiting.length) return [];
+      const size = (n?: number) => (n === undefined ? "" : n >= 1_048_576 ? ` (${(n / 1_048_576).toFixed(1)} MB)` : ` (${Math.max(1, Math.round(n / 1024))} KB)`);
+      return [
+        "",
+        `Files in your workbench's "in" folder (${path.join(files.bench, "in")}), put there by the operator for you:`,
+        ...waiting.slice(0, 20).map((e) => `- ${e.name}${e.type === "dir" ? "/" : size(e.size)}`),
+        ...(waiting.length > 20 ? [`- and ${waiting.length - 20} more`] : []),
+      ];
+    } catch {
+      return [];
+    }
+  }
+
   // ---- what Woody's tools are handed ---------------------------------------------
   //
   // The tools never get the store, the executor or the canvas as they are. They
@@ -357,6 +377,13 @@ export function createAgent(deps: AgentDeps): Agent {
     },
     made: (id) => {
       if (core.session) core.session.made = core.session.made ?? id;
+    },
+    readWeb: (source, links) => {
+      const s = core.session;
+      if (!s) return;
+      if (!s.taint) store.event("session_tainted", { source });
+      s.taint = s.taint ?? source;
+      s.links.add(links);
     },
     scrub: (text) => core.session?.scrub(text) ?? text,
     starter: () => {
@@ -478,6 +505,8 @@ export function createAgent(deps: AgentDeps): Agent {
   // ---- the rest of the loop, by subject ----------------------------------------
 
   Object.assign(core, createLife(core));
+  // What every session's context adds to the time and the memories: how Woody is, and what waits in its workbench.
+  setExtraContext(() => [...innerLines(core.currentInner()), ...benchLines()]);
   Object.assign(core, createQueue(core));
   Object.assign(core, createSessions(core));
   Object.assign(core, createDaily(core));

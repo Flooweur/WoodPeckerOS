@@ -7,7 +7,8 @@
 // policy.ts; the gates ask it.
 import type { Link } from "./canvas-link.js";
 import type { ExecReply, ExecutorClient } from "./executor.js";
-import { CANVAS_KIND, EXEC_KIND, refusal } from "./policy.js";
+import { textLinks } from "./links.js";
+import { CANVAS_KIND, execKind, refusal } from "./policy.js";
 
 export { TAINTED } from "./policy.js";
 
@@ -23,6 +24,8 @@ export type Session = {
   explains(): { id: number; subject: string; sources: Array<{ url: string; title: string }> } | null;
   /** A thing the session put on the canvas. */
   made(thingId: string): void;
+  /** The session has just received content from the web, and the addresses found in it. */
+  readWeb(source: string, links: string[]): void;
 };
 
 /** The executor as Woody's tools may use it. */
@@ -38,19 +41,33 @@ const denied = (reason: string): ExecReply => ({ status: "denied", reason });
  * needs the operator's approval; these two rules are the agent's own:
  *  * what a session that has read the web may ask for (policy.ts);
  *  * acting on its own, Woody may apply a configuration change only if that
- *    change goes to the operator for approval.
+ *    change goes to the operator for approval;
+ *  * a workbench run that was given the network counts as reading the web:
+ *    what it printed may come from anywhere, so from then on the session is
+ *    one that has read the web, and has no network in the workbench.
  */
 export function gatedExec(exec: Pick<ExecutorClient, "action" | "wait">, session: Session): Exec {
   return Object.freeze({
     async action(action: string, params: Record<string, unknown>, timeoutMs?: number): Promise<ExecReply> {
-      // An action this table does not know counts as a change to the system; the executor refuses it anyway.
-      if (refusal(EXEC_KIND[action] ?? "system", { tainted: session.tainted() })) return denied("this session has read web content: it may only observe and take notes");
+      const kind = execKind(action, params);
+      if (refusal(kind, { tainted: session.tainted() })) {
+        return denied(
+          kind === "work-net"
+            ? "this session has read web content, so the workbench has no network for the rest of it. Run it without the network, or do it in a later session"
+            : "this session has read web content: it may only observe and take notes",
+        );
+      }
       if (session.mode() === "observe" && action === "config.apply") {
         const status = await exec.action("config.status", { candidate: params.candidate });
         const asks = status.status === "ok" && Boolean((status.result as { requires_approval?: boolean } | undefined)?.requires_approval);
         if (!asks) return denied("acting on your own, you may not apply this change: it would take effect without the operator. Propose a goal, or ask them");
       }
-      return exec.action(action, params, timeoutMs);
+      const reply = await exec.action(action, params, timeoutMs);
+      if (kind === "work-net" && reply.status === "ok") {
+        const output = String((reply.result as { output?: unknown } | undefined)?.output ?? "");
+        session.readWeb("a workbench run with the network", textLinks(output));
+      }
+      return reply;
     },
     wait: (approvalId: string, timeoutMs?: number) => exec.wait(approvalId, timeoutMs),
   });

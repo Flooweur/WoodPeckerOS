@@ -3,8 +3,12 @@
 // The agent runs as an unprivileged user under a read-only view of the
 // system, so the kernel already limits it to world-readable files. These
 // helpers narrow that further: reads only under a few roots, writes only
-// inside the agent's own workspace, and never through a symlink that leads
-// out of it.
+// inside the agent's own workspace and the workbench's folder, and never
+// through a symlink that leads out of them.
+//
+// The workspace holds Woody's notes; programs in the workbench cannot see it.
+// The workbench's folder is shared with those programs and with the operator:
+// what is there may have been written by any of them.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -22,14 +26,34 @@ function inside(child: string, root: string): boolean {
 
 export class Files {
   private readonly workspace: string;
+  private readonly benchDir: string | null;
 
-  constructor(workspaceDir: string) {
+  constructor(workspaceDir: string, benchDir?: string) {
     fs.mkdirSync(workspaceDir, { recursive: true });
     this.workspace = fs.realpathSync(workspaceDir);
+    let bench: string | null = null;
+    try {
+      if (benchDir) bench = fs.realpathSync(benchDir);
+    } catch {
+      // The workbench's disk is not there: only the workspace is writable.
+    }
+    this.benchDir = bench;
   }
 
   get root(): string {
     return this.workspace;
+  }
+
+  /** The workbench's folder, or null when this machine has none. */
+  get bench(): string | null {
+    return this.benchDir;
+  }
+
+  /** The area a path may be written in, or null. */
+  private writableRoot(target: string): string | null {
+    if (inside(target, this.workspace) && target !== this.workspace) return this.workspace;
+    if (this.benchDir && inside(target, this.benchDir) && target !== this.benchDir) return this.benchDir;
+    return null;
   }
 
   /** Relative paths are relative to the workspace. */
@@ -47,10 +71,10 @@ export class Files {
     } catch {
       throw new FileError(`no such file or directory: ${wanted}`);
     }
-    const roots = [this.workspace, ...READ_ROOTS];
+    const roots = [this.workspace, ...(this.benchDir ? [this.benchDir] : []), ...READ_ROOTS];
     if (!roots.some((root) => inside(real, root))) {
       throw new FileError(
-        `outside the readable areas (the workspace, ${READ_ROOTS.join(", ")}): ${wanted}`,
+        `outside the readable areas (the workspace, ${this.benchDir ? "the workbench, " : ""}${READ_ROOTS.join(", ")}): ${wanted}`,
       );
     }
     return real;
@@ -150,28 +174,32 @@ export class Files {
 
   write(input: string, content: string | Buffer): { path: string; bytes: number } {
     const target = this.absolute(input);
-    if (!inside(target, this.workspace) || target === this.workspace) {
-      throw new FileError(`writes are only allowed inside the workspace (${this.workspace})`);
+    const area = this.writableRoot(target);
+    if (!area) {
+      throw new FileError(`writes are only allowed inside the workspace (${this.workspace})${this.benchDir ? ` and the workbench (${this.benchDir})` : ""}`);
     }
+    const shared = area === this.benchDir;
     const bytes = typeof content === "string" ? Buffer.byteLength(content, "utf8") : content.length;
     if (bytes > (typeof content === "string" ? MAX_WRITE : MAX_WRITE_BINARY)) throw new FileError(`content too large (${bytes} bytes, limit ${MAX_WRITE})`);
 
     // Walk up to the deepest directory that already exists and make sure its
-    // real location is still inside the workspace, so a symlink planted in
-    // the workspace cannot redirect the write elsewhere.
+    // real location is still inside the same area, so a symlink planted there
+    // (a program in the workbench can plant one) cannot redirect the write.
     let existing = path.dirname(target);
     while (!fs.existsSync(existing)) existing = path.dirname(existing);
-    if (!inside(fs.realpathSync(existing), this.workspace)) {
-      throw new FileError("path leaves the workspace through a symlink");
+    if (!inside(fs.realpathSync(existing), area)) {
+      throw new FileError("path leaves its area through a symlink");
     }
-    fs.mkdirSync(path.dirname(target), { recursive: true });
+    // In the workbench, what Woody writes can be changed by the programs it runs there.
+    fs.mkdirSync(path.dirname(target), { recursive: true, mode: shared ? 0o770 : 0o777 });
     try {
       if (fs.lstatSync(target).isSymbolicLink()) throw new FileError("refusing to write through a symlink");
     } catch (err) {
       if (err instanceof FileError) throw err;
       // does not exist yet: fine
     }
-    fs.writeFileSync(target, content, { mode: 0o640 });
+    fs.writeFileSync(target, content, { mode: shared ? 0o660 : 0o640 });
+    if (shared) fs.chmodSync(target, 0o660);
     return { path: target, bytes };
   }
 }

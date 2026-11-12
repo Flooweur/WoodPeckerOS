@@ -524,7 +524,7 @@ test("goals: three sessions without a checkpoint stop a goal", () => {
 
 test("standing goals: seeded, run when due, bounded by a weekly budget, and never closed", () => {
   const store = new Store(tempDb());
-  let t = Date.UTC(2026, 10, 12, 8);
+  let t = Date.now(); // the store was just made with the real clock: the test goes on from there
   store.now = () => t;
   const standing = store.goals().filter((g) => g.standing);
   assert.equal(standing.length, 3);

@@ -5,6 +5,7 @@
 use crate::config::Config;
 use crate::selfmod;
 use crate::web;
+use crate::work;
 use nix::unistd::{Uid, User};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -99,6 +100,12 @@ pub const ACTIONS: &[ActionDef] = &[
         tier: Tier::Read,
         description: "The sites the operator has blocked: Woody never reads them.",
         params: "{}",
+    },
+    ActionDef {
+        name: "work.run",
+        tier: Tier::Reversible,
+        description: "Run a script in the workbench: as an unprivileged user that sees only the workbench's own folder, with limits on time and memory, and with no network unless asked (then public addresses only). Programs that are not installed are named and taken from the system's package set. What it prints is untrusted.",
+        params: "{script: string, packages?: [name], python?: [name], network?: bool, timeout_s?: 1..600}",
     },
     ActionDef {
         name: "service.start",
@@ -303,6 +310,12 @@ pub fn classify(action: &str, params: &Value, cfg: &Config) -> Result<Tier, Stri
                 return Err("pictures are not configured on this system".into());
             }
         }
+        "work.run" => {
+            if cfg.work.is_none() {
+                return Err("the workbench is not configured on this system".into());
+            }
+            work::parse(map)?;
+        }
         "web.blocklist" => {
             only_keys(map, &[])?;
             if cfg.web.is_none() {
@@ -410,7 +423,11 @@ fn candidate_param(map: &Map<String, Value>) -> Result<&str, String> {
 
 /// Parameters as they are written to the audit log.
 pub fn audit_params(action: &str, params: &Value) -> Value {
-    if action == "config.propose" { selfmod::audit_params(params) } else { params.clone() }
+    match action {
+        "config.propose" => selfmod::audit_params(params),
+        "work.run" => work::audit_params(params),
+        _ => params.clone(),
+    }
 }
 
 /// Extra context shown to the human who is asked to approve.
@@ -663,6 +680,7 @@ pub fn run(action: &str, params: &Value, cfg: &Config) -> Result<Value, String> 
         "web.fetch" => web::fetch(cfg, map.get("url").and_then(Value::as_str).ok_or("missing parameter: url")?),
         "web.picture" => web::picture(cfg, map.get("url").and_then(Value::as_str).ok_or("missing parameter: url")?),
         "web.blocklist" => web::blocklist(cfg),
+        "work.run" => work::run(cfg, map),
         "screen.capture" => screen_capture(cfg, scale_param(map)?),
         "service.start" | "service.stop" | "service.restart" => {
             let unit = unit_param(map)?;

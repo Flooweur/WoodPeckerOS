@@ -30,7 +30,11 @@ export type Kind =
   /** Text offered to the operator's clipboard, which leaves the machine with them. */
   | "clipboard"
   /** A change to the system: services, the configuration. */
-  | "system";
+  | "system"
+  /** A program run in the workbench without network: it can change the workbench's files and nothing else. */
+  | "work"
+  /** A program run in the workbench with the network: what it brings back is web content, and it could send data out. */
+  | "work-net";
 
 /**
  * What a session that has read the web may still do.
@@ -51,7 +55,13 @@ const AFTER_WEB: Record<Kind, boolean> = {
   "memory-edit": false,
   clipboard: false,
   system: false,
+  // The workbench without network stays inside the machine. With the network it would be a way out.
+  work: true,
+  "work-net": false,
 };
+
+/** Kinds that count as reading the web: once done, the session is one that has read the web. */
+export const READS_WEB: ReadonlySet<Kind> = new Set<Kind>(["read-web", "work-net"]);
 
 export const TAINTED =
   "Refused: this session has read web content, so for the rest of it you may only observe and take notes. Write down what you learned and what you think should be done. Acting on it happens in a later session, from those notes.";
@@ -71,6 +81,8 @@ export const TOOL_KIND: Record<string, Kind> = {
   config_propose: "system", config_apply: "system", config_status: "look",
   fs_list: "look", fs_read: "look", fs_write: "note",
   hud_notify: "notify", clipboard_offer: "clipboard",
+  // the workbench (with the network, the gate treats the run as "work-net")
+  run: "work",
   // the web
   web_search: "read-web", web_fetch: "read-web", web_picture: "read-web", web_blocklist: "look",
   // the canvas
@@ -97,6 +109,13 @@ export const EXEC_KIND: Record<string, Kind> = {
   "web.fetch": "read-web", "web.picture": "read-web",
   "service.start": "system", "service.stop": "system", "service.restart": "system", "config.propose": "system", "config.apply": "system",
 };
+
+/** The kind of one request to the executor. A workbench run is another kind when it asks for the network. */
+export function execKind(action: string, params: Record<string, unknown>): Kind {
+  if (action === "work.run") return params.network === true ? "work-net" : "work";
+  // An action this table does not know counts as a change to the system; the executor refuses it anyway.
+  return EXEC_KIND[action] ?? "system";
+}
 
 /** The requests Woody's canvas tools can make to the canvas. One that is not listed cannot be made at all. */
 export const CANVAS_KIND: Record<string, Kind> = {

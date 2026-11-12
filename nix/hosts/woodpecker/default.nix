@@ -11,6 +11,7 @@
     ../../modules/embed.nix
     ../../modules/woody.nix
     ../../locked/executor.nix
+    ../../locked/workbench.nix
     ../../locked/hud.nix
   ];
 }
