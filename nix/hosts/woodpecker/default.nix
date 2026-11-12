@@ -12,5 +12,6 @@
     ../../modules/woody.nix
     ../../locked/executor.nix
     ../../locked/hud.nix
+    ../../locked/scope-net.nix
   ];
 }

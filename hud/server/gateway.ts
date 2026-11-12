@@ -587,6 +587,29 @@ wss.on("connection", (browser: WebSocket, host: boolean) => {
       return;
     }
 
+    if (type === "engagement_set" || type === "engagement_end") {
+      // The human's own decision about what may be tested. The executor
+      // validates it (lab networks only, a stated authorization, a time limit).
+      try {
+        const reply = await approvalCall(
+          type === "engagement_end"
+            ? { op: "engagement_end" }
+            : {
+                op: "engagement_set",
+                name: String(msg.name ?? ""),
+                authorization: String(msg.authorization ?? ""),
+                hours: Number(msg.hours) || 0,
+                allow: Array.isArray(msg.allow) ? msg.allow.filter((a): a is string => typeof a === "string").slice(0, 64) : [],
+              },
+        );
+        send(browser, { type: "engagement", ok: reply.status === "ok", error: reply.error ?? null });
+      } catch (err) {
+        send(browser, { type: "engagement", ok: false, error: err instanceof Error ? err.message : String(err) });
+      }
+      void pushScope(true);
+      return;
+    }
+
     if (type === "get_audit") {
       try {
         const n = Math.min(Number(msg.n ?? 50) || 50, 500);

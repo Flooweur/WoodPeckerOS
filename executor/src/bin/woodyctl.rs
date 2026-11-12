@@ -51,7 +51,7 @@ fn print_and_exit(result: Result<Value, String>) -> ! {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: woodyctl pending | approve <id> | deny <id> | pause | resume | status | web-list | web-add <d> | web-remove <d> | audit-tail [n] | scope | audit-verify [file]\n       woodyctl catalog | request <action> [json] | wait <id>   (as the agent user)"
+        "usage: woodyctl pending | approve <id> | deny <id> | pause | resume | status | web-list | web-add <d> | web-remove <d> | audit-tail [n] | scope | audit-verify [file]\n       woodyctl engagement-set <name> <hours> \"<who authorized this, and why>\" <target>... | engagement-end\n       woodyctl catalog | request <action> [json] | wait <id>   (as the agent user)"
     );
     std::process::exit(2);
 }
@@ -72,6 +72,14 @@ fn main() {
             print_and_exit(call(&approve, json!({ "op": "audit_tail", "n": n })))
         }
         ["scope"] => print_and_exit(call(&approve, json!({ "op": "scope" }))),
+        ["engagement-end"] => print_and_exit(call(&approve, json!({ "op": "engagement_end" }))),
+        ["engagement-set", name, hours, authorization, targets @ ..] if !targets.is_empty() => {
+            let hours: u64 = hours.parse().unwrap_or_else(|_| usage());
+            print_and_exit(call(&approve, json!({
+                "op": "engagement_set", "name": name, "hours": hours,
+                "authorization": authorization, "allow": targets,
+            })))
+        }
         ["pause"] => print_and_exit(call(&approve, json!({ "op": "pause", "on": true }))),
         ["resume"] => print_and_exit(call(&approve, json!({ "op": "pause", "on": false }))),
         ["status"] => print_and_exit(call(&approve, json!({ "op": "status" }))),

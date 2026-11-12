@@ -38,6 +38,8 @@ The only root component Woody can talk to. Source in `executor/`, NixOS module i
 
 **Web.** `web.fetch` reads one page from an allow-listed host: it resolves the name itself, refuses non-public addresses, pins the connection, does not follow redirects, and runs `curl` as the unprivileged user `woody-web`. The allow-list is `/var/lib/woody-execd/web-allow.json`, root-owned; edit it as root, or approve Woody's requests. See MIND.md for how the agent handles what comes back.
 
+**Engagements.** `sudo woodyctl engagement-set <name> <hours> "<authorization>" <target>...` and `engagement-end` set and end the scope; the HUD's SCOPE view does the same. Only the approval socket accepts them. The executor loads the engagement's addresses into the nftables sets that confine the `woody-tools` user, every 15 seconds and on each change. See `docs/SECURITY.md`.
+
 **Web list by hand.** `sudo woodyctl web-list`, `web-add <domain>` and `web-remove <domain>` read and edit the allow-list; the HUD's WEB LIST view does the same. Each change is audited.
 
 **Screenshots.** While the operator's terminal is open in the HUD, `screen.capture` is refused. `screen.capture` runs `grim` as the kiosk user against that user's display and returns a JPEG. The audit log records its size and hash, not the picture.

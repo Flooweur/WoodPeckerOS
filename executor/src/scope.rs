@@ -121,6 +121,28 @@ pub fn parse_deny(list: &[String]) -> Result<Vec<IpNet>, String> {
         .collect()
 }
 
+/// The outer limit on what an engagement may allow (the lab networks). With a
+/// limit set, every allow entry must be an address or network inside it;
+/// hostnames are refused, because a name can point anywhere. An empty limit
+/// means no outer limit.
+pub fn within_limit(allow: &[String], limit: &[IpNet]) -> Result<(), String> {
+    if limit.is_empty() {
+        return Ok(());
+    }
+    for entry in allow {
+        let entry = entry.trim();
+        let net = entry
+            .parse::<IpNet>()
+            .map(|n| n.trunc())
+            .or_else(|_| entry.parse::<IpAddr>().map(|ip| host_net(canon(ip))))
+            .map_err(|_| format!("{entry}: only addresses and networks inside the lab are accepted"))?;
+        if !limit.iter().any(|l| l.contains(&net)) {
+            return Err(format!("{entry}: outside the lab networks this system is limited to"));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, PartialEq)]
 enum Target {
     Ip(IpAddr),
@@ -232,6 +254,22 @@ impl Scope {
             }
         }
         Ok(scope)
+    }
+
+    /// The networks the kernel filter may let the tools user reach right now:
+    /// the allowed networks of an active, unexpired engagement, else nothing.
+    /// Allowed hostnames are not included; a tool reaches a named target only
+    /// if its address is also inside an allowed network.
+    pub fn kernel_nets(&self, now_ms: u64) -> Vec<IpNet> {
+        if self.name.is_empty() || !self.active || now_ms >= self.expires_ms {
+            return vec![];
+        }
+        let special = nets(SPECIAL);
+        self.nets
+            .iter()
+            .filter(|n| !special.iter().any(|s| s.contains(*n)))
+            .cloned()
+            .collect()
     }
 
     fn special(&self, ip: IpAddr) -> bool {
@@ -597,6 +635,32 @@ mod tests {
 
         assert_eq!(scope().check("192.168.222.130", 2_000, &no_dns).reason, "engagement-expired");
         assert_eq!(scope().check("192.168.222.130", 5_000, &no_dns).reason, "engagement-expired");
+    }
+
+    #[test]
+    fn lab_limit_bounds_what_an_engagement_may_allow() {
+        let limit = parse_deny(&["192.168.222.0/24".into()]).unwrap();
+        assert!(within_limit(&["192.168.222.0/24".into(), "192.168.222.131".into(), "192.168.222.128/25".into()], &limit).is_ok());
+        for bad in ["192.168.0.0/16", "192.168.223.5", "8.8.8.8", "shop.example.org", "*.lab.example.org", "fd00:1::/64", "nonsense/99"] {
+            assert!(within_limit(&[bad.into()], &limit).is_err(), "{bad}");
+        }
+        // No limit configured: anything the scope engine accepts may be listed.
+        assert!(within_limit(&["shop.example.org".into()], &[]).is_ok());
+    }
+
+    #[test]
+    fn kernel_set_follows_the_engagement_state() {
+        let nets: Vec<String> = scope().kernel_nets(NOW).iter().map(|n| n.to_string()).collect();
+        assert_eq!(nets, vec!["192.168.222.0/24", "10.9.8.7/32", "fd00:1::/64"]);
+        assert!(scope().kernel_nets(2_000).is_empty(), "expired");
+        let mut e = engagement();
+        e.active = false;
+        assert!(Scope::build(Some(&e), &[]).unwrap().kernel_nets(NOW).is_empty(), "inactive");
+        assert!(Scope::build(None, &[]).unwrap().kernel_nets(NOW).is_empty(), "none");
+        let mut e = engagement();
+        e.allow = vec!["127.0.0.0/8".into(), "192.168.222.9".into()];
+        let nets: Vec<String> = Scope::build(Some(&e), &[]).unwrap().kernel_nets(NOW).iter().map(|n| n.to_string()).collect();
+        assert_eq!(nets, vec!["192.168.222.9/32"], "special ranges never reach the kernel set");
     }
 
     #[test]

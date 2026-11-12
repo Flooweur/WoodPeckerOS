@@ -52,6 +52,11 @@ struct Approval {
 pub struct State {
     cfg: Config,
     deny: Vec<IpNet>,
+    /// The lab networks an engagement must stay inside.
+    limit: Vec<IpNet>,
+    /// What was last loaded into the kernel filter ("" before the first sync),
+    /// and the last error, if any.
+    kernel: Mutex<(String, Option<String>)>,
     audit: Mutex<AuditLog>,
     approvals: Mutex<HashMap<String, Approval>>,
     changed: Condvar,
@@ -127,6 +132,128 @@ impl State {
             }
         };
         Scope::build(engagement.as_ref(), &self.deny)
+    }
+
+    /// Loads the networks of the engagement in force into the kernel filter
+    /// that confines the security-tools user. Nothing in force (none, ended,
+    /// expired, invalid file) empties the set, so the tools user can reach
+    /// nothing. Runs on every engagement change and on a timer, which also
+    /// covers expiry, hand edits and a firewall reload.
+    fn sync_kernel(&self) {
+        let Some(set) = &self.cfg.scope_set else { return };
+        let nets = match self.load_scope() {
+            Ok(scope) => scope.kernel_nets(now_ms()),
+            Err(_) => vec![],
+        };
+        let script = nft_script(set, &nets);
+        let outcome = run_nft(&set.nft, &script);
+        let listed: Vec<String> = nets.iter().map(|n| n.to_string()).collect();
+        let key = if listed.is_empty() { "-".to_string() } else { listed.join(",") };
+        let error = outcome.err();
+        let changed = {
+            let mut last = self.kernel.lock().unwrap();
+            let changed = last.0 != key || last.1 != error;
+            *last = (key, error.clone());
+            changed
+        };
+        // The set is reloaded on every tick; the audit records only changes.
+        if changed {
+            if let Some(e) = &error {
+                eprintln!("woody-execd: kernel scope filter: {e}");
+            }
+            self.audit("scope_set_synced", json!({ "networks": listed, "ok": error.is_none(), "error": error }));
+        }
+    }
+
+    fn write_engagement(&self, e: &Engagement) -> Result<(), String> {
+        let path = &self.cfg.engagement_path;
+        let tmp = format!("{path}.new");
+        let text = serde_json::to_string_pretty(e).map_err(|e| e.to_string())?;
+        std::fs::write(&tmp, text + "\n").map_err(|e| format!("write engagement: {e}"))?;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644)).map_err(|e| format!("write engagement: {e}"))?;
+        std::fs::rename(&tmp, path).map_err(|e| format!("write engagement: {e}"))
+    }
+
+    fn read_engagement(&self) -> Option<Engagement> {
+        let text = std::fs::read_to_string(&self.cfg.engagement_path).ok()?;
+        serde_json::from_str(&text).ok()
+    }
+
+    /// The human sets the engagement: what may be tested, on what authority,
+    /// and for how long. Only the approval socket reaches this.
+    fn op_engagement_set(&self, req: &Value, uid: u32) -> Value {
+        let err = |e: String| json!({ "status": "error", "error": e });
+        let text = |k: &str| req.get(k).and_then(Value::as_str).unwrap_or("").trim().to_string();
+        let (name, authorization) = (text("name"), text("authorization"));
+        if name.is_empty() || name.len() > 64 {
+            return err("an engagement needs a name (64 characters at most)".into());
+        }
+        if authorization.len() < 10 || authorization.len() > 500 {
+            return err("say who authorized this testing and on what basis (10 to 500 characters)".into());
+        }
+        let allow: Vec<String> = req
+            .get("allow")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+            .unwrap_or_default();
+        if allow.is_empty() || allow.len() > 64 {
+            return err("list 1 to 64 targets (addresses or networks)".into());
+        }
+        let hours = req.get("hours").and_then(Value::as_u64).unwrap_or(0);
+        if hours == 0 || hours > self.cfg.max_engagement_hours {
+            return err(format!("the duration must be 1 to {} hours", self.cfg.max_engagement_hours));
+        }
+        if let Err(e) = scope::within_limit(&allow, &self.limit) {
+            return err(e);
+        }
+        let engagement = Engagement { name, authorization, expires_ms: now_ms() + hours * 3_600_000, active: true, allow };
+        if let Err(e) = Scope::build(Some(&engagement), &self.deny) {
+            return err(e);
+        }
+        if let Err(e) = self.write_engagement(&engagement) {
+            return err(e);
+        }
+        self.audit("engagement_changed", json!({
+            "op": "set", "by_uid": uid, "name": engagement.name, "authorization": engagement.authorization,
+            "allow": engagement.allow, "expires_ms": engagement.expires_ms,
+        }));
+        self.sync_kernel();
+        self.scope_report()
+    }
+
+    fn op_engagement_end(&self, uid: u32) -> Value {
+        let Some(mut engagement) = self.read_engagement() else {
+            return json!({ "status": "error", "error": "there is no engagement to end" });
+        };
+        engagement.active = false;
+        if let Err(e) = self.write_engagement(&engagement) {
+            return json!({ "status": "error", "error": e });
+        }
+        self.audit("engagement_changed", json!({ "op": "end", "by_uid": uid, "name": engagement.name }));
+        self.sync_kernel();
+        self.scope_report()
+    }
+
+    fn scope_report(&self) -> Value {
+        let engagement = std::fs::read_to_string(&self.cfg.engagement_path)
+            .ok()
+            .map(|text| serde_json::from_str::<Value>(&text).unwrap_or(Value::Null));
+        let kernel = self.kernel.lock().unwrap().clone();
+        json!({
+            "status": "ok",
+            "result": {
+                "engagement": engagement.clone().unwrap_or(Value::Null),
+                "valid": engagement.is_none() || self.load_scope().is_ok(),
+                "permanent_deny": self.cfg.permanent_deny,
+                "limit": self.cfg.engagement_limit,
+                "max_hours": self.cfg.max_engagement_hours,
+                "kernel": {
+                    "enabled": self.cfg.scope_set.is_some(),
+                    "networks": if kernel.0 == "-" || kernel.0.is_empty() { vec![] } else { kernel.0.split(',').map(String::from).collect::<Vec<_>>() },
+                    "error": kernel.1,
+                },
+            }
+        })
     }
 
     fn scope_check(&self, target: &str) -> Decision {
@@ -394,20 +521,9 @@ impl State {
                     Err(e) => json!({ "status": "error", "error": e }),
                 }
             }
-            Some("scope") => match std::fs::read_to_string(&self.cfg.engagement_path) {
-                Ok(text) => json!({
-                    "status": "ok",
-                    "result": {
-                        "engagement": serde_json::from_str::<Value>(&text).unwrap_or(Value::Null),
-                        "valid": self.load_scope().is_ok(),
-                        "permanent_deny": self.cfg.permanent_deny,
-                    }
-                }),
-                Err(_) => json!({
-                    "status": "ok",
-                    "result": { "engagement": null, "valid": true, "permanent_deny": self.cfg.permanent_deny }
-                }),
-            },
+            Some("scope") => self.scope_report(),
+            Some("engagement_set") => self.op_engagement_set(req, uid),
+            Some("engagement_end") => self.op_engagement_end(uid),
             _ => json!({ "status": "error", "error": "unknown op" }),
         }
     }
@@ -472,6 +588,43 @@ impl State {
         }
         self.changed.notify_all();
         response
+    }
+}
+
+/// One atomic nftables transaction: empty both sets, then load the networks.
+pub fn nft_script(set: &crate::config::ScopeSet, nets: &[IpNet]) -> String {
+    let mut out = String::new();
+    for (name, want_v4) in [(&set.set4, true), (&set.set6, false)] {
+        out.push_str(&format!("flush set inet {} {}\n", set.table, name));
+        let members: Vec<String> = nets
+            .iter()
+            .filter(|n| matches!(n, IpNet::V4(_)) == want_v4)
+            .map(|n| n.to_string())
+            .collect();
+        if !members.is_empty() {
+            out.push_str(&format!("add element inet {} {} {{ {} }}\n", set.table, name, members.join(", ")));
+        }
+    }
+    out
+}
+
+fn run_nft(nft: &str, script: &str) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(nft)
+        .args(["-f", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("nft: {e}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(script.as_bytes());
+    }
+    let out = child.wait_with_output().map_err(|e| format!("nft: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().chars().take(300).collect())
     }
 }
 
@@ -559,6 +712,7 @@ fn accept_loop(state: Arc<State>, listener: UnixListener, channel: Channel) {
 
 pub fn serve(cfg: Config) -> Result<(), String> {
     let deny = scope::parse_deny(&cfg.permanent_deny)?;
+    let limit = scope::parse_deny(&cfg.engagement_limit).map_err(|e| e.replace("deny", "engagement limit"))?;
     let agent_uid = uid_of(&cfg.agent_user)?;
     let hud_uid = uid_of(&cfg.hud_user)?;
     let audit = AuditLog::open(&cfg.audit_path)?;
@@ -569,6 +723,8 @@ pub fn serve(cfg: Config) -> Result<(), String> {
     let state = Arc::new(State {
         cfg,
         deny,
+        limit,
+        kernel: Mutex::new((String::new(), None)),
         audit: Mutex::new(audit),
         approvals: Mutex::new(HashMap::new()),
         changed: Condvar::new(),
@@ -582,6 +738,13 @@ pub fn serve(cfg: Config) -> Result<(), String> {
         "actions": catalog::ACTIONS.iter().map(|a| a.name).collect::<Vec<_>>(),
     }));
     eprintln!("woody-execd: listening on {} and {}", state.cfg.exec_socket, state.cfg.approve_socket);
+
+    // Keep the kernel filter in step with the engagement, including its expiry.
+    let s3 = state.clone();
+    std::thread::spawn(move || loop {
+        s3.sync_kernel();
+        std::thread::sleep(Duration::from_secs(15));
+    });
 
     let s2 = state.clone();
     let t = std::thread::spawn(move || accept_loop(s2, approval_listener, Channel::Approval));
@@ -602,5 +765,18 @@ mod tests {
             assert_eq!(pause_gate(tier, false), None);
         }
         assert_eq!(pause_gate(Tier::Read, false), None);
+    }
+
+    #[test]
+    fn kernel_filter_script_empties_then_loads() {
+        let set = crate::config::ScopeSet { nft: "nft".into(), table: "woody_scope".into(), set4: "targets4".into(), set6: "targets6".into() };
+        let nets: Vec<IpNet> = ["192.168.222.0/24", "10.9.8.7/32", "fd00:1::/64"].iter().map(|s| s.parse().unwrap()).collect();
+        assert_eq!(
+            nft_script(&set, &nets),
+            "flush set inet woody_scope targets4\nadd element inet woody_scope targets4 { 192.168.222.0/24, 10.9.8.7/32 }\n\
+             flush set inet woody_scope targets6\nadd element inet woody_scope targets6 { fd00:1::/64 }\n"
+        );
+        // Nothing in force: both sets are emptied and nothing is added.
+        assert_eq!(nft_script(&set, &[]), "flush set inet woody_scope targets4\nflush set inet woody_scope targets6\n");
     }
 }

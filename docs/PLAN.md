@@ -40,7 +40,7 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 | 3 | System hands (3a observe and operate; 3b self-modification; 3c screenshots and clipboard) | Done |
 | 4 | **Mind loop**: events, state, memory, goals, journal, alarms, pacer, web access | Built; 4c, 4d and 4e await the VM test |
 | 5 | **Full HUD**, designed around the loop | Built; awaits the VM test. Phone notification skipped |
-| 6 | **Security toolkit** | Planned |
+| 6 | **Security toolkit** | 6a built (scope and isolation); awaits the VM test. Tools come in 6b |
 
 ## Phase 0 results (2026-11-11)
 
@@ -131,6 +131,18 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 - Login at boot on the VM's screen (`tuigreet`, signing in as `kiosk`), switchable in `settings.nix`.
 - Tested live in a container with a real `ttyd`: 29 checks on both doors and the terminal relay. The login screen, the certificate generation and the firewall rule are untested outside the VM.
 - Phase 5 is complete in code. Next is Phase 6, the security toolkit.
+
+## Phase 6a results (2026-11-12)
+
+See `docs/SECURITY.md` for the purpose, the safeguards and the lab setup.
+
+- Engagements are set and ended by the human only, from the HUD's SCOPE view or `woodyctl`. Each needs an authorization note and ends by itself (72 hours at most).
+- Lab limit: an engagement can list only addresses inside the lab network.
+- Kernel filter: a new user `woody-tools` can send packets only to the engagement's addresses. The executor keeps the nftables set in step with the engagement.
+- `woody-isolation-test` proves the barrier from inside the VM.
+- Tested live in a container with the real nftables table: blocked with no engagement, only listed addresses reachable, the host address blocked even when the whole lab is listed, refill after a firewall reload, closed again when the engagement ends. 58 executor tests pass.
+- Not built: the lab-web VM (web-app containers). Metasploitable 2 is the first target; lab-web follows with the web tools.
+- Untested outside the VM: the table loading alongside the NixOS firewall, and the fixed uid of `woody-tools`.
 
 ## Review of the original brief: what changes and why
 

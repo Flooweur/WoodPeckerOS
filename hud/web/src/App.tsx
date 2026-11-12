@@ -217,6 +217,7 @@ export function App() {
           setDoor({ kiosk: Boolean(msg.kiosk), terminal: Boolean(msg.terminal) });
           break;
         case "logs":
+        case "engagement":
         case "web_list":
           setGatewayResult({ ...(msg as GatewayResult), seq: ++mindSeq.current });
           break;
@@ -641,6 +642,7 @@ export function App() {
               incoming={mindResult}
               gateway={gatewayResult}
               door={door}
+              scope={scope}
               version={version}
               state={state}
               identity={identity}
@@ -790,7 +792,8 @@ export function App() {
                       : `${(scope.engagement.allow ?? []).length} allowed entries · never ${scope.permanent_deny.length} addresses`}
             </div>
           </section>
-          <nav className={`doors ${door.terminal ? "three" : ""}`} aria-label="The machine">
+          <nav className={`doors ${door.terminal ? "" : "three"}`} aria-label="The machine">
+            <button onClick={() => setPanel({ kind: "scope" })}>SCOPE</button>
             <button onClick={() => setPanel({ kind: "logs" })}>LOGS</button>
             <button onClick={() => setPanel({ kind: "web" })}>WEB LIST</button>
             {door.terminal && <button onClick={() => setPanel({ kind: "terminal" })}>TERMINAL</button>}

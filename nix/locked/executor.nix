@@ -29,6 +29,17 @@ let
     audit_path = auditPath;
     engagement_path = "/var/lib/woody-execd/engagement.json";
     permanent_deny = settings.permanentDeny;
+    # Lab only: an engagement can list nothing outside the lab network. To
+    # test anything else, a human must change this locked file first.
+    engagement_limit = [ settings.labSubnet ];
+    max_engagement_hours = 72;
+    # The kernel filter for the tools user (./scope-net.nix).
+    scope_set = {
+      nft = "${pkgs.nftables}/bin/nft";
+      table = "woody_scope";
+      set4 = "targets4";
+      set6 = "targets6";
+    };
     systemctl = "${config.systemd.package}/bin/systemctl";
     journalctl = "${config.systemd.package}/bin/journalctl";
     # Units the agent may never start, stop or restart, approval or not.
