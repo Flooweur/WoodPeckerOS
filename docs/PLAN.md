@@ -41,7 +41,7 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 | 7 | **The canvas**: the frame, things, the kit, making | Done (7a to 7d), tested in the VM |
 | 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | 8a (inner state) done, tested in the VM. 8b (a life of its own) and 8c (identity and face) built; they await the VM test |
 | 9 | **Learning and showing**: open reading, studies, explainers, web pictures | Built in three steps (9a open reading, 9b studies and explainers, 9c web pictures); awaits the VM test |
-| 10 | **Reshaping itself**: free change of its own program | 10a (the wall around the protections) built; awaits the VM test. Next: 10b methods as data, 10c unasked self-change, 10d its own tools |
+| 10 | **Reshaping itself**: free change of its own program | 10a (the wall around the protections) done, tested in the VM. 10b (methods as data) built; awaits the VM test. Next: 10c unasked self-change, 10d its own tools |
 | 11 | **Sound and voice** | Planned |
 | 12 | **Programs on the canvas** | Planned |
 | 13 | **Universal pipes**: outputs of things wired to inputs of things, the machine, Woody and approved actions | Planned (decided 2026-11-12) |
@@ -350,6 +350,18 @@ What was found first: `agent/` had been Woody's to change since Phase 3, and mos
   - The mind's data (memories, findings, the pages recorded for a study) is Woody's own. The wall protects how it is written, not that Woody means well.
   - Until 10c nothing new is allowed: Woody still changes its program only when you ask or accept a plan.
 
+## Phase 10b results (2026-11-12): methods as data
+
+- **The instructions were split in two.** What states a fact about the machine, a boundary or a matter of honesty stays in the rules (`agent/src/core/rules.ts`, locked). What is a way of doing the work well became Woody's methods: eight sections shipped with the program (speaking with you, waking by itself, goals, reading the web, making things, its own time, memory, its face). Sentences were moved, not rewritten.
+- **Methods are data.** They are kept in the mind's store with every version (schema 11) and put in front of each session after the rules. `method_change` rewrites a section or adds one, at once and with no rebuild; `method_remove` removes a section Woody added; `method_history` shows the versions.
+- **Limits:** 4,000 characters a section, 20 sections, 24,000 characters in all, since the methods are part of every session's instructions. A section that came with the program can be rewritten, not removed. A session that read the web cannot touch them.
+- **You are told** in the daily brief, and the new record "Its methods" shows each section, the before and the after of Woody's last change, every version, and a button to put one back. No notice appears on the screen.
+- **Your undo is your answer.** Woody is told in its instructions for two weeks, and the tool refuses to write the exact text you undid.
+- **An update of the program wins.** When a section's shipped text changes, it replaces what the store holds at the next start, Woody's version stays in the history, and Woody is told to redo its change if it still makes sense.
+- **The daily reflection** may now revise a method when the day showed a better way of working.
+- **Tests:** 98 agent tests (7 new) and 119 scripted browser checks (3 new) pass; the Nix builds succeed; the agent was started locally with its methods.
+- **Not tested:** whether a real model revises its methods sensibly, and whether the moved sentences changed how Woody behaves. The same text is in front of it, in a different order.
+
 ## Architecture
 
 Today:
@@ -494,7 +506,7 @@ Decided with the operator on 2026-11-12:
 Built in four steps:
 
 - **10a. The wall.** Built: see "Phase 10a results". The protections move into a locked part of the agent, and Woody's own code is handed only gated things.
-- **10b. Methods as data.** How Woody works, in words, becomes versioned text it rewrites at once, with no rebuild. Its safety instructions stay locked.
+- **10b. Methods as data.** Built: see "Phase 10b results". How Woody works, in words, becomes versioned text it rewrites at once, with no rebuild. Its rules stay locked.
 - **10c. Unasked self-change.** Woody changes its own part of the program on its own initiative through the existing snapshot, build, trial, health check and rollback, within the limits above; the notice, the undo, and what happens when an update meets a change of Woody's.
 - **10d. Its own tools.** Small programs Woody writes for itself, run in a separate process with no rights.
 - **Done when:**

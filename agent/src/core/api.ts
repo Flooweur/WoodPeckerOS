@@ -4,6 +4,7 @@
 // (gate.ts, woody-store.ts), and never imported. The check that runs with
 // every build (selfcheck.mjs) enforces this.
 export { FileError } from "./files.js";
+export { METHODS } from "./methods.js";
 export { FACE, IDENTITY, PALETTE, RESERVED } from "./self.js";
 export { MEMORY_KINDS, PolicyError, STUDY } from "./store.js";
 export { WEB_MARK } from "./woody-store.js";

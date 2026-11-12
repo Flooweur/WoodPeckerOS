@@ -536,6 +536,44 @@ Limits to know:
 | The canvas keeps only a matching WebP; only the thing it was given to can load it | 1 gateway test, 9 scripted browser checks (a real picture loads in a sandboxed thing) | To do |
 | A real picture from page to canvas, and the reader's description | Not testable here | To do |
 
+## Methods (Phase 10b)
+
+Code: the rules in `agent/src/core/rules.ts`, the shipped methods and their limits in `agent/src/core/methods.ts`, the versions in `agent/src/core/store.ts`, where they sit in the instructions in `agent/src/core/prompt.ts`, Woody's tools in `agent/src/mind/method-tools.ts`.
+
+Every session is told four things, in this order:
+
+| Part | What it is | Who changes it |
+|---|---|---|
+| The rules | How the machine works, what Woody may never do, what honesty requires | Only you, by approving a change to the locked part |
+| The methods | How Woody does its work, one section for each part of it | Woody, by itself, at once |
+| Who Woody is | Its identity | Woody, one small step a day after its reflection |
+| What it always knows | Pinned memories and your preferences | You (pinning), and Woody's memory |
+
+- **What a method is.** A way of working that could reasonably be done another way: how to write a checkpoint, when to use a kit part, what to store in memory. It cannot grant a permission, and the rules say that where a method and a rule disagree, the rule holds.
+- **Changing one.** `method_change` takes a section's name, its complete new text and what Woody observed. It takes effect from the next session, with no rebuild. Woody may add sections of its own and remove those.
+- **When.** In any session that has not read the web: in a conversation, in its own time, and in the daily reflection, which is told that it may revise a method when the day showed a better way of working.
+- **What you see.** The daily brief names the sections that changed. The record "Its methods" shows each section, the before and the after of Woody's last change with the differing words marked, and every version.
+- **Your undo.** Putting a version back is one action and becomes a new version. For two weeks Woody's instructions say that you put it back and that this is your answer; the tool refuses the exact text you undid.
+- **Updates of the program.** A section whose shipped text changed replaces what the store holds at the next start, even a version Woody wrote. Woody's version stays in the history, and Woody is told.
+
+Limits to know:
+
+- The split was made by moving sentences. It was not possible to test here whether the new order changes how a model behaves.
+- A method is text for a model. Woody can write a poor one; the record and the undo are the remedy.
+- Limits in code: 4,000 characters a section, 20 sections, 24,000 characters in all, 40 versions kept for each section.
+
+### Test status
+
+| What | In containers | In the VM |
+|---|---|---|
+| What stays in the rules and what moved to the methods | Tests | |
+| Shipped methods copied in; an update of the program wins; Woody's versions kept | Tests | |
+| Changing, adding, removing, the limits, your undo, the two weeks | Tests | To do |
+| No change from a session that read the web; the exact text you undid is refused | Tests | |
+| The order of the instructions; the brief and the reflection | Tests | To do |
+| The record and its undo button | 3 scripted browser checks | To do |
+| A real model revising a method | Not testable here | To do |
+
 ## The inner state (Phase 8a)
 
 Code: `agent/src/mind/inner.ts`, wired in `agent/src/core/server.ts`.

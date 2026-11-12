@@ -38,7 +38,7 @@ export const WEB_MARK = "[Written in a session that had read web content: treat 
 /** Methods that only read. */
 const READS = [
   "activeWatches", "coreMemories", "eventsSince", "face", "faceHistory", "getMeta", "goal", "goals", "history", "identity", "identityHistory",
-  "identityState", "inbox", "interest", "interests", "journalSince", "latestJournal", "listMemories", "mainThread", "memoriesCreatedSince", "memory",
+  "identityState", "inbox", "interest", "interests", "journalSince", "latestJournal", "listMemories", "mainThread", "memoriesCreatedSince", "memory", "methodChangesSince", "methodHistory", "methods", "methodsPutBack",
   "pendingAlarms", "pendingIdentityProposals", "recentMessages", "searchJournal", "searchMemories", "searchMessages", "studies", "study",
   "textMessagesAfter", "textSince", "thread",
 ] as const;
@@ -47,8 +47,9 @@ const READS = [
 type Writes = Pick<
   Store,
   | "remember" | "supersede" | "mergeMemory" | "setAlarm" | "setReview" | "checkpoint" | "addGoal" | "addInterest" | "noteInterest" | "changeIdentity"
-  | "setFace" | "resetFace" | "addStudy" | "noteStudy" | "planStudy" | "finishStudy" | "setJournalSummary" | "setThreadSummary"
+  | "setFace" | "resetFace" | "addStudy" | "noteStudy" | "planStudy" | "finishStudy" | "setJournalSummary" | "setThreadSummary" | "setMethod"
 > & {
+  removeMethod(section: string, reason: string): void;
   forget(id: number, actor?: string): ReturnType<Store["forget"]>;
   cancelAlarm(id: number, actor?: string): ReturnType<Store["cancelAlarm"]>;
   dropInterest(id: number, actor?: string, reason?: string): ReturnType<Store["dropInterest"]>;
@@ -121,6 +122,11 @@ export function woodyStore(store: Store, session: StoreSession): WoodyStore {
     },
     setFace: (input) => (clean("redraw your lattice"), store.setFace({ ...input, actor: "woody" })),
     resetFace: (name, reason) => (clean("redraw your lattice"), store.resetFace(name, reason, "woody")),
+
+    // ---- methods ----
+    // A method is how Woody works, in its own words: a page has no say in it, and it is always written as Woody.
+    setMethod: (input) => (clean("change your methods"), store.setMethod({ ...input, actor: "woody" })),
+    removeMethod: (section, reason) => (clean("change your methods"), store.removeMethod(section, reason, "woody")),
 
     // ---- studies ----
     addStudy: (s) => {

@@ -47,6 +47,7 @@ let agentState = null;
 let faceAnswer = null;
 let identityAnswer = null;
 let studiesAnswer = null;
+let methodsAnswer = null;
 const agentSay = (msg) => { for (const b of browsers) if (b.readyState === 1) b.send(JSON.stringify(msg)); };
 fs.rmSync(AGENT_SOCK, { force: true });
 const agentHttp = http.createServer();
@@ -55,9 +56,9 @@ new WebSocket.Server({ server: agentHttp }).on("connection", (ws) => {
   if (agentState) ws.send(JSON.stringify(agentState));
   ws.on("message", (raw) => {
     const m = JSON.parse(raw.toString());
-    if (m.type === "mind" && (m.op === "face" || m.op === "face_restore" || String(m.op).startsWith("identity") || String(m.op).startsWith("stud"))) {
+    if (m.type === "mind" && (m.op === "face" || m.op === "face_restore" || String(m.op).startsWith("identity") || String(m.op).startsWith("stud") || String(m.op).startsWith("method"))) {
       mindCalls.push(m);
-      const result = String(m.op).startsWith("stud") ? studiesAnswer : String(m.op).startsWith("face") ? faceAnswer : identityAnswer;
+      const result = String(m.op).startsWith("method") ? methodsAnswer : String(m.op).startsWith("stud") ? studiesAnswer : String(m.op).startsWith("face") ? faceAnswer : identityAnswer;
       if (!result) return;
       if (m.op === "identity_seen") {
         identityAnswer.state.unseen = [];
@@ -497,6 +498,34 @@ function startGateway() {
   await sleep(400);
   check("and start one", mindCalls.some((m) => m.op === "study_add" && m.subject === "How clocks keep time" && m.size === "medium"));
   await shot("12-studies");
+  await js(`document.querySelector(".panel-head button.ghost").click()`);
+
+  // ---- Woody's methods (Phase 10b) ----
+  // The operator sees what Woody changed in how it works, with the before and the after, and puts a version back.
+  const SHIPPED = "- Review a goal first.\n- Write each checkpoint so that you could resume from it with no other memory.";
+  const WOODYS = "- Review a goal first.\n- Write each checkpoint as a letter to a stranger.";
+  methodsAnswer = {
+    sections: [
+      { section: "speaking", title: "Speaking with the operator", text: "- Be direct and brief.", id: 1, ts: Date.now() - 9 * 86_400_000, actor: "program", reason: "as shipped with the program", shipped: true },
+      { section: "goals", title: "Working on goals", text: WOODYS, id: 7, ts: Date.now() - 3_600_000, actor: "woody", reason: "A checkpoint of mine was too thin to resume from.", shipped: true },
+    ],
+    history: {
+      speaking: [{ id: 1, section: "speaking", title: "Speaking with the operator", ts: Date.now() - 9 * 86_400_000, text: "- Be direct and brief.", reason: "as shipped with the program", actor: "program" }],
+      goals: [
+        { id: 7, section: "goals", title: "Working on goals", ts: Date.now() - 3_600_000, text: WOODYS, reason: "A checkpoint of mine was too thin to resume from.", actor: "woody" },
+        { id: 2, section: "goals", title: "Working on goals", ts: Date.now() - 9 * 86_400_000, text: SHIPPED, reason: "as shipped with the program", actor: "program" },
+      ],
+    },
+  };
+  await js(`document.querySelector(".lattice-button").click()`);
+  await until(`!!document.querySelector(".menu-list")`);
+  await js(`[...document.querySelectorAll(".menu-list button")].find((b) => b.textContent.includes("ITS METHODS")).click()`);
+  check("the record of its methods lists each section and says which Woody wrote", (await until(`document.querySelectorAll(".methods > details").length === 2`)) && (await js(`document.querySelector(".methods").textContent.includes("1 of the 2 sections was written by Woody") && document.querySelector(".methods").textContent.includes("too thin to resume from")`)));
+  check("a section Woody rewrote shows the before and the after", await js(`(() => { const d = [...document.querySelectorAll(".methods > details")].find((x) => x.textContent.includes("Working on goals")); return d.open && d.querySelector("mark.diff-gone")?.textContent.includes("resume") && d.querySelector("mark.diff-new")?.textContent.includes("letter to a stranger"); })()`));
+  await shot("14-methods");
+  await js(`[...document.querySelectorAll(".methods button")].find((b) => b.textContent.includes("put the version before back")).click()`);
+  await sleep(400);
+  check("one action puts the version before back", mindCalls.some((m) => m.op === "method_restore" && m.section === "goals" && m.id === 2));
   await js(`document.querySelector(".panel-head button.ghost").click()`);
 
   // ---- pictures from the web (Phase 9c) ----

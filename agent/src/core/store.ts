@@ -9,6 +9,7 @@
 //   identity  who Woody is, versioned
 //   face      the designs of Woody's lattice that Woody drew itself, versioned
 //   studies   subjects Woody learns over several reading sessions: notes, and the pages actually read
+//   methods   how Woody does its work, in words, one section for each part of it, versioned
 //   queue     everything that can wake Woody, waiting to be handled
 //   alarms    wake-ups Woody set for itself
 //   watches   things in progress elsewhere whose outcome Woody is waiting for
@@ -16,7 +17,9 @@
 //
 // The model's context is assembled from here on every turn (context.ts), so
 // nothing important exists only in a model conversation. See docs/MIND.md.
+import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { METHODS, type MethodDefault } from "./methods.js";
 import { BUILTIN, FACE, IDENTITY, changedShare, checkDesign, nameProblem, remainingShare, type Design, type FaceKind } from "./self.js";
 
 export type Origin = "user" | "observed" | "inferred" | "web";
@@ -114,6 +117,11 @@ export const STUDY = {
   maxPages: 200,
   maxTries: 2,
 };
+
+/** One version of one section of Woody's methods. A null text means the section was removed. */
+export type MethodVersion = { id: number; section: string; title: string; ts: number; text: string | null; reason: string; actor: "program" | "woody" | "operator" };
+/** A section of Woody's methods as it stands now. `shipped` says whether the section came with the program. */
+export type Method = { section: string; title: string; text: string; id: number; ts: number; actor: MethodVersion["actor"]; reason: string; shipped: boolean };
 
 export type QueueItem = {
   id: number;
@@ -219,7 +227,20 @@ const MAX_OPEN_PROPOSALS = 10;
 const MAX_OPEN_INTERESTS = 12;
 const MAX_INTEREST_NOTES = 12;
 
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
+
+const SCHEMA_V11 = `
+CREATE TABLE IF NOT EXISTS methods (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  section TEXT NOT NULL,
+  title TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  text TEXT,
+  reason TEXT NOT NULL DEFAULT '',
+  actor TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS methods_section ON methods (section, id);
+`;
 
 const SCHEMA_V10 = `
 CREATE TABLE IF NOT EXISTS studies (
@@ -703,6 +724,13 @@ export class Store {
       this.tx(() => {
         this.db.exec(SCHEMA_V10);
         this.setMeta("schema_version", "10");
+      });
+    }
+    if (version < 11) {
+      // Phase 10b: Woody's methods are data.
+      this.tx(() => {
+        this.db.exec(SCHEMA_V11);
+        this.setMeta("schema_version", "11");
       });
     }
   }
@@ -2091,6 +2119,143 @@ export class Store {
     this.db.prepare("UPDATE identity SET seen = 1 WHERE seen = 0").run();
     this.event("identity_set", {}, { actor: "operator" });
     return this.identity();
+  }
+
+  // ---- methods ------------------------------------------------------------------
+
+  private toMethodVersion(r: Row): MethodVersion {
+    return {
+      id: Number(r.id),
+      section: String(r.section),
+      title: String(r.title),
+      ts: Number(r.ts),
+      text: r.text == null ? null : String(r.text),
+      reason: String(r.reason),
+      actor: r.actor as MethodVersion["actor"],
+    };
+  }
+
+  /**
+   * Brings the store in line with the methods the program ships. A section
+   * that is new is added. A section whose shipped text has changed since it
+   * was last copied replaces what the store holds, even a version Woody
+   * wrote: an update of the program wins, and Woody's version stays in the
+   * history. Returns the sections where a version of Woody's was replaced.
+   */
+  syncMethods(defaults: MethodDefault[]): string[] {
+    const replaced: string[] = [];
+    this.tx(() => {
+      for (const d of defaults) {
+        const mark = crypto.createHash("sha256").update(`${d.title}\n${d.text}`).digest("hex").slice(0, 16);
+        const key = `method_shipped:${d.section}`;
+        if (this.getMeta(key) === mark) continue;
+        const latest = this.db.prepare("SELECT * FROM methods WHERE section = ? ORDER BY id DESC LIMIT 1").get(d.section) as Row | undefined;
+        const first = !latest;
+        if (latest && latest.actor === "woody") replaced.push(d.section);
+        if (first || String(latest.text ?? "") !== d.text || String(latest.title) !== d.title) {
+          const r = this.db
+            .prepare("INSERT INTO methods (section, title, ts, text, reason, actor) VALUES (?, ?, ?, ?, ?, 'program')")
+            .run(d.section, d.title, this.now(), d.text, first ? "as shipped with the program" : "updated with the program");
+          if (!first) this.event("method_updated", { section: d.section, id: Number(r.lastInsertRowid), replaced_woody: latest.actor === "woody" }, { actor: "program" });
+        }
+        this.setMeta(key, mark);
+      }
+      this.setMeta("methods_shipped", JSON.stringify(defaults.map((d) => d.section)));
+    });
+    return replaced;
+  }
+
+  /** The sections that came with the program (Woody may rewrite them, not remove them). */
+  private shippedSections(): string[] {
+    try {
+      return (JSON.parse(this.getMeta("methods_shipped") ?? "[]") as unknown[]).map(String);
+    } catch {
+      return [];
+    }
+  }
+
+  /** Woody's methods as they stand now: the shipped sections first, in their order, then the ones Woody added. */
+  methods(): Method[] {
+    const shipped = this.shippedSections();
+    const rows = (this.db.prepare("SELECT * FROM methods WHERE id IN (SELECT max(id) FROM methods GROUP BY section)").all() as Row[]).map((r) => this.toMethodVersion(r));
+    const first = new Map((this.db.prepare("SELECT section, min(id) AS id FROM methods GROUP BY section").all() as Row[]).map((r) => [String(r.section), Number(r.id)]));
+    const order = (s: string) => (shipped.includes(s) ? shipped.indexOf(s) : 1000 + (first.get(s) ?? 0));
+    return rows
+      .filter((v) => v.text !== null)
+      .sort((a, b) => order(a.section) - order(b.section))
+      .map((v) => ({ section: v.section, title: v.title, text: v.text!, id: v.id, ts: v.ts, actor: v.actor, reason: v.reason, shipped: shipped.includes(v.section) }));
+  }
+
+  methodHistory(section: string, limit = 20): MethodVersion[] {
+    return (this.db.prepare("SELECT * FROM methods WHERE section = ? ORDER BY id DESC LIMIT ?").all(section, limit) as Row[]).map((r) => this.toMethodVersion(r));
+  }
+
+  /** The changes Woody made to its methods since a moment, oldest first. */
+  methodChangesSince(ts: number): MethodVersion[] {
+    return (this.db.prepare("SELECT * FROM methods WHERE ts >= ? AND actor = 'woody' ORDER BY id").all(ts) as Row[]).map((r) => this.toMethodVersion(r));
+  }
+
+  /** Sections whose current version the operator put back, undoing a change of Woody's, in the last two weeks. */
+  methodsPutBack(): Array<{ section: string; title: string; ts: number; undone: string }> {
+    const since = this.now() - 14 * 86_400_000;
+    return this.methods()
+      .filter((m) => m.actor === "operator" && m.ts >= since)
+      .map((m) => {
+        const undone = this.methodHistory(m.section, 6).find((v) => v.id < m.id && v.actor === "woody");
+        return { section: m.section, title: m.title, ts: m.ts, undone: undone?.reason ?? "" };
+      });
+  }
+
+  /** Woody rewrites a section of its methods, or adds one. It takes effect at once; every version is kept. */
+  setMethod(input: { section: string; title?: string; text: string; reason: string; actor?: MethodVersion["actor"] }): Method {
+    const actor = input.actor ?? "woody";
+    const section = input.section.trim();
+    if (!/^[a-z][a-z0-9-]{1,30}$/.test(section)) throw new PolicyError("a section's name is 2 to 31 lowercase letters, digits or hyphens, starting with a letter");
+    const text = input.text.trim();
+    if (text.length < METHODS.minChars || text.length > METHODS.maxChars) throw new PolicyError(`a section is ${METHODS.minChars} to ${METHODS.maxChars} characters`);
+    const reason = input.reason.trim();
+    if (actor === "woody" && reason.length < 10) throw new PolicyError("say what you observed that makes this a better way of working");
+    const all = this.methods();
+    const current = all.find((m) => m.section === section);
+    const title = (input.title ?? current?.title ?? "").trim().replace(/\s+/g, " ");
+    if (title.length < 3 || title.length > 60) throw new PolicyError("a section needs a title of 3 to 60 characters");
+    if (current && current.text === text && current.title === title) throw new PolicyError("that is already what this section says");
+    if (!current && all.length >= METHODS.maxSections) throw new PolicyError(`your methods have ${METHODS.maxSections} sections, which is the most. Fold this into an existing one.`);
+    const total = all.reduce((n, m) => n + (m.section === section ? 0 : m.text.length), 0) + text.length;
+    if (total > METHODS.maxTotalChars) {
+      throw new PolicyError(`your methods would be ${total} characters in all; the most is ${METHODS.maxTotalChars}, since they are part of every session's instructions. Shorten this section or another.`);
+    }
+    return this.tx(() => {
+      const r = this.db
+        .prepare("INSERT INTO methods (section, title, ts, text, reason, actor) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(section, title, this.now(), text, reason.slice(0, 600), actor);
+      this.db.prepare("DELETE FROM methods WHERE section = ? AND id NOT IN (SELECT id FROM methods WHERE section = ? ORDER BY id DESC LIMIT ?)").run(section, section, METHODS.keepVersions);
+      this.event("method_changed", { section, title, id: Number(r.lastInsertRowid), from: current?.id ?? null, new: !current, reason: reason.slice(0, 300) }, { actor });
+      return this.methods().find((m) => m.section === section)!;
+    });
+  }
+
+  /** Removes a section Woody added itself. A section that came with the program can be rewritten, not removed. */
+  removeMethod(section: string, reason: string, actor: MethodVersion["actor"] = "woody"): void {
+    const current = this.methods().find((m) => m.section === section);
+    if (!current) throw new PolicyError(`your methods have no section "${section}"`);
+    if (current.shipped) throw new PolicyError(`"${section}" came with the program: it can be rewritten, not removed`);
+    this.db.prepare("INSERT INTO methods (section, title, ts, text, reason, actor) VALUES (?, ?, ?, NULL, ?, ?)").run(section, current.title, this.now(), reason.trim().slice(0, 600), actor);
+    this.event("method_removed", { section, title: current.title, reason: reason.trim().slice(0, 300) }, { actor });
+  }
+
+  /** The operator puts an earlier version of a section back, in one action. It becomes a new version, so nothing is lost. */
+  restoreMethod(section: string, id: number): Method {
+    const row = this.db.prepare("SELECT * FROM methods WHERE id = ? AND section = ?").get(id, section) as Row | undefined;
+    const old = row ? this.toMethodVersion(row) : null;
+    if (!old || old.text === null) throw new PolicyError(`no version ${id} of "${section}" with a text`);
+    const current = this.methods().find((m) => m.section === section);
+    if (current?.id === id) throw new PolicyError("that is the current version");
+    this.db
+      .prepare("INSERT INTO methods (section, title, ts, text, reason, actor) VALUES (?, ?, ?, ?, ?, 'operator')")
+      .run(section, old.title, this.now(), old.text, `version ${id} put back by the operator`);
+    this.event("method_restored", { section, title: old.title, restored: id, from: current?.id ?? null }, { actor: "operator" });
+    return this.methods().find((m) => m.section === section)!;
   }
 
   // ---- the lattice's designs ------------------------------------------------

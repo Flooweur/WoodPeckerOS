@@ -143,6 +143,20 @@ let studies = EMPTY ? [] : [
     notes: [{ id: 3, ts: now - 3 * 86_400_000, text: "The hyoid bone wraps around the skull and acts like a seat belt at each strike.", sources: ["https://birds.example/woodpecker-skull"] }],
     pages: [page("https://birds.example/woodpecker-skull", "The woodpecker's skull", 72)] },
 ];
+const method = (section, title, text, actor, h, reason = "") => ({ section, title, text, id: 0, ts: now - h * 3_600_000, actor, reason, shipped: true });
+let methodSections = [
+  method("speaking", "Speaking with the operator", "- Be direct and brief. Lead with what you found or did.\n- Report failures as failures, with the reason.", "program", 400, "as shipped with the program"),
+  method("goals", "Working on goals", "- Reviewing a goal means understanding it, judging it honestly, planning it and estimating it.\n- Write each checkpoint as a letter to a stranger: what is done, what is next, and where results are stored.\n- Keep your own proposals few and concrete.", "woody", 20, "Twice this week a checkpoint of mine was too thin to resume from."),
+  method("memory", "Keeping memory", "- When you learn something durable, store it with remember.\n- Search before saying you do not know.", "program", 400, "as shipped with the program"),
+].map((m, i) => ({ ...m, id: 10 + i }));
+const methodHistory = () => ({
+  speaking: [{ ...methodSections[0] }],
+  goals: [
+    { ...methodSections[1] },
+    { id: 2, section: "goals", title: "Working on goals", ts: now - 400 * 3_600_000, actor: "program", reason: "as shipped with the program", text: "- Reviewing a goal means understanding it, judging it honestly, planning it and estimating it.\n- Write each checkpoint so that you could resume from it with no other memory.\n- Keep your own proposals few and concrete." },
+  ],
+  memory: [{ ...methodSections[2] }],
+});
 const lifeResult = () => ({
   ...state().life,
   next: "its last moment of its own was 48 minutes ago; the next is in about 72 minutes",
@@ -265,7 +279,8 @@ wss.on("connection", (ws) => {
       if (m.op === "study_add") studies = [{ id: studies.length + 1, subject: m.subject, why: "The operator asked for it from the studies record.", owner: "operator", status: "reading", created: Date.now(), updated: Date.now(), budget_usd: m.size === "small" ? 0.5 : m.size === "large" ? 4 : 1.5, spent_usd: 0, max_readings: m.size === "small" ? 2 : m.size === "large" ? 10 : 5, readings: 0, plan: "", thing_id: null, outcome: "", notes: [], pages: [] }, ...studies];
       if (m.op === "study_drop") studies = studies.map((s) => (s.id === m.id ? { ...s, status: "dropped", outcome: "Dropped by the operator." } : s));
       if (m.op === "study_size") studies = studies.map((s) => (s.id === m.id ? { ...s, budget_usd: m.budget_usd, max_readings: m.max_readings } : s));
-      const result = String(m.op).startsWith("stud") ? { studies } : m.op === "face" || m.op === "face_restore" ? faceRecord() : String(m.op).startsWith("identity") ? identityRecord() : m.op === "life" ? lifeResult() : m.op === "goals" ? { goals: all, small_goal_usd: 1 } : m.op === "inbox" ? inbox : m.op === "activity" ? activity
+      if (m.op === "method_restore") methodSections = methodSections.map((s) => (s.section === m.section ? { ...s, id: 99, actor: "operator", ts: Date.now(), reason: `version ${m.id} put back by the operator`, text: methodHistory()[m.section].find((v) => v.id === m.id)?.text ?? s.text } : s));
+      const result = String(m.op).startsWith("method") ? { sections: methodSections, history: methodHistory() } : String(m.op).startsWith("stud") ? { studies } : m.op === "face" || m.op === "face_restore" ? faceRecord() : String(m.op).startsWith("identity") ? identityRecord() : m.op === "life" ? lifeResult() : m.op === "goals" ? { goals: all, small_goal_usd: 1 } : m.op === "inbox" ? inbox : m.op === "activity" ? activity
         : m.op === "goal" ? { goal: all.find((g) => g.id === m.id), messages: [{ kind: "assistant", text: "The store is 41 GB so far." }, { kind: "user", text: "Leave my home directory out." }, { kind: "tool", name: "mcp__woody__goal_checkpoint" }] }
         : m.op === "memories" ? memories : m.op === "journal" ? journal : m.op === "brief" ? { time: "08:00", enabled: true } : {};
       send({ type: "mind_result", op: m.op, ok: true, result });

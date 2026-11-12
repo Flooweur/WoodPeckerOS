@@ -58,7 +58,7 @@ function run(args) {
   const st = got.find((m) => m.type === "state");
   check("it reports its state", Boolean(st && st.mind_state && st.identity && typeof st.face === "number" && st.life), st ? `state ${st.mind_state.state}, identity v${st.identity.version}` : "no state");
 
-  for (const op of ["stats", "goals", "inbox", "identity", "life", "face", "studies", "activity", "journal", "memories"]) {
+  for (const op of ["stats", "goals", "inbox", "identity", "life", "face", "studies", "methods", "activity", "journal", "memories"]) {
     const r = await ask(op, { n: 5 });
     check(`the record "${op}" answers`, r.ok === true, r.ok ? "" : r.error);
   }

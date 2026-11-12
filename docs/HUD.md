@@ -47,6 +47,8 @@ A thing that explains a study, or that shows pictures from the web, carries a ma
 
 A thing gets a picture through the bridge (`woody.picture(id)`), and only a picture it was given when it was made. It still loads nothing from the network.
 
+**Its methods** (in the lattice menu) shows how Woody does its work, one section for each part of it. A section Woody rewrote shows the version before and the current one side by side, with the words that differ marked, and Woody's reason. Every version can be put back with one button. Woody's rules are not in this record: it cannot change them.
+
 **Its face** (in the lattice menu) shows every design the lattice can play, each as a small live lattice: which ones Woody drew itself, when and why, with a button to put the built-in one or an earlier drawing back. The frame's own signals are listed last with what each one says.
 
 When Woody has changed its identity and you have not looked yet, a notice appears beside the lattice. Clicking it opens the identity record on the change.

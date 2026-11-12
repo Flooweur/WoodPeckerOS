@@ -59,7 +59,7 @@ Until Phase 10 all of `agent/` was Woody's to change, and the protections that w
 
 What is in the locked part:
 
-- the loop that runs every session, and the safety instructions it puts in front of each one;
+- the loop that runs every session, and the rules it puts in front of each one (Woody's working methods are not in there: they are data Woody rewrites by itself, see "Methods" in [MIND.md](MIND.md));
 - the web tools, the quarantined reader and the links-only rule;
 - the budget and every money limit;
 - the mind's store, with the limits on Woody's identity;

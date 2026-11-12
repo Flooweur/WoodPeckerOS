@@ -213,7 +213,7 @@ test("an older store gains the tables for studies", () => {
   first.setMeta("schema_version", "9");
   first.close();
   const again = new Store(file);
-  assert.equal(again.getMeta("schema_version"), "10");
+  assert.equal(again.getMeta("schema_version"), "11");
   assert.deepEqual(again.studies({ includeClosed: true }), []);
   again.close();
 });
