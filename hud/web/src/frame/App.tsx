@@ -106,6 +106,8 @@ export function App() {
   });
 
   const socket = useRef<WebSocket | null>(null);
+  /** The build of the frame this page was loaded with, as the gateway named it at the first greeting. */
+  const frameBuild = useRef("");
   const nextKey = useRef(1);
   const playSeq = useRef(0);
   const mindSeq = useRef(0);
@@ -202,6 +204,13 @@ export function App() {
           break;
         case "hello":
           setDoor({ kiosk: Boolean(msg.kiosk), terminal: Boolean(msg.terminal) });
+          // The gateway says which build of the frame it serves. If it is no longer the one this
+          // page was loaded with (the system was updated while the screen stayed open), the page
+          // loads the new one: an old frame would not know what the new gateway can do.
+          if (typeof msg.build === "string" && msg.build) {
+            if (frameBuild.current && frameBuild.current !== msg.build) location.reload();
+            frameBuild.current = msg.build;
+          }
           break;
         case "logs":
         case "web_list":

@@ -123,7 +123,7 @@ The SDK reports what a continued conversation has cost so far, not what one sess
 | The agent: the store, the gates, the policy, recall, the loop against a scripted model (117 tests) | `agent/src/**/*.test.ts` | `cd agent && npm run build && npm test` |
 | The agent starts and answers | `agent/dev/smoke.cjs` | `node dev/smoke.cjs .` |
 | The canvas store, the kit, the file exchange and the feeds (22 tests) | `hud/server/*.test.ts` | `cd hud && npm run build && npm test` |
-| The HUD in a real browser, with a hostile thing (143 checks) | `hud/dev/check/` | See the top of `hud/dev/check/run.sh` |
+| The HUD in a real browser, with a hostile thing (144 checks) | `hud/dev/check/` | See the top of `hud/dev/check/run.sh` |
 | The executor (44 tests) | `executor/src/` | `cargo test -- --test-threads=1` |
 | All of it on every push | `.github/workflows/ci.yml` | |
 

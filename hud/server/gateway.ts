@@ -583,6 +583,20 @@ const server = http.createServer((req, res) => handle(req, res, false));
 
 // ---- browser sessions -----------------------------------------------------
 
+/**
+ * Which build of the frame is served: a short hash of its start page, which
+ * names the script and style files by their own hashes. After an update of
+ * the system the gateway restarts with a new one, and screens that were left
+ * open are still running the old frame.
+ */
+const BUILD = (() => {
+  try {
+    return crypto.createHash("sha256").update(fs.readFileSync(path.join(WEB_ROOT, "index.html"))).digest("hex").slice(0, 12);
+  } catch {
+    return "";
+  }
+})();
+
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 const browsers = new Set<WebSocket>();
 
@@ -610,7 +624,8 @@ function send(ws: WebSocket, message: Record<string, unknown>): void {
 wss.on("connection", (browser: WebSocket, host: boolean) => {
   browsers.add(browser);
   // Tell the page which door it came through: the terminal exists only on the kiosk.
-  send(browser, { type: "hello", kiosk: !host, terminal: !host && Boolean(TERM_SOCKET) });
+  // It is also told which build of the frame this gateway serves: a page that runs an older one reloads itself.
+  send(browser, { type: "hello", kiosk: !host, terminal: !host && Boolean(TERM_SOCKET), build: BUILD });
   let upstream: WebSocket | undefined;
   let closed = false;
   let retry: NodeJS.Timeout | undefined;

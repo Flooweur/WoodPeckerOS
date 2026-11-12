@@ -512,6 +512,27 @@ function startGateway() {
   await shot("12-studies");
   await js(`document.querySelector(".panel-head button.ghost").click()`);
 
+  // ---- an update while the screen stays open ----
+  // The gateway is restarted as after an update, serving another build of the frame: the open page reloads itself.
+  {
+    const index = `${HUD}/dist/web/index.html`;
+    const original = fs.readFileSync(index, "utf8");
+    await js(`window.__before_update = true`);
+    gateway.kill();
+    await sleep(500);
+    fs.writeFileSync(index, original.replace("</head>", "<!-- a newer build --></head>"));
+    startGateway();
+    const reloaded = await until(`window.__before_update !== true && document.querySelectorAll(".thing.ready").length >= 4`, 25000);
+    fs.writeFileSync(index, original);
+    check("after an update the open screen loads the new frame by itself", reloaded);
+    // And back to the build under test, for the checks that follow.
+    await js(`window.__before_update = true`);
+    gateway.kill();
+    await sleep(500);
+    startGateway();
+    await until(`window.__before_update !== true && document.querySelectorAll(".thing.ready").length >= 4`, 25000);
+  }
+
   // ---- the canvas carries data (review step D) ----
   // What the operator did inside a thing (an item ticked in the list, earlier) is told to Woody once.
   const news = await woody("state_news");

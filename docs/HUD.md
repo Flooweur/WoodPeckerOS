@@ -264,6 +264,14 @@ Each approval click carries the hash of the exact action shown in the prompt; th
 - **Pause** (in the lattice menu) stops everything Woody does on its own until you resume. **Stop** (in the menu, or `Esc` with nothing open) interrupts what it is doing now.
 - The model, the daily brief, the small-goal limit and the expressions are under Settings (`F8`).
 
+## After an update
+
+A screen that stayed open during `woody-rebuild` is still running the frame it loaded before. The gateway therefore tells every page, when it connects, which build of the frame it serves (a short hash of the start page). A page that was loaded with another build reloads itself. This takes a few seconds after the gateway has restarted, and it also happens in your Windows browser.
+
+What is lost in the reload: what you were typing, and which record was open. The conversation, the canvas and what things hold are kept by the gateway and the agent, not by the page.
+
+This exists since the build of 2026-11-12. A screen opened before that build cannot reload itself: press `Ctrl+R` on it once.
+
 ## If the screen is blank or stuck
 
 ```bash
