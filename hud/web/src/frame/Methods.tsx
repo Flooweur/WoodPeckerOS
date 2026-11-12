@@ -10,7 +10,8 @@ import { day } from "./types";
 type Actor = "program" | "woody" | "operator";
 type Version = { id: number; section: string; title: string; ts: number; text: string | null; reason: string; actor: Actor };
 type Method = { section: string; title: string; text: string; id: number; ts: number; actor: Actor; reason: string; shipped: boolean };
-type Answer = { sections: Method[]; history: Record<string, Version[]> };
+type Removed = { section: string; title: string; ts: number; actor: Actor; reason: string; last: Version | null };
+type Answer = { sections: Method[]; history: Record<string, Version[]>; removed?: Removed[] };
 
 const WHO: Record<Actor, string> = { program: "as shipped with the program", woody: "written by Woody", operator: "put back by you" };
 
@@ -26,7 +27,7 @@ export function MethodsRecord({ tx, incoming, version }: { tx: Send; incoming: M
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => mind("methods"), [version]);
   useEffect(() => {
-    if (incoming?.ok && (incoming.op === "methods" || incoming.op === "method_restore")) setAnswer(incoming.result);
+    if (incoming?.ok && (incoming.op === "methods" || incoming.op === "method_restore" || incoming.op === "method_remove")) setAnswer(incoming.result);
   }, [incoming]);
 
   if (!answer) return <p className="dim">…</p>;
@@ -72,6 +73,13 @@ export function MethodsRecord({ tx, incoming, version }: { tx: Send; incoming: M
             ) : (
               <pre>{m.text}</pre>
             )}
+            {/* A section Woody added has no version before it: the way back is to remove it. */}
+            {!m.shipped && (
+              <div className="row-actions">
+                <button onClick={() => mind("method_remove", { section: m.section })}>remove this section</button>
+                <span className="dim small">Woody added it. It is kept below, and you can bring it back.</span>
+              </div>
+            )}
             {versions.length > 1 && (
               <>
                 <h4>Versions</h4>
@@ -100,6 +108,25 @@ export function MethodsRecord({ tx, incoming, version }: { tx: Send; incoming: M
           </details>
         );
       })}
+      {(answer.removed ?? []).length > 0 && <h4>Removed sections</h4>}
+      {(answer.removed ?? []).map((r) => (
+        <details key={r.section} className="record old">
+          <summary className="small dim">
+            {r.title} · removed by {r.actor === "operator" ? "you" : "Woody"} on {day(r.ts)}
+            {r.actor === "woody" && r.reason ? ` · ${r.reason}` : ""}
+          </summary>
+          {r.last?.text && (
+            <>
+              <pre>{r.last.text}</pre>
+              <div className="row-actions">
+                <button className="ghost" onClick={() => mind("method_restore", { section: r.section, id: r.last!.id })}>
+                  bring it back
+                </button>
+              </div>
+            </>
+          )}
+        </details>
+      ))}
     </div>
   );
 }

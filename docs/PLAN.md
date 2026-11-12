@@ -356,7 +356,7 @@ What was found first: `agent/` had been Woody's to change since Phase 3, and mos
 - **Methods are data.** They are kept in the mind's store with every version (schema 11) and put in front of each session after the rules. `method_change` rewrites a section or adds one, at once and with no rebuild; `method_remove` removes a section Woody added; `method_history` shows the versions.
 - **Limits:** 4,000 characters a section, 20 sections, 24,000 characters in all, since the methods are part of every session's instructions. A section that came with the program can be rewritten, not removed. A session that read the web cannot touch them.
 - **You are told** in the daily brief, and the new record "Its methods" shows each section, the before and the after of Woody's last change, every version, and a button to put one back. No notice appears on the screen.
-- **Your undo is your answer.** Woody is told in its instructions for two weeks, and the tool refuses to write the exact text you undid.
+- **Your undo is your answer.** You put an earlier version back, or remove a section Woody added (found missing in the VM test and added the same day). Woody is told in its instructions for two weeks, and the tool refuses to write the exact text you undid.
 - **An update of the program wins.** When a section's shipped text changes, it replaces what the store holds at the next start, Woody's version stays in the history, and Woody is told to redo its change if it still makes sense.
 - **The daily reflection** may now revise a method when the day showed a better way of working.
 - **Tests:** 98 agent tests (7 new) and 119 scripted browser checks (3 new) pass; the Nix builds succeed; the agent was started locally with its methods.

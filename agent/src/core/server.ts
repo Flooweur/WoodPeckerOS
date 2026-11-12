@@ -1504,6 +1504,8 @@ function methodsRecord(): Record<string, unknown> {
   const sections = store.methods();
   return {
     sections,
+    // Sections that were removed, each with its last text: the operator can bring one back.
+    removed: store.methodsRemoved(),
     history: Object.fromEntries(sections.map((m) => [m.section, store.methodHistory(m.section, 12)])),
     limits: { max_chars: METHODS.maxChars, max_sections: METHODS.maxSections },
   };
@@ -1894,6 +1896,11 @@ function mindRequest(msg: Record<string, unknown>): unknown {
       if (typeof msg.section !== "string") throw new PolicyError("a section's name is required");
       store.restoreMethod(msg.section, needId());
       return methodsRecord();
+    case "method_remove":
+      // The operator removes a section Woody had added. One that came with the program is put back to an earlier version instead.
+      if (typeof msg.section !== "string") throw new PolicyError("a section's name is required");
+      store.removeMethod(msg.section, "removed by the operator", "operator");
+      return methodsRecord();
     case "face":
       return faceRecord();
     case "face_restore": {
@@ -2111,7 +2118,7 @@ function handle(ws: WebSocket, raw: string): void {
         send(ws, { type: "mind_result", op: msg.op, ok: true, result: mindRequest(msg) });
         const op = String(msg.op);
         const life = op === "interest_suggest" || op === "interest_drop" || op === "own_time" || op === "rhythm" || op === "study_add" || op === "study_drop" || op === "study_size";
-        if (op === "method_restore") {
+        if (op === "method_restore" || op === "method_remove") {
           void exec.event({ kind: "mind_edit", op, id: msg.section ?? null });
           broadcast({ type: "goals_changed" });
         }

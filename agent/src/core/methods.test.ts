@@ -165,6 +165,41 @@ test("the method tools: a change is Woody's, never a page's, and what the operat
   assert.throws(() => woody.setMethod({ section: "goals", text: NEW_GOALS, reason: REASON, actor: "operator" }), PolicyError);
 });
 
+test("a section Woody added can be removed by the operator, and Woody does not add it again", async () => {
+  const { store, pass } = clocked();
+  store.syncMethods(DEFAULT_METHODS);
+  const session: StoreSession = { tainted: () => false, scrub: (t) => t, starter: () => null, reflecting: () => false, study: () => null, takeSources: () => [], madeThing: () => null };
+  const tools = createMethodTools(woodyStore(store, session), () => {});
+  const call = async (name: string, args: Record<string, unknown>) => {
+    const r = (await tools.find((x) => x.name === name)!.handler(args as never, {})) as { content: Array<{ text: string }>; isError?: boolean };
+    return { text: r.content[0]!.text, error: Boolean(r.isError) };
+  };
+  const TEXT = "- Write each checkpoint so that I could resume with no other memory.\n- Say where results are stored.";
+  const WHY = "The operator told me my checkpoints are too thin.";
+  assert.ok(!(await call("method_change", { section: "checkpoints", title: "Writing checkpoints", text: TEXT, reason: WHY })).error);
+  assert.deepEqual(store.methodsRemoved(), []);
+
+  // The operator removes it: it is out of the instructions, and kept.
+  pass(DAY);
+  store.removeMethod("checkpoints", "removed by the operator", "operator");
+  assert.ok(!store.methods().some((m) => m.section === "checkpoints"));
+  assert.ok(!methodsBlock(store).includes("## Writing checkpoints"));
+  assert.deepEqual(store.methodsPutBack().map((b) => [b.section, b.removed, b.undone]), [["checkpoints", true, WHY]]);
+  assert.match(methodsBlock(store), /The operator removed the section "Writing checkpoints" \(checkpoints\), which you had added[\s\S]*do not add it again/);
+  const removed = store.methodsRemoved();
+  assert.deepEqual([removed.length, removed[0]!.actor, removed[0]!.last?.text], [1, "operator", TEXT]);
+  // The same text is refused; a section that came with the program still cannot be removed, by anyone.
+  const again = await call("method_change", { section: "checkpoints", title: "Writing checkpoints", text: TEXT, reason: "I still think it helps." });
+  assert.ok(again.error);
+  assert.match(again.text, /removed this section[\s\S]*do not add it again/);
+  assert.throws(() => store.removeMethod("goals", "removed by the operator", "operator"), /came with the program/);
+
+  // The operator can bring it back.
+  const back = store.restoreMethod("checkpoints", removed[0]!.last!.id);
+  assert.deepEqual([back.text, back.actor, back.shipped], [TEXT, "operator", false]);
+  assert.deepEqual(store.methodsRemoved(), []);
+});
+
 test("the instructions: the rules first, then the methods, then who Woody is", () => {
   const { store } = clocked();
   // Before the methods are copied in, the instructions are the rules and the identity.

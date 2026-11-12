@@ -508,9 +508,12 @@ function startGateway() {
     sections: [
       { section: "speaking", title: "Speaking with the operator", text: "- Be direct and brief.", id: 1, ts: Date.now() - 9 * 86_400_000, actor: "program", reason: "as shipped with the program", shipped: true },
       { section: "goals", title: "Working on goals", text: WOODYS, id: 7, ts: Date.now() - 3_600_000, actor: "woody", reason: "A checkpoint of mine was too thin to resume from.", shipped: true },
+      { section: "checkpoints", title: "Writing checkpoints", text: "- Say where results are stored.", id: 8, ts: Date.now() - 1_800_000, actor: "woody", reason: "The operator said my checkpoints are too thin.", shipped: false },
     ],
+    removed: [{ section: "tides", title: "Reading tide tables", ts: Date.now() - 86_400_000, actor: "operator", reason: "removed by the operator", last: { id: 5, section: "tides", title: "Reading tide tables", ts: Date.now() - 2 * 86_400_000, text: "- Give times in local time.", reason: "They asked.", actor: "woody" } }],
     history: {
       speaking: [{ id: 1, section: "speaking", title: "Speaking with the operator", ts: Date.now() - 9 * 86_400_000, text: "- Be direct and brief.", reason: "as shipped with the program", actor: "program" }],
+      checkpoints: [{ id: 8, section: "checkpoints", title: "Writing checkpoints", ts: Date.now() - 1_800_000, text: "- Say where results are stored.", reason: "The operator said my checkpoints are too thin.", actor: "woody" }],
       goals: [
         { id: 7, section: "goals", title: "Working on goals", ts: Date.now() - 3_600_000, text: WOODYS, reason: "A checkpoint of mine was too thin to resume from.", actor: "woody" },
         { id: 2, section: "goals", title: "Working on goals", ts: Date.now() - 9 * 86_400_000, text: SHIPPED, reason: "as shipped with the program", actor: "program" },
@@ -520,12 +523,21 @@ function startGateway() {
   await js(`document.querySelector(".lattice-button").click()`);
   await until(`!!document.querySelector(".menu-list")`);
   await js(`[...document.querySelectorAll(".menu-list button")].find((b) => b.textContent.includes("ITS METHODS")).click()`);
-  check("the record of its methods lists each section and says which Woody wrote", (await until(`document.querySelectorAll(".methods > details").length === 2`)) && (await js(`document.querySelector(".methods").textContent.includes("1 of the 2 sections was written by Woody") && document.querySelector(".methods").textContent.includes("too thin to resume from")`)));
+  check("the record of its methods lists each section and says which Woody wrote", (await until(`document.querySelectorAll(".methods > details").length === 4`)) && (await js(`document.querySelector(".methods").textContent.includes("2 of the 3 sections were written by Woody") && document.querySelector(".methods").textContent.includes("too thin to resume from")`)));
   check("a section Woody rewrote shows the before and the after", await js(`(() => { const d = [...document.querySelectorAll(".methods > details")].find((x) => x.textContent.includes("Working on goals")); return d.open && d.querySelector("mark.diff-gone")?.textContent.includes("resume") && d.querySelector("mark.diff-new")?.textContent.includes("letter to a stranger"); })()`));
   await shot("14-methods");
   await js(`[...document.querySelectorAll(".methods button")].find((b) => b.textContent.includes("put the version before back")).click()`);
   await sleep(400);
   check("one action puts the version before back", mindCalls.some((m) => m.op === "method_restore" && m.section === "goals" && m.id === 2));
+  // A section Woody added has no version before it: the operator removes it, and can bring a removed one back.
+  const added = `[...document.querySelectorAll(".methods > details")].find((x) => x.textContent.includes("Writing checkpoints"))`;
+  check("a section Woody added offers to be removed, a shipped one does not", await js(`!!${added}.querySelector("button") && ${added}.textContent.includes("remove this section") && ![...document.querySelectorAll(".methods > details")].find((x) => x.textContent.includes("Speaking with the operator")).textContent.includes("remove this section")`));
+  await js(`[...${added}.querySelectorAll("button")].find((b) => b.textContent.includes("remove this section")).click()`);
+  await sleep(400);
+  check("the operator removes a section Woody added", mindCalls.some((m) => m.op === "method_remove" && m.section === "checkpoints"));
+  await js(`[...document.querySelectorAll(".methods button")].find((b) => b.textContent.includes("bring it back")).click()`);
+  await sleep(400);
+  check("and brings a removed one back", mindCalls.some((m) => m.op === "method_restore" && m.section === "tides" && m.id === 5));
   await js(`document.querySelector(".panel-head button.ghost").click()`);
 
   // ---- pictures from the web (Phase 9c) ----

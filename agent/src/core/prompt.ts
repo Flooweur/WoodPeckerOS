@@ -11,9 +11,14 @@ const date = (ts: number) => new Date(ts).toISOString().slice(0, 10);
 export function methodsBlock(store: Store): string {
   const methods = store.methods();
   if (!methods.length) return "";
+  // What the operator undid is said here for two weeks, also when the section itself is gone.
   const notes: string[] = [];
   for (const b of store.methodsPutBack()) {
-    notes.push(`- The operator put "${b.title}" (${b.section}) back to an earlier version on ${date(b.ts)}${b.undone ? `, undoing your change ("${b.undone}")` : ""}. That is their answer: do not make that change again.`);
+    notes.push(
+      b.removed
+        ? `- The operator removed the section "${b.title}" (${b.section}), which you had added, on ${date(b.ts)}${b.undone ? ` (your reason had been: "${b.undone}")` : ""}. That is their answer: do not add it again.`
+        : `- The operator put "${b.title}" (${b.section}) back to an earlier version on ${date(b.ts)}${b.undone ? `, undoing your change ("${b.undone}")` : ""}. That is their answer: do not make that change again.`,
+    );
   }
   const since = store.now() - 14 * 86_400_000;
   for (const m of methods) {

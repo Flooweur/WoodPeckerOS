@@ -2195,15 +2195,28 @@ export class Store {
     return (this.db.prepare("SELECT * FROM methods WHERE ts >= ? AND actor = 'woody' ORDER BY id").all(ts) as Row[]).map((r) => this.toMethodVersion(r));
   }
 
-  /** Sections whose current version the operator put back, undoing a change of Woody's, in the last two weeks. */
-  methodsPutBack(): Array<{ section: string; title: string; ts: number; undone: string }> {
+  /**
+   * What the operator undid of Woody's methods in the last two weeks: a
+   * section they put back to an earlier version, or one Woody had added and
+   * they removed. `undone` is the reason Woody had given for its change.
+   */
+  methodsPutBack(): Array<{ section: string; title: string; ts: number; undone: string; removed: boolean }> {
     const since = this.now() - 14 * 86_400_000;
-    return this.methods()
-      .filter((m) => m.actor === "operator" && m.ts >= since)
-      .map((m) => {
-        const undone = this.methodHistory(m.section, 6).find((v) => v.id < m.id && v.actor === "woody");
-        return { section: m.section, title: m.title, ts: m.ts, undone: undone?.reason ?? "" };
+    const latest = (this.db.prepare("SELECT * FROM methods WHERE id IN (SELECT max(id) FROM methods GROUP BY section) ORDER BY id").all() as Row[]).map((r) => this.toMethodVersion(r));
+    return latest
+      .filter((v) => v.actor === "operator" && v.ts >= since)
+      .map((v) => {
+        const undone = this.methodHistory(v.section, 8).find((x) => x.id < v.id && x.actor === "woody" && x.text !== null);
+        return { section: v.section, title: v.title, ts: v.ts, undone: undone?.reason ?? "", removed: v.text === null };
       });
+  }
+
+  /** Sections that were removed, with the last version that had a text, so that the operator can bring one back. */
+  methodsRemoved(): Array<{ section: string; title: string; ts: number; actor: MethodVersion["actor"]; reason: string; last: MethodVersion | null }> {
+    const latest = (this.db.prepare("SELECT * FROM methods WHERE id IN (SELECT max(id) FROM methods GROUP BY section) ORDER BY id DESC").all() as Row[]).map((r) => this.toMethodVersion(r));
+    return latest
+      .filter((v) => v.text === null)
+      .map((v) => ({ section: v.section, title: v.title, ts: v.ts, actor: v.actor, reason: v.reason, last: this.methodHistory(v.section, 8).find((x) => x.text !== null) ?? null }));
   }
 
   /** Woody rewrites a section of its methods, or adds one. It takes effect at once; every version is kept. */

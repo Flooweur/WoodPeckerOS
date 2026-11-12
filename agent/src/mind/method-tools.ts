@@ -39,9 +39,13 @@ export function createMethodTools(store: Store, changed: () => void) {
           // What the operator put back is their answer: the same text is not written again.
           const back = store.methodsPutBack().find((b) => b.section === args.section);
           if (back) {
-            const undone = store.methodHistory(args.section, 8).find((v) => v.actor === "woody" && v.ts < back.ts);
+            const undone = store.methodHistory(args.section, 8).find((v) => v.actor === "woody" && v.ts < back.ts && v.text !== null);
             if (undone?.text?.trim() === args.text.trim()) {
-              return fail(`The operator put this section back on ${date(back.ts)}, undoing exactly this text. That is their answer: do not make this change again.`);
+              return fail(
+                back.removed
+                  ? `The operator removed this section on ${date(back.ts)}, and this is exactly the text it had. That is their answer: do not add it again.`
+                  : `The operator put this section back on ${date(back.ts)}, undoing exactly this text. That is their answer: do not make this change again.`,
+              );
             }
           }
           const m = store.setMethod({ section: args.section, title: args.title, text: args.text, reason: args.reason });

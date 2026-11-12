@@ -553,7 +553,7 @@ Every session is told four things, in this order:
 - **Changing one.** `method_change` takes a section's name, its complete new text and what Woody observed. It takes effect from the next session, with no rebuild. Woody may add sections of its own and remove those.
 - **When.** In any session that has not read the web: in a conversation, in its own time, and in the daily reflection, which is told that it may revise a method when the day showed a better way of working.
 - **What you see.** The daily brief names the sections that changed. The record "Its methods" shows each section, the before and the after of Woody's last change with the differing words marked, and every version.
-- **Your undo.** Putting a version back is one action and becomes a new version. For two weeks Woody's instructions say that you put it back and that this is your answer; the tool refuses the exact text you undid.
+- **Your undo.** For a section Woody rewrote, putting a version back is one action and becomes a new version. A section Woody added has no version before it: you remove it, and it stays in the record under "Removed sections", where you can bring it back. Either way, Woody's instructions say for two weeks that you undid it and that this is your answer, and the tool refuses the exact text you undid.
 - **Updates of the program.** A section whose shipped text changed replaces what the store holds at the next start, even a version Woody wrote. Woody's version stays in the history, and Woody is told.
 
 Limits to know:
