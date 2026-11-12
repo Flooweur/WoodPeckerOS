@@ -6,7 +6,8 @@ The agent is a loop: it answers when you write, and it also wakes by itself on a
 
 ## What it can and cannot do
 
-- Its source has **two parts** since Phase 10: `agent/src/core/` is locked and holds the protections (the loop, the safety instructions, the web tools, the budget, the store); everything else is Woody's own program. Woody's code is handed gated versions of the executor, the canvas and the store, and a check with every build keeps it from reaching anything else. See "The two parts of the agent" in [SELFMOD.md](SELFMOD.md).
+- Its program is **locked**: a change to anything under `agent/` needs your approval. What Woody changes by itself is data (its methods, its identity, its face, the things on the canvas). See "The agent is locked" in [SELFMOD.md](SELFMOD.md), and [ARCHITECTURE.md](ARCHITECTURE.md) for the files.
+- **What a session may do is one table** (`agent/src/core/policy.ts`). Every tool has a kind, and a tool with no kind is refused.
 - It has **no built-in tools**: no shell, no direct web access. Its tools (`agent/src/tools.ts`) are typed wrappers around executor actions, plus a few it can safely do itself as an unprivileged process.
 - **Observe:** `system_info`, `process_list`, `service_list`, `service_status`, `journal_query`, `osquery`.
 - **Operate (approval):** `service_start`, `service_stop`, `service_restart`.
@@ -73,11 +74,11 @@ Then restart the agent:
 sudo systemctl restart woody-agent
 ```
 
-This is a stopgap. Moving the key into sops-nix (encrypted in the repo) is planned.
+The key is never in the repository or in the Nix store.
 
 ## Talking to it
 
-Until the HUD exists, use the terminal client:
+You talk to Woody on the screen (see [HUD.md](HUD.md)). Over SSH there is also a terminal client, which works whatever the HUD is doing:
 
 ```bash
 sudo woody-chat
@@ -103,8 +104,7 @@ sudo woody-chat
 | `/goal-add title \| details` | Add a goal |
 | `/accept 3`, `/drop 3` | Accept a proposal or a plan (or let a stopped goal continue); drop a goal |
 | `/say 3 text` | Write to Woody in goal 3's thread |
-| `/identity` | Who Woody is, and any change it proposes |
-| `/identity-approve 2`, `/identity-reject 2` | Decide a proposed change |
+| `/identity` | Who Woody is. Its versions, and the button to put one back, are in the HUD |
 | `/brief`, `/brief 07:30`, `/brief off`, `/brief now` | Show or set the daily brief time, turn it off, or ask for one now |
 | `/reflect` | Run the daily reflection now |
 | `/stop` | Interrupt the current reply |

@@ -197,6 +197,33 @@ Still to settle when each part is built:
 - **The limit on things left for you unasked** (three a day, set by you) is read here as yours, since it is your screen, and not as one of Woody's manners.
 - **The rebuild limits of Phase 10** (at most three unasked rebuilds a day, only while nobody is at the screen) are kept for the changes Woody now applies unasked.
 
+### Measured in the VM after the review (2026-11-12)
+
+The review itself did not look at the running machine. With access to it, these were measured:
+
+| What | Value |
+|---|---|
+| Spent in the first two days | $19.65: $15.67 on 100 messages from the operator, $3.14 on 36 sessions Woody started by itself, $0.16 on 3 moments of its own, $0.69 on small side calls |
+| One message to Woody | 11 cents at the median, 16 on average, on the everyday model |
+| Fixed text sent with each new session | About 27,500 tokens (the rules, the methods and the descriptions of the 65 tools), which costs about 7 cents each time the cache is cold |
+| The tool descriptions' part of that | Roughly three quarters |
+| What the Agent SDK adds by itself | About 360 tokens and one second |
+| First words of an answer | After about 3 seconds, for a question needing one tool call |
+
+What follows from it:
+
+- **The fixed text is the cost of a message.** Shortening the rules (the draft in [RULES-DRAFT.md](RULES-DRAFT.md)) saves about a tenth of it. Loading the record-keeping tools only when they are needed would save about half. That belongs to step E.
+- **The Agent SDK is not the problem.** There is no reason to replace it.
+- **The silence in the 8b test was not the budget.** The pace had about $18 free that day. It was the two to three hours between two moments of Woody's own.
+- **Woody's commits in the VM are kept.** The checkout there pulls with rebase, and four commits of Woody's (two packages, a firewall port opened and closed again) sit on top of what comes from GitHub.
+
+### Progress
+
+| Step | State |
+|---|---|
+| A | Done, tested in the VM (commit `46e03f2`). Not done: one snapshot script instead of two, a formatter and a linter |
+| B | Done except recall by meaning: the session object, the policy table, the loop under test (9 tests against a scripted model), the loop's file split in eight, the in-process checker removed, two ledgers, the tokens of each session recorded. The rules text is drafted for the operator to read ([RULES-DRAFT.md](RULES-DRAFT.md)). The gateway (1,261 lines) and the frame's main file (1,125 lines) are not split yet |
+
 ### The order that follows
 
 | Step | What |

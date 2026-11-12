@@ -23,7 +23,7 @@ Everything the three-column HUD showed is still there, one click or one key away
 
 | Key | Record | What it holds |
 |---|---|---|
-| `F1` | Needs you | Approvals, plans to accept, questions, proposals, identity changes |
+| `F1` | Needs you | Approvals, plans to accept, questions, goals Woody proposed |
 | `F2` | New goal | The form to give Woody a goal |
 | `F3` | Goals | The goals in your order, and the standing duties with their next run and weekly spend |
 | `F4` | Conversation | Everything said, on a time spine. Each line carries the mark of its kind: circle for something said, square for a tool, triangle for a wake-up, diamond for a save, cross for a problem |

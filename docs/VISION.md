@@ -1,6 +1,6 @@
 # WoodPecker-OS: a computer that is alive
 
-Status: **design, decided with the operator on 2026-11-12.** Nothing in this document is built yet except what the "Already there" section lists. The build order is in [PLAN.md](PLAN.md).
+Status: **the design, decided with the operator on 2026-11-12.** The canvas, the inner state, Woody's own life, its identity and face, open reading, studies and its methods are built. Sound, programs on the canvas, pipes and triggers are not. A review of the whole project on the same day changed several decisions below: where this document and [REVIEW.md](REVIEW.md) disagree, the review holds. How the system is built today is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## The goal
 
@@ -233,7 +233,7 @@ Dropping the security toolkit did not drop the protections. They are what makes 
 - **Surprise fatigue.** Too many uninvited changes would become noise. Hence the daily limit, pinning and undo. The limit is enforced by the canvas, but whether a change was asked for is reported by Woody's program, which Woody cannot change today; this must be settled before Phase 10.
 - **Pipes that act.** An approved action pipe runs with nobody watching. It is bounded by what feeds it (the machine's own readings and your own things only), by fixed values, a daily cap and a switch. A reading that is wrong can still set it off.
 - **Triggers that stay silent.** A trigger on meaning can miss a change that mattered. The record of every check and the unsure cases in the daily brief are there to make a miss findable, not impossible.
-- **The wall inside the agent.** Woody's own code and its protections run in one process. What keeps them apart is a check on what is written, not a wall the machine enforces. It is backed by everything that stands outside that process.
+- **The agent's own program.** Phase 10a kept a part of the agent that Woody could rewrite apart from its protections by a check inside one process. The review removed it: the agent program is locked as a whole, and what Woody changes freely is data and, later, programs in its workbench under another user.
 - **Attachment.** A machine that seems alive invites it. The design answers with honesty about what Woody is and with nothing built to increase dependence.
 
 ## Already there
