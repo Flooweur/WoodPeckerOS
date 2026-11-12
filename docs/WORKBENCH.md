@@ -85,4 +85,4 @@ A folder shared with the Windows host was decided against for now: it is a VMwar
 | A run with the network makes the session one that read the web | Gate and loop tests | |
 | Woody's file tools in the workbench; planted links are refused | Loop test (on Linux) | |
 | Woody uses it by itself | | Done: it computed an average from a given file and left a report |
-| Giving, listing, taking, removing files | 4 gateway tests, 8 browser checks | See below |
+| Giving, listing, taking, removing files | 4 gateway tests, 8 browser checks | Done through the real gateway; Woody found a given file by itself and left a chart in `out` |

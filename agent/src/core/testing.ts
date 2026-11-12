@@ -42,6 +42,8 @@ const textOf = (content: unknown): string =>
 /** A model that does what its script says, through the same doors as the real one: the permission check, the tools, the hooks. */
 export function scriptedModel(): ScriptedModel {
   let sessions = 0;
+  /** What each working context has cost so far, as the SDK counts it. */
+  const totals = new Map<string, number>();
   const model: ScriptedModel = {
     scripts: [],
     side: () => "notes",
@@ -54,7 +56,7 @@ export function scriptedModel(): ScriptedModel {
       const options = params.options ?? {};
       const main = Boolean(options.mcpServers);
       async function* run() {
-        const session_id = `scripted-${++sessions}`;
+        const session_id = main && typeof options.resume === "string" ? options.resume : `scripted-${++sessions}`;
         const signal: AbortSignal | undefined = options.abortController?.signal;
         if (!main) {
           yield { type: "result", subtype: "success", session_id, total_cost_usd: 0.001, duration_ms: 1, num_turns: 1, result: model.side(String(params.prompt), options) };
@@ -98,8 +100,9 @@ export function scriptedModel(): ScriptedModel {
           }
           model.seen.push({ tool: step.tool, refused: decision.behavior !== "allow", error, text: textOf(content), delivered });
         }
+        totals.set(session_id, (totals.get(session_id) ?? 0) + model.costUsd);
         yield {
-          type: "result", subtype: "success", session_id, total_cost_usd: model.costUsd, duration_ms: 5, num_turns: steps.length, result: last,
+          type: "result", subtype: "success", session_id, total_cost_usd: totals.get(session_id), duration_ms: 5, num_turns: steps.length, result: last,
           usage: { input_tokens: 1000, output_tokens: 100, cache_read_input_tokens: 5000, cache_creation_input_tokens: 0 },
         };
       }

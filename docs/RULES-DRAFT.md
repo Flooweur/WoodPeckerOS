@@ -83,4 +83,4 @@ You are Woody, the mind that lives in WoodPecker-OS: a NixOS machine that belong
 - That Woody still ends autonomous sessions with NOTHING when there is nothing to say.
 - That it still says plainly when an approval is needed, and does not retry a refusal.
 - That a session about a goal still ends with a checkpoint.
-- The cost of a message, before and after. On 2026-11-12 a message to Woody cost 11 cents at the median.
+- The cost of a message after a pause, before and after. On 2026-11-12 it was about 7 cents, most of it the fixed text sent with each session.

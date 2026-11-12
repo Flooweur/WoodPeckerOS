@@ -283,3 +283,45 @@ test("files: Woody writes in its workspace and in the workbench, and nowhere els
   assert.ok(files.list(bench).entries.some((e) => e.name === "in"));
   h.close();
 });
+
+test("a file the operator gives: noted in the conversation, no session started, listed the next time they speak", async () => {
+  const h = harness();
+  const screenOf = { readyState: 1, send: () => {} };
+  fs.writeFileSync(path.join(h.agent.files.bench!, "in", "cities.csv"), "city,people\n");
+  h.agent.handle(screenOf, JSON.stringify({ type: "file_given", path: "in/cities.csv", bytes: 37 }));
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(h.model.sessions.length, 0, "giving a file wakes nobody");
+  const notes = h.agent.store.recentMessages(h.agent.threads.main, 5, ["meta"]).map((m) => m.text);
+  assert.deepEqual(notes, ["you gave Woody a file: in/cities.csv (1 KB)"]);
+  assert.ok(h.screen.some((m) => m.type === "note" && /cities\.csv/.test(m.text)));
+  h.agent.operatorMessage("Which city has more people?");
+  await h.settle();
+  assert.match(h.model.sessions[0]!.prompt, /put there by the operator for you:\n- cities\.csv/);
+  h.close();
+});
+
+test("the ledger records what each session added, although the SDK reports a running total for a continued conversation", async () => {
+  const h = harness();
+  h.model.costUsd = 0.05;
+  for (const text of ["One.", "Two.", "Three."]) {
+    h.agent.operatorMessage(text);
+    await h.settle();
+  }
+  // Three messages in one working context: the SDK said 0.05, then 0.10, then 0.15. Each cost 0.05.
+  const chat = fs
+    .readFileSync(path.join(h.agent.cfg.stateDir, "usage.jsonl"), "utf8")
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l) as { kind: string; cost_usd: number; session?: string })
+    .filter((e) => e.kind === "chat");
+  assert.deepEqual(chat.map((e) => Number(e.cost_usd.toFixed(4))), [0.05, 0.05, 0.05]);
+  assert.equal(new Set(chat.map((e) => e.session)).size, 1, "one working context was continued");
+  assert.equal(h.agent.state.sessionCostUsd, 0.15000000000000002);
+  // A session that starts from the store (here: a wake-up in its own context is not one; a new context is) counts from zero again.
+  h.agent.handle({ readyState: 1, send: () => {} }, JSON.stringify({ type: "new_session" }));
+  h.agent.operatorMessage("Four.");
+  await h.settle();
+  const last = fs.readFileSync(path.join(h.agent.cfg.stateDir, "usage.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)).filter((e) => e.kind === "chat").pop();
+  assert.equal(Number(last.cost_usd.toFixed(4)), 0.05);
+  h.close();
+});

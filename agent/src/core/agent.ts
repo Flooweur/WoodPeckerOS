@@ -79,10 +79,13 @@ export function createAgent(deps: AgentDeps): Agent {
     try {
       const raw = JSON.parse(fs.readFileSync(STATE_FILE, "utf8")) as Partial<Persisted>;
       const model = CHAT_MODELS.some((m) => m.id === raw.model) ? raw.model! : DEFAULT_MODEL;
+      // A working context whose cost so far is not known cannot be continued without counting it twice: it starts afresh.
+      const known = typeof raw.sessionId === "string" && typeof raw.sessionCostUsd === "number";
       return {
         model,
-        sessionId: typeof raw.sessionId === "string" ? raw.sessionId : undefined,
-        sessionTurns: typeof raw.sessionTurns === "number" ? raw.sessionTurns : 0,
+        sessionId: known ? raw.sessionId : undefined,
+        sessionCostUsd: known ? raw.sessionCostUsd : undefined,
+        sessionTurns: known && typeof raw.sessionTurns === "number" ? raw.sessionTurns : 0,
         lastTurnAt: typeof raw.lastTurnAt === "number" ? raw.lastTurnAt : 0,
       };
     } catch {

@@ -258,6 +258,8 @@ export function createSessions(core: Core) {
       };
     };
 
+    /** The working context this session continues, if any. */
+    const continued = isolated ? undefined : state.sessionId;
     try {
       const stream = query({
         prompt,
@@ -285,7 +287,9 @@ export function createSessions(core: Core) {
           abortController: s.abort,
           cwd: cfg.workspace,
           maxTurns: 40,
-          maxBudgetUsd: Math.max(
+          // The SDK counts a continued working context's cost from its beginning, so the
+          // cap for this session is set above what that context has cost so far.
+          maxBudgetUsd: (continued !== undefined ? (state.sessionCostUsd ?? 0) : 0) + Math.max(
             0.01,
             Math.min(
               cfg.perTurnCapUsd,
@@ -384,7 +388,16 @@ export function createSessions(core: Core) {
               state.lastTurnAt = Date.now();
               saveState();
             }
-            cost = message.total_cost_usd ?? 0;
+            // The SDK reports what the whole working context has cost so far. When this session continued
+            // one, only what it added is this session's cost. (Until 2026-11-12 the running total was
+            // recorded each time, and the ledger counted a long conversation many times over.)
+            const reported = message.total_cost_usd ?? 0;
+            const before = continued !== undefined && continued === message.session_id ? (state.sessionCostUsd ?? 0) : 0;
+            cost = Math.max(0, reported - before);
+            if (!isolated) {
+              state.sessionCostUsd = reported;
+              saveState();
+            }
             budget.record({ kind: operator ? "chat" : own ? "own" : "autonomous", model, cost_usd: cost, session: message.session_id, source: item.source, turns: message.num_turns, tokens: tokensOf(message) });
             void exec.event({ kind: "session_end", source: item.source, model, subtype: message.subtype, cost_usd: cost });
             if (message.subtype !== "success") problem = `The session stopped early (${message.subtype.replaceAll("_", " ")})`;

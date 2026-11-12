@@ -21,7 +21,14 @@ import type { RecallOptions, WoodyStore } from "./woody-store.js";
 export type MindStateName = "attending" | "working" | "resting" | "sleeping" | "waiting" | "paused" | "out_of_allowance" | "pacing" | "no_credential" | "api_error";
 
 /** What is kept across restarts besides the mind's store: the chosen model and the model's working context. */
-export type Persisted = { model: string; sessionId?: string; sessionTurns?: number; lastTurnAt?: number };
+export type Persisted = {
+  model: string;
+  sessionId?: string;
+  sessionTurns?: number;
+  lastTurnAt?: number;
+  /** What the SDK has reported so far as the cost of the working context `sessionId`. It reports a running total, not the cost of one session. */
+  sessionCostUsd?: number;
+};
 
 /** The executor as the loop uses it. */
 export type ExecPort = Pick<ExecutorClient, "action" | "wait" | "status" | "event">;

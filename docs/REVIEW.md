@@ -203,9 +203,9 @@ The review itself did not look at the running machine. With access to it, these 
 
 | What | Value |
 |---|---|
-| Spent in the first two days | $19.65: $15.67 on 100 messages from the operator, $3.14 on 36 sessions Woody started by itself, $0.16 on 3 moments of its own, $0.69 on small side calls |
-| One message to Woody | 11 cents at the median, 16 on average, on the everyday model |
-| Fixed text sent with each new session | About 27,500 tokens (the rules, the methods and the descriptions of the 65 tools), which costs 7 to 14 cents each time the cache is cold (two messages measured) |
+| Spent in the first two days | About $5: $2.61 on 104 messages from the operator, $1.49 on 38 sessions Woody started by itself, $0.23 on 4 moments of its own, $0.69 on small side calls. The ledger said $20.86: see the correction below |
+| One message to Woody | 1.4 cents at the median, 7 cents for one in ten, 12 cents at most, on the everyday model |
+| Fixed text sent with each session | About 27,500 tokens (the rules, the methods and the descriptions of the tools). Within a conversation it is read from the cache and costs about half a cent; after a pause of more than five minutes it is written to the cache again and costs about 7 cents |
 | The tool descriptions' part of that | Roughly three quarters |
 | What the Agent SDK adds by itself | About 360 tokens and one second |
 | First words of an answer | After about 3 seconds, for a question needing one tool call |
@@ -213,7 +213,8 @@ The review itself did not look at the running machine. With access to it, these 
 
 What follows from it:
 
-- **The fixed text is the cost of a message.** Shortening the rules (the draft in [RULES-DRAFT.md](RULES-DRAFT.md)) saves about a tenth of it. Loading the record-keeping tools only when they are needed would save about half. That belongs to step E.
+- **The fixed text is what a message costs after a pause.** In a running conversation a message costs one or two cents. After five minutes of silence the fixed text is sent afresh, and that message costs about 7 cents; so does every session Woody starts by itself. Shortening the rules (the draft in [RULES-DRAFT.md](RULES-DRAFT.md)) saves about a tenth of it. Loading the record-keeping tools only when they are needed would save about half. That belongs to step E.
+- **The ledger counted long conversations many times over.** The Agent SDK reports, after each session of a continued conversation, what the whole conversation has cost so far. The agent recorded that running total each time. Found on 2026-11-12 from the token counts the ledger now keeps; the agent now records what each session added, and the past entries were corrected (the ledger as it was is kept beside it). The figures first written in this table ("$19.65", "11 cents a message") were wrong for that reason. The budget was never exceeded: the error made Woody more careful with money than it had to be, not less.
 - **The Agent SDK is not the problem.** There is no reason to replace it.
 - **The silence in the 8b test was not the budget.** The pace had about $18 free that day. It was the two to three hours between two moments of Woody's own.
 - **Woody's commits in the VM are kept.** The checkout there pulls with rebase, and four commits of Woody's (two packages, a firewall port opened and closed again) sit on top of what comes from GitHub.
