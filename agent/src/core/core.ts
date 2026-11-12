@@ -95,6 +95,9 @@ export type Core = {
   /** Gives a vector to memories that have none yet. Returns how many. */
   embedPending(max?: number): Promise<number>;
 
+  /** The things whose content changed at the screen since Woody was last told, as lines for a session's context. Each change is reported once. */
+  canvasNews(): Promise<string[]>;
+
   // ---- Woody's tools ----
   /** The mind's store as Woody's tools may use it (woody-store.ts). */
   woody: WoodyStore;

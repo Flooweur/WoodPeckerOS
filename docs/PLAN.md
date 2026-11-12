@@ -42,7 +42,7 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 | 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | 8a (inner state) done, tested in the VM. 8b (a life of its own) and 8c (identity and face) built; they await the VM test |
 | 9 | **Learning and showing**: open reading, studies, explainers, web pictures | Built in three steps (9a open reading, 9b studies and explainers, 9c web pictures); awaits the VM test |
 | 10 | **Reshaping itself**: free change of its own program | 10a (the wall around the protections) and 10b (methods as data) done, tested in the VM. 10c and 10d are replaced by the decisions of the review: see [REVIEW.md](REVIEW.md) |
-| R | **The review** of 2026-11-12: restructuring, the workbench, the canvas carrying data, the web rule by consequence, the trust dial, the HUD split | Steps A, B and C done and tested in the VM. Next: step D, the canvas carrying data. See [REVIEW.md](REVIEW.md) and [WORKBENCH.md](WORKBENCH.md) |
+| R | **The review** of 2026-11-12: restructuring, the workbench, the canvas carrying data, the web rule by consequence, the trust dial, the HUD split | Steps A to D done. Next: step E (the web rule by consequence, the trust dial, manners as Woody's own data, Woody choosing its model, tools loaded when needed). See [REVIEW.md](REVIEW.md) |
 | 11 | **Sound and voice** | Planned |
 | 12 | **Programs on the canvas** | Planned |
 | 13 | **Universal pipes**: outputs of things wired to inputs of things, the machine, Woody and approved actions | Planned (decided 2026-11-12) |

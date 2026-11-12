@@ -96,8 +96,65 @@ test("the link: a request is answered, refused, or fails when the HUD goes away"
 test("the tools exist, and the ones that change the canvas are the ones a web-reading session loses", () => {
   const tools = createCanvasTools({ link: noLink, write: async () => GOOD, canSpend: () => null });
   const names = tools.map((t) => t.name);
-  assert.deepEqual(names, ["canvas_look", "thing_source", "kit_place", "thing_make", "thing_change", "thing_place", "thing_remove"]);
-  assert.deepEqual(names.filter((n) => !["canvas_look", "thing_source"].includes(n)).sort(), [...CANVAS_CHANGING_TOOLS].sort());
+  assert.deepEqual(names, ["canvas_look", "thing_source", "kit_place", "thing_make", "thing_change", "thing_state", "thing_state_set", "thing_write", "thing_patch", "thing_place", "thing_remove"]);
+  assert.deepEqual(names.filter((n) => !["canvas_look", "thing_source", "thing_state"].includes(n)).sort(), [...CANVAS_CHANGING_TOOLS].sort());
+});
+
+test("Woody writes a thing itself, patches one by exact replacements, and reads and writes a thing's content", async () => {
+  const requests: Array<{ op: string; params: Record<string, unknown> }> = [];
+  let source = `<p id="n">0</p><script>const n = document.getElementById("n"); n.style.color = "amber"; woody.ready();</script>`;
+  let pinned = false;
+  let content: unknown = { items: ["milk"] };
+  const link: Link = {
+    connected: () => true,
+    request: async (op, params = {}) => {
+      requests.push({ op, params });
+      if (op === "get") return { thing: { id: "t1", pinned }, source };
+      if (op === "make") return { thing: { id: "t1", title: params.title }, tried: true, started: true };
+      if (op === "change") return ((source = String(params.source)), { thing: { id: "t1" }, tried: true, started: true });
+      if (op === "state_get") return content;
+      if (op === "state_set") return ((content = params.value), true);
+      if (op === "look") return { things: [] };
+      return true;
+    },
+  };
+  const tools = createCanvasTools({ link, write: async () => assert.fail("no maker is involved"), canSpend: () => null });
+  const call = async (name: string, args: Record<string, unknown>) => {
+    const r = (await tools.find((t) => t.name === name)!.handler(args as never, {})) as { content: Array<{ text: string }>; isError?: boolean };
+    return { text: r.content.map((c) => c.text).join("\n"), error: Boolean(r.isError) };
+  };
+
+  // Writing: the code is Woody's own, and must say when it is ready.
+  assert.match((await call("thing_write", { title: "Counter", source: "<p>never ready</p>", why: "a test" })).text, /never calls woody\.ready\(\)/);
+  const written = await call("thing_write", { title: "Counter", source, why: "you asked for a counter" });
+  assert.ok(!written.error, written.text);
+  assert.match(written.text, /"written_by": "you"/);
+  assert.equal(requests.find((r) => r.op === "make")!.params.source, source);
+
+  // Patching: each piece must occur exactly once, and nothing is changed otherwise.
+  const none = await call("thing_patch", { id: "t1", edits: [{ find: "colour", replace: "color" }], why: "x" });
+  assert.match(none.text, /occurs 0 times[\s\S]*Nothing was changed/);
+  const twice = await call("thing_patch", { id: "t1", edits: [{ find: "n", replace: "m" }], why: "x" });
+  assert.match(twice.text, /not once[\s\S]*longer piece/);
+  assert.equal(requests.filter((r) => r.op === "change").length, 0);
+  const patched = await call("thing_patch", { id: "t1", edits: [{ find: `"amber"`, replace: `"var(--fg)"` }, { find: ">0<", replace: ">1<" }], why: "the house colour, and start at one" });
+  assert.ok(!patched.error, patched.text);
+  assert.ok(source.includes(`n.style.color = "var(--fg)"`) && source.includes(`<p id="n">1</p>`));
+  // A replacement is taken as written: "$&" in it is not a pattern.
+  await call("thing_patch", { id: "t1", edits: [{ find: ">1<", replace: ">$&<" }], why: "x" });
+  assert.ok(source.includes(`<p id="n">$&</p>`));
+  pinned = true;
+  assert.match((await call("thing_patch", { id: "t1", edits: [{ find: "$&", replace: "2" }], why: "x" })).text, /pinned by the operator: its code cannot be changed/);
+
+  // Content: read as data, written whole. Pinning does not close a thing's data.
+  const read = await call("thing_state", { id: "t1" });
+  assert.match(read.text, /"milk"/);
+  assert.ok(!(await call("thing_state_set", { id: "t1", content: { items: ["milk", "bread"] } })).error);
+  assert.deepEqual(content, { items: ["milk", "bread"] });
+
+  // The rules of the frame come with a look, so that Woody has them when it writes.
+  const looked = await call("canvas_look", {});
+  assert.match(looked.text, /The rules of the frame[\s\S]*woody\.state\.onChange\(fn\)[\s\S]*"file", \{ path \}/);
 });
 
 test("a thing is given pictures by their id: the maker is told what each shows, the canvas which ones", async () => {

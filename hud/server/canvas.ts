@@ -54,6 +54,15 @@ export type Thing = {
   study?: StudyRef;
   /** Pictures from the web that this thing may show, each with where it came from. The frame lists them. */
   pictures?: Array<{ id: string; source: string }>;
+  /**
+   * The thing's content (its saved state): when it last changed and through
+   * whom. "you" means through the thing on a screen: the operator's hands,
+   * or the thing's own code. `hand` says that someone was touching the
+   * thing when it changed (a click, a key), as far as the browser can tell:
+   * only such a change is told to Woody. `told` is the change Woody last
+   * heard of.
+   */
+  content?: { at: number; by: Actor; hand?: boolean; told?: number };
 };
 /**
  * A picture from the web, as it is kept: fetched by the executor, decoded
@@ -193,12 +202,45 @@ export class Canvas {
     }
   }
 
-  /** A thing's own saved state. Not a change: it is not recorded and not undone. */
-  setState(id: string, value: unknown): void {
-    this.find(id);
+  /**
+   * A thing's saved state: its content. It is not a change to the canvas (it
+   * is not recorded and not undone), and pinning does not close it: a pinned
+   * thing keeps its place, its look and its code, and its data still moves.
+   * Who wrote it last is kept, so that Woody can be told what changed.
+   */
+  setState(id: string, value: unknown, by: Actor = "you", hand = by === "you"): void {
+    const thing = this.find(id);
     const body = JSON.stringify(value ?? null);
     if (body.length > LIMITS.state) throw new CanvasError("a thing's saved state is limited to 256 KB");
     this.write(path.join("things", id, "state.json"), body);
+    // What Woody wrote itself is not news to it.
+    const at = this.now();
+    // A thing that saves by itself (a timer, a counter) keeps the last time a hand changed it.
+    const prev = thing.content;
+    if (by === "you" && !hand && prev?.by === "you" && prev.hand) return;
+    thing.content = { at, by, hand: by === "you" && hand, told: by === "woody" ? at : prev?.told };
+    this.save();
+  }
+
+  /** Woody looked at a thing's content: it has seen the latest change. */
+  stateSeen(id: string): void {
+    const thing = this.find(id);
+    if (!thing.content || thing.content.told === thing.content.at) return;
+    thing.content.told = thing.content.at;
+    this.save();
+  }
+
+  /**
+   * The things whose content changed on a screen since Woody was last told.
+   * Each is reported once: asking marks them as told.
+   */
+  stateNews(): Array<{ id: string; title: string; at: number }> {
+    const news = this.things.filter((t) => !t.removed && t.content && t.content.by === "you" && t.content.hand && t.content.at > (t.content.told ?? 0));
+    if (!news.length) return [];
+    const out = news.map((t) => ({ id: t.id, title: t.title, at: t.content!.at }));
+    for (const t of news) t.content!.told = t.content!.at;
+    this.save();
+    return out;
   }
 
   /** The latest changes, newest first. */
@@ -659,11 +701,14 @@ const BRIDGE = `(() => {
   window.addEventListener("error", (e) => call("error", { message: e.message + " (line " + e.lineno + ")" }));
   window.addEventListener("unhandledrejection", (e) => call("error", { message: "unhandled: " + e.reason }));
   document.addEventListener("securitypolicyviolation", (e) => call("blocked", { directive: e.effectiveDirective, uri: e.blockedURI }));
+  // A feed read with arguments (one file, the last twenty log lines) is its own feed: its name carries them.
+  const feedKey = (feed, args) => (args === undefined || args === null ? feed : feed + ":" + JSON.stringify(args));
+  const listen = (key, cb) => { if (!feeds.has(key)) feeds.set(key, []); feeds.get(key).push(cb); };
   window.woody = {
     ready: () => call("ready", {}),
-    read: (feed) => call("read", { feed }),
-    subscribe: (feed, cb) => { if (!feeds.has(feed)) feeds.set(feed, []); feeds.get(feed).push(cb); return call("subscribe", { feed }); },
-    state: { get: () => call("state.get", {}), set: (value) => call("state.set", { value }) },
+    read: (feed, args) => call("read", { feed, args }),
+    subscribe: (feed, cb, args) => { const key = feedKey(feed, args); listen(key, cb); return call("subscribe", { feed, args, key }); },
+    state: { get: () => call("state.get", {}), set: (value) => call("state.set", { value, touched: !!(navigator.userActivation && navigator.userActivation.isActive) }), onChange: (cb) => { listen("state", cb); } },
     emit: (name, data) => call("emit", { name, data }),
     picture: (id) => call("picture", { id }),
   };

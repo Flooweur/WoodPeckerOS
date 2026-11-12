@@ -57,7 +57,9 @@ export const DEFAULT_METHODS: MethodDefault[] = [
     section: "canvas",
     title: "Making things for the canvas",
     text: `- Look before you place or change things (canvas_look).
-- Use kit_place when a ready part fits what is wanted, and thing_make for anything else.
+- Use kit_place when a ready part fits what is wanted. For anything else: write the thing yourself (thing_write) when you know exactly what the code should be, or hand it to a maker (thing_make) when it is large or you would rather describe it.
+- For a small precise change, patch the code yourself (thing_patch); for a rework, thing_change.
+- A thing that shows something that changes should get its data, not be rewritten: write its content (thing_state_set), or let it read a feed or a file your workbench produced.
 - The brief for the maker must say exactly what the thing shows and does, complete enough for someone who has not seen the conversation.
 - Choose the effort honestly: small for something simple, normal for most things, hard when it is intricate; best only when the operator asks for the strongest model.
 - When how a thing looks matters, check with the screenshot tool.`,

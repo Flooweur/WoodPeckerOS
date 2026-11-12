@@ -184,6 +184,13 @@ export function createOperatorApi(core: Core) {
           actor: "operator",
         }).memory;
       }
+      case "conversation": {
+        // The latest lines of the conversation, as said: for a thing on the canvas that shows them.
+        const n = Math.min(50, Math.max(1, Number(msg.n) || 12));
+        return store
+          .recentMessages(core.threads.main, n, ["text"])
+          .map((m) => ({ ts: m.ts, who: m.role === "user" ? "you" : "woody", text: m.text }));
+      }
       case "journal": {
         const n = Math.min(100, Math.max(1, Number(msg.n) || 10));
         return typeof msg.query === "string" && msg.query.trim() ? store.searchJournal(msg.query, n) : store.latestJournal(n);

@@ -21,6 +21,9 @@ const BENCH = "/tmp/hud-bench";
 fs.mkdirSync(`${BENCH}/in`, { recursive: true });
 fs.mkdirSync(`${BENCH}/out`, { recursive: true });
 fs.writeFileSync(`${BENCH}/out/report.txt`, "The average is 12.0.\n");
+fs.writeFileSync(`${BENCH}/out/numbers.json`, JSON.stringify({ total: 42 }));
+// The smallest PNG there is: one transparent pixel.
+fs.writeFileSync(`${BENCH}/out/dot.png`, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64"));
 const env = { ...process.env, WOODY_HUD_STATE_DIR: STATE, WOODY_HUD_RUNTIME_DIR: RUN, WOODY_HUD_PORT: "7800", WOODY_AGENT_SOCKET: AGENT_SOCK, WOODY_APPROVE_SOCKET: EXEC_SOCK, WOODY_BENCH_DIR: BENCH };
 const net = require("net");
 
@@ -163,7 +166,8 @@ function startGateway() {
     const t = targets.find((x) => x.url === src);
     if (!t) return { error: `no target for ${src}; iframe targets: ${targets.filter((x) => x.type === "iframe").length}` };
     const { sessionId } = (await cdp("Target.attachToTarget", { targetId: t.targetId, flatten: true })).result;
-    const r = await cdp("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, sessionId);
+    // userGesture: what the script does counts as the operator's hand, as a real click would.
+    const r = await cdp("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true, userGesture: true }, sessionId);
     await cdp("Target.detachFromTarget", { sessionId });
     return { value: r.result?.result?.value, error: r.result?.exceptionDetails ? JSON.stringify(r.result.exceptionDetails).slice(0, 200) : undefined };
   };
@@ -507,6 +511,41 @@ function startGateway() {
   check("and start one", mindCalls.some((m) => m.op === "study_add" && m.subject === "How clocks keep time" && m.size === "medium"));
   await shot("12-studies");
   await js(`document.querySelector(".panel-head button.ghost").click()`);
+
+  // ---- the canvas carries data (review step D) ----
+  // What the operator did inside a thing (an item ticked in the list, earlier) is told to Woody once.
+  const news = await woody("state_news");
+  check("Woody is told which things changed under the operator's hand", news.ok && news.result.some((n) => n.id === "t2" && n.title === "Reading list"), JSON.stringify(news).slice(0, 200));
+  check("a thing that saved by itself is not news", news.ok && !news.result.some((n) => n.title === "Probe"), JSON.stringify(news).slice(0, 200));
+  check("and each change is told once", (await woody("state_news")).result.length === 0);
+  const listState = await woody("state_get", { id: "t2" });
+  check("Woody reads what is in a thing", listState.ok && Array.isArray(listState.result?.done), JSON.stringify(listState).slice(0, 120));
+
+  // A thing that follows a file of the workbench, shows what Woody writes into it, and reads the machine.
+  const dataThing = await cli("make", "Numbers", `${T}/data.html`, "--why", "to show what the workbench computed", "--at", "40,470,300,170");
+  check("a thing that reads feeds starts", dataThing.ok, JSON.stringify(dataThing).slice(0, 200));
+  const madeData = dataThing.ok ? JSON.parse(dataThing.out) : {};
+  const dataId = madeData.thing?.id ?? madeData.id;
+  const seen = async (expr, ms = 12000) => { const end = Date.now() + ms; let last; while (Date.now() < end) { last = (await inThing(dataId, expr)).value; if (last === true) return true; await sleep(300); } return last; };
+  check("it shows a file of the workbench", (await seen(`document.getElementById("file").textContent === "file: 42"`)) === true);
+  check("and a picture from there", (await seen(`document.getElementById("pic").naturalWidth === 1`)) === true);
+  const svc = (await inThing(dataId, `document.getElementById("services").textContent`)).value;
+  check("a feed of the machine answers, or says plainly that it cannot", /^services: (\d+|the machine did not answer)$/.test(svc), svc);
+  fs.writeFileSync(`${BENCH}/out/numbers.json`, JSON.stringify({ total: 43 }));
+  check("when the file changes, the thing shows the new value by itself", (await seen(`document.getElementById("file").textContent === "file: 43"`, 15000)) === true);
+  // Woody writes the thing's content: it arrives while the thing runs.
+  const wrote = await woody("state_set", { id: dataId, value: { note: "written by Woody" } });
+  check("Woody writes into a thing, and the thing shows it at once", wrote.ok && (await seen(`document.getElementById("state").textContent === "content: written by Woody"`)) === true, JSON.stringify(wrote).slice(0, 160));
+  check("what Woody wrote itself is not reported back to it as news", (await woody("state_news")).result.length === 0);
+  // Pinning protects a thing's place, look and code; its data still moves.
+  await cli("pin", dataId);
+  const intoPinned = await woody("state_set", { id: dataId, value: { note: "still fed" } });
+  const codeOfPinned = await woody("change", { id: dataId, source: "<p>x</p><script>woody.ready()</script>", why: "trying" });
+  check("a pinned thing still receives its data, and its code stays closed", intoPinned.ok && !codeOfPinned.ok && (await seen(`document.getElementById("state").textContent === "content: still fed"`)) === true, `${JSON.stringify(intoPinned).slice(0, 80)} ${JSON.stringify(codeOfPinned).slice(0, 80)}`);
+  check("a thing cannot read a file outside the workbench", (await inThing(dataId, `document.getElementById("file").textContent`)).value !== "LEAK");
+  await shot("16-data");
+  await cli("pin", dataId, "off");
+  await cli("remove", dataId);
 
   // ---- files given to Woody and taken from it (review step C) ----
   await js(`document.querySelector(".lattice-button").click()`);

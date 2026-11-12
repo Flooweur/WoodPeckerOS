@@ -289,3 +289,50 @@ test("what Woody adds on its own: marked, with a note, within the operator's dai
   again.setLimit("you", 0);
   assert.throws(() => again.mayAdd({ for: "woody" }), /limit of uninvited additions to none/);
 });
+
+test("a thing's content: who changed it last is kept, Woody is told once of what changed at a screen, and pinning does not close it", () => {
+  const { canvas, dir } = fresh();
+  const list = canvas.make("woody", { title: "To do", source: CLOCK });
+  const dash = canvas.make("woody", { title: "Disk", source: CLOCK });
+  assert.deepEqual(canvas.stateNews(), [], "nothing has changed yet");
+
+  // The operator ticks an item: the thing saves its state through the bridge.
+  canvas.setState(list.id, { done: [1] });
+  assert.equal(canvas.get(list.id).content?.by, "you");
+  const news = canvas.stateNews();
+  assert.deepEqual(news.map((n) => [n.id, n.title]), [[list.id, "To do"]]);
+  assert.deepEqual(canvas.stateNews(), [], "each change is told once");
+
+  // A thing that saves by itself (no hand on it) is not news, and does not hide a change made by hand before it.
+  canvas.setState(dash.id, { tick: 1 }, "you", false);
+  assert.deepEqual(canvas.stateNews(), []);
+  canvas.setState(list.id, { done: [1, 3] });
+  canvas.setState(list.id, { done: [1, 3], seen: true }, "you", false);
+  assert.deepEqual(canvas.stateNews().map((n) => n.id), [list.id]);
+
+  // What Woody writes itself is not news to it.
+  canvas.setState(dash.id, { free_gb: 71 }, "woody");
+  assert.equal(canvas.get(dash.id).content?.by, "woody");
+  assert.deepEqual(canvas.stateNews(), []);
+
+  // Woody reading a thing has seen its latest change.
+  canvas.setState(list.id, { done: [1, 2] });
+  canvas.stateSeen(list.id);
+  assert.deepEqual(canvas.stateNews(), []);
+
+  // A pinned thing keeps its place, its look and its code; its data still moves.
+  canvas.pin("you", { id: dash.id, pinned: true });
+  canvas.setState(dash.id, { free_gb: 70 }, "woody");
+  assert.deepEqual(canvas.state(dash.id), { free_gb: 70 });
+  assert.throws(() => canvas.change("woody", { id: dash.id, source: CLOCK, why: "x" }), /pinned/);
+
+  // A change at the screen while the gateway was down for a moment is still told after a restart.
+  canvas.setState(list.id, { done: [] });
+  const again = new Canvas(dir);
+  assert.deepEqual(again.stateNews().map((n) => n.id), [list.id]);
+  // A thing that was put away has no news.
+  again.setState(dash.id, { free_gb: 1 });
+  again.pin("you", { id: dash.id, pinned: false });
+  again.remove("you", { id: dash.id });
+  assert.deepEqual(again.stateNews(), []);
+});

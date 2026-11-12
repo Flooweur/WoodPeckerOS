@@ -6,7 +6,7 @@
 // what it last said. Typing anywhere opens a line to write to Woody. A record
 // opens below the lattice; an approval prompt is drawn above everything.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas } from "../canvas/Canvas";
+import { Canvas, type BridgeAnswer } from "../canvas/Canvas";
 import type { CanvasResult, CanvasState } from "../canvas/types";
 import { ApprovalModal } from "./Approval";
 import { ChangesRecord, ThingsRecord } from "./CanvasRecords";
@@ -88,6 +88,10 @@ export function App() {
   const [designs, setDesigns] = useState<Record<string, Design>>({});
   const [canvas, setCanvas] = useState<CanvasState>({ things: [], undo: null });
   const [canvasResult, setCanvasResult] = useState<CanvasResult | null>(null);
+  /** Where the canvas takes the gateway's answers to what things asked (each one, as it arrives). */
+  const bridge = useRef<((answer: BridgeAnswer) => void) | null>(null);
+  /** Content Woody just wrote into a thing, on its way to that thing. */
+  const [pushed, setPushed] = useState<{ id: string; value: unknown; seq: number } | null>(null);
   /** The thing Woody is making right now, shown in the voice line until it is on the canvas. */
   const [making, setMaking] = useState<{ call: string; what: string } | null>(null);
   /** Lines of the conversation older than this are no longer shown by the voice line. */
@@ -288,7 +292,15 @@ export function App() {
         case "canvas":
           setCanvas({ things: Array.isArray(msg.things) ? msg.things : [], undo: msg.undo ?? null, limits: msg.limits ?? undefined });
           break;
+        case "thing_state":
+          setPushed({ id: String(msg.id), value: msg.value ?? null, seq: ++mindSeq.current });
+          break;
         case "canvas_result": {
+          // What a thing asked through the bridge goes straight to the canvas, one answer at a time.
+          if (String(msg.rid ?? "").startsWith("b")) {
+            bridge.current?.({ rid: String(msg.rid), ok: Boolean(msg.ok), result: msg.result, error: msg.error });
+            break;
+          }
           setCanvasResult({ seq: ++mindSeq.current, rid: msg.rid ?? null, op: String(msg.op), ok: Boolean(msg.ok), result: msg.result, error: msg.error });
           // A refusal of something the operator did on the canvas is said out loud.
           if (!msg.ok && !String(msg.rid ?? "").startsWith("b") && msg.rid !== "viewport") {
@@ -562,7 +574,7 @@ export function App() {
   return (
     <div className={`frame ${panel ? "with-record" : ""}`}>
       {/* ---- the canvas: Woody's ---- */}
-      <Canvas things={canvas.things} meters={meters} tx={tx} result={canvasResult} onWhy={(id) => openRecord({ kind: "things", id })} />
+      <Canvas things={canvas.things} meters={meters} tx={tx} result={canvasResult} onWhy={(id) => openRecord({ kind: "things", id })} bridge={bridge} pushed={pushed} />
       {items.length === 0 && onCanvas.length === 0 && !panel && !draft && (
         <p className="canvas-hint">Woody is here. Start typing to talk to it. Click the lattice for its records.</p>
       )}

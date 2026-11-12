@@ -1,0 +1,20 @@
+<div id="file">file: waiting</div>
+<div id="state">content: waiting</div>
+<div id="services">services: waiting</div>
+<img id="pic" alt="" style="height:24px">
+<style>
+  body { padding: 12px; display: grid; gap: 6px; }
+</style>
+<script>
+  // A thing that carries data: it follows a file of Woody's workbench, shows what Woody
+  // writes into it, and reads a feed of the machine. It shows everything as text.
+  const set = (id, text) => { document.getElementById(id).textContent = text; };
+  woody.subscribe("file", (f) => set("file", "file: " + JSON.parse(f.text).total), { path: "out/numbers.json" })
+    .catch((e) => set("file", "file: refused, " + e.message));
+  woody.state.onChange((s) => set("state", "content: " + (s && s.note)));
+  woody.state.get().then((s) => set("state", "content: " + (s ? s.note : "nothing yet")));
+  woody.read("services").then((s) => set("services", "services: " + s.units.length), (e) => set("services", "services: " + e.message));
+  woody.read("file", { path: "out/dot.png" }).then((f) => { document.getElementById("pic").src = "data:" + f.mime + ";base64," + f.base64; }, () => {});
+  woody.read("file", { path: "../hud-state/token" }).then(() => set("file", "LEAK"), () => {});
+  woody.ready();
+</script>

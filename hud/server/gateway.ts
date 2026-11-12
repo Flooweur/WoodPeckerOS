@@ -19,7 +19,6 @@
 // Because it carries approvals, access is gated by a secret token. The token
 // reaches the kiosk browser through a bootstrap file only the kiosk user can
 // read, never through a command line or an unauthenticated URL.
-import { execFile } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -28,10 +27,11 @@ import net from "node:net";
 import path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import { Canvas, CanvasError, THING_POLICY, describe, wrapThing, type Actor, type Thing } from "./canvas.js";
+import { FeedError, readFeed, readJournal } from "./feeds.js";
 import { Bench, FilesError, sendDownload } from "./files.js";
 import { tokenOk, writeBootstrap } from "./access.js";
 import { commandLine } from "./cli.js";
-import { AGENT_BOUND, AGENT_SOCKET, APPROVE_SOCKET, BIND, CANVAS_SOCKET, HOST_PORT, JOURNALCTL, ORIGINS, PORT, STATE_DIR, TERM_SOCKET, TLS_DIR, WEB_ROOT } from "./config.js";
+import { AGENT_BOUND, AGENT_SOCKET, APPROVE_SOCKET, BIND, CANVAS_SOCKET, HOST_PORT, JOURNALCTL, ORIGINS, PORT, STATE_DIR, SYSTEMCTL, TERM_SOCKET, TLS_DIR, WEB_ROOT } from "./config.js";
 import { handleLogin, hostSession, passwordIsSet, securityHeaders } from "./door.js";
 import { buildPart, kitCatalogue } from "./kit.js";
 import { readMeters } from "./meters.js";
@@ -184,10 +184,17 @@ function canvasOp(by: Actor, m: Record<string, any>): unknown {
       case "history":
         return canvas.history(Math.min(Number(m.n) || 100, 500)).map((c) => ({ ...c, text: describe(c) }));
       case "state_get":
+        // Woody reading a thing's content has seen what changed in it.
+        if (by === "woody") canvas.stateSeen(String(m.id));
         return canvas.state(String(m.id));
       case "state_set":
-        canvas.setState(String(m.id), m.value);
+        canvas.setState(String(m.id), m.value, by, by === "you" && m.touched === true);
+        // What Woody writes reaches the thing on every screen at once.
+        if (by === "woody") for (const ws of browsers) send(ws, { type: "thing_state", id: String(m.id), value: m.value ?? null });
         return true;
+      case "state_news":
+        if (by !== "woody") throw new CanvasError("that is asked for Woody");
+        return canvas.stateNews();
       case "health":
         // The frame says whether a thing started. Only a screen can know.
         if (by !== "you") throw new CanvasError("only a screen reports that");
@@ -321,7 +328,18 @@ async function woodyRequest(m: Record<string, any>): Promise<unknown> {
       kit: kitCatalogue(),
     };
   }
-  if (op === "get" || op === "kit_catalogue" || op === "limits" || op === "may_add" || op === "pictures" || op === "picture_put") return canvasOp("woody", m);
+  if (op === "get" || op === "kit_catalogue" || op === "limits" || op === "may_add" || op === "pictures" || op === "picture_put" || op === "state_get" || op === "state_news") return canvasOp("woody", m);
+  if (op === "state_set") {
+    // A thing's data, written by Woody. Pause holds it back like any other change; pinning does not.
+    let held: boolean;
+    try {
+      held = Boolean((await approvalCall({ op: "status" })).result?.paused);
+    } catch {
+      throw new CanvasError("The executor cannot be reached, so Pause cannot be checked. Nothing was changed.");
+    }
+    if (held) throw new CanvasError("paused-by-operator: the canvas is not changed while the operator has paused you");
+    return canvasOp("woody", m);
+  }
   if (!WOODY_CHANGES.has(op)) throw new CanvasError("that is the operator's alone to do");
   let paused: boolean;
   try {
@@ -334,6 +352,26 @@ async function woodyRequest(m: Record<string, any>): Promise<unknown> {
   return WOODY_TRIED.has(op) ? tried(thing, canvas.last()!.seq) : thing;
 }
 
+// ---- feeds: what things read ----
+
+const agentAsks = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+let agentAskSeq = 0;
+
+/** Asks the agent for something of the mind (the goals, the journal, memories, the conversation), over the gateway's own connection. */
+function askAgent(op: string, params: Record<string, unknown>): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    if (link?.readyState !== WebSocket.OPEN) return reject(new FeedError("Woody is not connected right now"));
+    const rid = `f${++agentAskSeq}`;
+    agentAsks.set(rid, { resolve, reject });
+    setTimeout(() => {
+      if (agentAsks.delete(rid)) reject(new FeedError("Woody did not answer in time"));
+    }, 6000).unref();
+    link.send(JSON.stringify({ ...params, type: "mind", op, rid }));
+  });
+}
+
+const feedDeps = { systemctl: SYSTEMCTL, journalctl: JOURNALCTL, askAgent, bench };
+
 function connectCanvasLink(): void {
   const ws = new WebSocket(`ws+unix://${AGENT_SOCKET}:/`);
   ws.on("open", () => {
@@ -345,6 +383,16 @@ function connectCanvasLink(): void {
     try {
       m = JSON.parse(data.toString());
     } catch {
+      return;
+    }
+    if (m.type === "mind_result" && typeof m.rid === "string") {
+      // The agent's answer to something a feed asked (askAgent below).
+      const waiting = agentAsks.get(m.rid);
+      if (waiting) {
+        agentAsks.delete(m.rid);
+        if (m.ok) waiting.resolve(m.result);
+        else waiting.reject(new FeedError(String(m.error ?? "the agent refused")));
+      }
       return;
     }
     if (m.type !== "canvas_request") return; // the agent's broadcasts are for the screens, not for this link
@@ -608,6 +656,16 @@ wss.on("connection", (browser: WebSocket, host: boolean) => {
       return;
     }
 
+    if (type === "canvas_op" && msg.op === "feed") {
+      // A thing reads a feed through the bridge (feeds.ts). Read-only, whatever it asks for.
+      try {
+        send(browser, { type: "canvas_result", rid: msg.rid ?? null, op: "feed", ok: true, result: await readFeed(feedDeps, String(msg.feed ?? ""), (msg.args ?? {}) as Record<string, unknown>) });
+      } catch (err) {
+        send(browser, { type: "canvas_result", rid: msg.rid ?? null, op: "feed", ok: false, error: err instanceof FeedError || err instanceof FilesError ? err.message : "that feed could not be read" });
+      }
+      return;
+    }
+
     if (type === "canvas_op") {
       // What the operator does on the canvas, and what things ask of the bridge.
       try {
@@ -669,33 +727,11 @@ wss.on("connection", (browser: WebSocket, host: boolean) => {
     if (type === "logs") {
       // The system journal, for the operator's eyes. Every argument is checked;
       // nothing the browser sends reaches a shell.
-      const args = ["-o", "json", "--no-pager", "-n", String(Math.min(500, Math.max(10, Number(msg.lines) || 200)))];
-      if (typeof msg.unit === "string" && /^[A-Za-z0-9@_.-]{1,120}\.(service|socket|timer|target)$/.test(msg.unit)) args.push(`--unit=${msg.unit}`);
-      const priority = Number(msg.priority);
-      if (Number.isInteger(priority) && priority >= 0 && priority <= 7) args.push(`--priority=${priority}`);
-      if (typeof msg.since === "string" && /^-\d{1,4}[smhd]$/.test(msg.since)) args.push(`--since=${msg.since}`);
-      execFile(JOURNALCTL, args, { timeout: 8000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
-        if (err && !stdout) {
-          send(browser, { type: "logs", ok: false, error: "The journal could not be read.", entries: [] });
-          return;
-        }
-        const entries: Array<Record<string, unknown>> = [];
-        for (const line of stdout.split("\n")) {
-          if (!line) continue;
-          try {
-            const j = JSON.parse(line);
-            entries.push({
-              ts: Math.round(Number(j.__REALTIME_TIMESTAMP ?? 0) / 1000),
-              unit: j._SYSTEMD_UNIT ?? j.SYSLOG_IDENTIFIER ?? "kernel",
-              priority: Number(j.PRIORITY ?? 6),
-              message: typeof j.MESSAGE === "string" ? j.MESSAGE.slice(0, 2000) : "[binary]",
-            });
-          } catch {
-            /* skip a damaged line */
-          }
-        }
-        send(browser, { type: "logs", ok: true, entries });
-      });
+      try {
+        send(browser, { type: "logs", ok: true, entries: await readJournal(JOURNALCTL, msg) });
+      } catch {
+        send(browser, { type: "logs", ok: false, error: "The journal could not be read.", entries: [] });
+      }
       return;
     }
 

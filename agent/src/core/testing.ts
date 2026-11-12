@@ -145,6 +145,10 @@ export type Harness = {
   exec: FakeExec;
   /** Every request the canvas received from the agent. */
   canvas: Array<{ op: string } & Record<string, unknown>>;
+  /** What the operator changed inside things since Woody was last told; the canvas reports each change once. */
+  news: Array<{ id: string; title: string; at: number }>;
+  /** The content of things, as the canvas keeps it. */
+  states: Map<string, unknown>;
   /** Every message the agent sent to the screens. */
   screen: Array<Record<string, any>>;
   /** Waits until the agent is idle and its queue is empty (`operatorOnly`: until the operator's messages are answered, whatever else waits). */
@@ -189,6 +193,8 @@ export function harness(overrides: Partial<Config> = {}, keepDuties = false): Ha
 
   // The canvas: accepts every request and answers at once, as the gateway would for a thing that starts.
   const canvas: Harness["canvas"] = [];
+  const news: Harness["news"] = [];
+  const states: Harness["states"] = new Map();
   let made = 0;
   agent.canvasLink.attach({
     readyState: 1,
@@ -201,13 +207,16 @@ export function harness(overrides: Partial<Config> = {}, keepDuties = false): Ha
         : m.op === "make" || m.op === "kit" ? { thing: { id: `t${++made}`, title: m.title }, tried: true, started: true }
         : m.op === "may_add" ? true
         : m.op === "pictures" ? []
+        : m.op === "state_news" ? news.splice(0)
+        : m.op === "state_get" ? (states.get(String(m.id)) ?? null)
+        : m.op === "state_set" ? (states.set(String(m.id), m.value), true)
         : {};
       queueMicrotask(() => agent.canvasLink.reply({ rid: m.rid, ok: true, result }));
     },
   });
 
   return {
-    agent, model, exec, canvas, screen,
+    agent, model, exec, canvas, news, states, screen,
     async settle(operatorOnly = false) {
       for (let i = 0; i < 400; i++) {
         await new Promise((r) => setTimeout(r, 5));

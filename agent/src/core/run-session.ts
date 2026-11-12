@@ -153,6 +153,8 @@ export function createSessions(core: Core) {
       const memories = await core.recall(about, { limit: 48 }).catch(() => null);
       if (memories) s.recalled = { text: about, memories };
     }
+    // What the operator changed inside things since Woody last looked (a list filled in, an item ticked).
+    if (!reflecting) s.canvasNotes = await core.canvasNews().catch(() => []);
     const model = own ? cfg.ownModel : state.model;
     setMind(operator ? "attending" : "working", operator ? "your message" : own ? (s.study ? "time of its own: its study" : "time of its own") : trigger!.headline);
     /** In a moment of its own: what was put on the canvas and which interests moved, for the day's record. */

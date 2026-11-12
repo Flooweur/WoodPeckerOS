@@ -18,9 +18,19 @@ import type { Box, CanvasResult, ThingInfo } from "./types";
 type Entry = { frame: HTMLIFrameElement | null; onMessage: (op: string, args: any) => void };
 type Drag = { id: string; mode: "move" | "size"; startX: number; startY: number; from: Box; box: Box };
 
-/** Feeds a thing may read through the bridge. */
-const FEEDS = ["meters"];
+/** Feeds the frame itself holds: the machine's meters, and the thing's own content when Woody writes into it. */
+const LOCAL_FEEDS = ["meters", "state"];
+/**
+ * Feeds the gateway reads (hud/server/feeds.ts), and how often a thing that
+ * follows one gets it read again, in milliseconds. The thing hears of it only
+ * when what was read differs from the last time.
+ */
+const FEED_EVERY: Record<string, number> = { services: 10_000, logs: 10_000, goals: 15_000, journal: 15_000, memory: 30_000, conversation: 10_000, files: 5_000, file: 5_000 };
+const MAX_FOLLOWED = 8;
 const START_MS = 8000;
+
+/** What a thing asked through the bridge and the gateway answered. */
+export type BridgeAnswer = { rid: string; ok: boolean; result?: unknown; error?: string };
 
 export function Canvas({
   things,
@@ -28,6 +38,8 @@ export function Canvas({
   tx,
   result,
   onWhy,
+  bridge,
+  pushed,
 }: {
   /** Every thing the gateway reported; the ones put away are not shown. */
   things: ThingInfo[];
@@ -37,11 +49,19 @@ export function Canvas({
   result: CanvasResult | null;
   /** Open the record of one thing: its source, who made it and why. */
   onWhy: (id: string) => void;
+  /** Where the page hands over the gateway's answers to what things asked: each one, as it arrives. */
+  bridge: React.MutableRefObject<((answer: BridgeAnswer) => void) | null>;
+  /** Content Woody just wrote into a thing. */
+  pushed: { id: string; value: unknown; seq: number } | null;
 }) {
   const shown = useMemo(() => things.filter((t) => !t.removed), [things]);
   const registry = useRef(new Map<string, Entry>());
   const subs = useRef(new Map<string, Set<string>>());
   const waiting = useRef(new Map<string, { win: Window; call: number }>());
+  /** The feeds each thing follows: read again on a timer, delivered when they change. */
+  const followed = useRef(new Map<string, Map<string, { last: string; timer: number }>>());
+  const followAsks = useRef(new Map<string, { id: string; key: string }>());
+  const versions = useRef(new Map<string, number>());
   const metersRef = useRef(meters);
   const rid = useRef(0);
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -66,13 +86,38 @@ export function Canvas({
         case "blocked":
           registry.current.get(id)?.onMessage(m.op, m.args);
           return reply(win, call, true, true);
-        case "read":
-          return reply(win, call, true, m.args?.feed === "meters" ? metersRef.current : null);
+        case "read": {
+          const feed = String(m.args?.feed);
+          if (feed === "meters") return reply(win, call, true, metersRef.current);
+          // Every other feed is read by the gateway, which checks what is asked.
+          const r = `b${++rid.current}`;
+          waiting.current.set(r, { win, call });
+          tx({ type: "canvas_op", op: "feed", id, feed: feed.slice(0, 40), args: m.args?.args ?? {}, rid: r });
+          return;
+        }
         case "subscribe": {
           const feed = String(m.args?.feed);
-          if (!FEEDS.includes(feed)) return reply(win, call, false, null, `there is no feed "${feed}"`);
-          if (!subs.current.has(id)) subs.current.set(id, new Set());
-          subs.current.get(id)!.add(feed);
+          if (LOCAL_FEEDS.includes(feed)) {
+            if (!subs.current.has(id)) subs.current.set(id, new Set());
+            subs.current.get(id)!.add(feed);
+            return reply(win, call, true, true);
+          }
+          const every = FEED_EVERY[feed];
+          if (!every) return reply(win, call, false, null, `there is no feed "${feed}"`);
+          const key = String(m.args?.key ?? feed).slice(0, 500);
+          const mine = followed.current.get(id) ?? new Map<string, { last: string; timer: number }>();
+          followed.current.set(id, mine);
+          if (!mine.has(key)) {
+            if (mine.size >= MAX_FOLLOWED) return reply(win, call, false, null, `a thing follows at most ${MAX_FOLLOWED} feeds`);
+            const thing = id;
+            const ask = () => {
+              const r = `bs${++rid.current}`;
+              followAsks.current.set(r, { id: thing, key });
+              tx({ type: "canvas_op", op: "feed", id: thing, feed, args: m.args?.args ?? {}, rid: r });
+            };
+            mine.set(key, { last: "", timer: window.setInterval(ask, every) });
+            ask();
+          }
           return reply(win, call, true, true);
         }
         case "state.get":
@@ -80,7 +125,8 @@ export function Canvas({
           // Always the sender's own state: the id comes from the window, not the message.
           const r = `b${++rid.current}`;
           waiting.current.set(r, { win, call });
-          tx({ type: "canvas_op", op: m.op === "state.get" ? "state_get" : "state_set", id, value: m.args?.value, rid: r });
+          // "touched": someone was clicking or typing in the thing when it saved, as far as the browser can tell.
+          tx({ type: "canvas_op", op: m.op === "state.get" ? "state_get" : "state_set", id, value: m.args?.value, touched: m.args?.touched === true, rid: r });
           return;
         }
         case "picture": {
@@ -105,14 +151,37 @@ export function Canvas({
     return () => window.removeEventListener("message", onMessage);
   }, [tx]);
 
-  // The gateway's answers to what things asked through the bridge.
+  // The gateway's answers to what things asked through the bridge. They are
+  // handed over one by one as they arrive: none may be lost, or a thing would
+  // wait for ever.
   useEffect(() => {
-    if (!result?.rid) return;
-    const w = waiting.current.get(result.rid);
-    if (!w) return;
-    waiting.current.delete(result.rid);
-    reply(w.win, w.call, result.ok, result.ok ? result.result : null, result.error);
-  }, [result]);
+    bridge.current = (answer) => {
+      const follow = followAsks.current.get(answer.rid);
+      if (follow) {
+        // A feed a thing follows was read again: the thing hears of it only if it changed.
+        followAsks.current.delete(answer.rid);
+        const entry = followed.current.get(follow.id)?.get(follow.key);
+        if (!entry || !answer.ok) return;
+        const body = JSON.stringify(answer.result ?? null);
+        if (body === entry.last) return;
+        entry.last = body;
+        registry.current.get(follow.id)?.frame?.contentWindow?.postMessage({ woody: 1, feed: follow.key, value: answer.result ?? null }, "*");
+        return;
+      }
+      const w = waiting.current.get(answer.rid);
+      if (!w) return;
+      waiting.current.delete(answer.rid);
+      reply(w.win, w.call, answer.ok, answer.ok ? answer.result : null, answer.error);
+    };
+    return () => {
+      bridge.current = null;
+    };
+  }, [bridge]);
+
+  // What Woody wrote into a thing reaches it at once, if it listens (woody.state.onChange).
+  useEffect(() => {
+    if (pushed) registry.current.get(pushed.id)?.frame?.contentWindow?.postMessage({ woody: 1, feed: "state", value: pushed.value }, "*");
+  }, [pushed]);
 
   // Readings go to the things that asked for them.
   useEffect(() => {
@@ -122,11 +191,26 @@ export function Canvas({
     }
   }, [meters]);
 
-  // A thing that left the canvas no longer receives anything.
+  // A thing that left the canvas, or was replaced by a new version of itself, no longer receives anything:
+  // the new version asks again for what it wants.
   useEffect(() => {
-    const alive = new Set(shown.map((t) => t.id));
-    for (const id of subs.current.keys()) if (!alive.has(id)) subs.current.delete(id);
+    const now = new Map(shown.map((t) => [t.id, t.version]));
+    const stop = (id: string) => {
+      subs.current.delete(id);
+      for (const f of followed.current.get(id)?.values() ?? []) window.clearInterval(f.timer);
+      followed.current.delete(id);
+    };
+    for (const id of new Set([...subs.current.keys(), ...followed.current.keys()])) {
+      if (!now.has(id) || (versions.current.has(id) && versions.current.get(id) !== now.get(id))) stop(id);
+    }
+    versions.current = now;
   }, [shown]);
+  useEffect(
+    () => () => {
+      for (const feeds of followed.current.values()) for (const f of feeds.values()) window.clearInterval(f.timer);
+    },
+    [],
+  );
 
   const register = useCallback((id: string, entry: Entry | null) => {
     if (entry) registry.current.set(id, entry);

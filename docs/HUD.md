@@ -126,7 +126,39 @@ These requests are made the way Woody makes them: a pinned thing refuses them, P
 - The gateway keeps the things under `/var/lib/woody-hud/canvas/`: each version's source, each thing's saved state, the layout, and `changes.jsonl`, the append-only record of changes. Woody's user cannot write there.
 - A thing is served at `/thing/<key>`, where the key is an unguessable name for that one thing. The page is sent with a policy that allows inline code only and forbids every network use, and the frame shows it with `sandbox="allow-scripts"`. The WebRTC interfaces are removed before the thing's code runs.
 - The frame page may only show frames from `/thing/` and `/term/`, so a thing cannot take its frame anywhere else.
-- A thing talks to the frame through the bridge (`window.woody`): `ready()`, `state.get()` and `state.set(value)` for its own saved state, `subscribe("meters", fn)` for the machine's readings, and `emit(name, data)` to tell Woody that something happened. The frame knows which thing is speaking from the window the message came from.
+- A thing talks to the frame through the bridge (`window.woody`; the feeds and `state.onChange` are described under "Things carry data"): `ready()`, `state.get()` and `state.set(value)` for its own saved state, `subscribe("meters", fn)` for the machine's readings, and `emit(name, data)` to tell Woody that something happened. The frame knows which thing is speaking from the window the message came from.
+
+### Things carry data
+
+Code: `hud/server/feeds.ts` (what a thing may read), the content of things in `hud/server/canvas.ts`, the bridge's frame side in `hud/web/src/canvas/Canvas.tsx`, Woody's tools in `agent/src/canvas.ts`.
+
+Until step D of the review a thing was sealed: it could read the machine's meters and nothing else, and Woody could neither see what you typed into a thing nor give it data. Now:
+
+- **Woody reads and writes a thing's content** (`thing_state`, `thing_state_set`). A thing that listens (`woody.state.onChange`) draws again at once when Woody writes. This is how a thing shows results that change: Woody writes, the thing draws.
+- **Woody is told what you changed.** When you tick an item or type a line in a thing, the next session's context names the thing. Nothing wakes Woody for it. Only a change made while someone was touching the thing counts; a thing that saves by itself on a timer is not news.
+- **Pinning does not close a thing's data.** A pinned thing keeps its place, its look and its code. Woody may still write its content, also in a thing you made yourself.
+- **A thing may read feeds**, all read-only:
+
+| Feed | What it gives |
+|---|---|
+| `meters` | Processor, memory, disk, network, every two seconds |
+| `services` | The machine's services and their state, and which have failed |
+| `logs` | Recent lines of the system log |
+| `goals`, `journal` | Woody's goals board and its journal |
+| `memory`, `conversation` | What Woody remembers, and the latest lines of the conversation |
+| `files`, `file` | The files in Woody's workbench, and the content of one: text, or a picture |
+
+A thing follows a feed with `woody.subscribe(feed, fn, args)`: the frame reads it again every 5 to 30 seconds and the thing hears of it only when it changed. A thing follows at most eight feeds.
+
+- **The main way to show computed results** is the `file` feed: Woody runs a program in its workbench, the program writes a file, a thing shows it and follows it.
+- **Woody writes a thing's code itself** when it knows what the code should be (`thing_write`), and patches a thing by exact replacements (`thing_patch`). The maker (`thing_make`, `thing_change`) stays for work Woody would rather describe. The rules of the frame come with `canvas_look`.
+
+Limits to know:
+
+- **Memory and conversation on the screen.** A thing Woody builds with those feeds shows personal data to whoever looks at the screen. Nothing can leave: a thing has no network.
+- **What a feed delivers is data from many hands** (log lines, files a program wrote). Things are told to show it as text. A thing that showed it as markup would still be inside its sealed frame.
+- **Writing a thing's content replaces all of it.** Woody is told to read first when you may have put something in. There is no merge.
+- **Who touched a thing** is what the browser reports from inside the thing's frame. A thing's own code could claim it; the only effect would be a line in Woody's context.
 
 ### The lattice
 

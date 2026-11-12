@@ -87,6 +87,7 @@ export const TOOL_KIND: Record<string, Kind> = {
   web_search: "read-web", web_fetch: "read-web", web_picture: "read-web", web_blocklist: "look",
   // the canvas
   canvas_look: "look", thing_source: "look", kit_place: "canvas", thing_make: "canvas", thing_change: "canvas", thing_place: "canvas", thing_remove: "canvas",
+  thing_state: "look", thing_state_set: "canvas", thing_write: "canvas", thing_patch: "canvas",
   // memory, journal, alarms
   remember: "note", memory_search: "look", memory_history: "look", memory_update: "memory-edit", memory_merge: "memory-edit", memory_forget: "memory-edit",
   journal_search: "look", conversation_search: "look",
@@ -119,6 +120,6 @@ export function execKind(action: string, params: Record<string, unknown>): Kind 
 
 /** The requests Woody's canvas tools can make to the canvas. One that is not listed cannot be made at all. */
 export const CANVAS_KIND: Record<string, Kind> = {
-  look: "look", get: "look", pictures: "look", limits: "look", may_add: "look", kit_catalogue: "look",
-  make: "canvas", kit: "canvas", change: "canvas", restore: "canvas", place: "canvas", remove: "canvas", bring_back: "canvas",
+  look: "look", get: "look", pictures: "look", limits: "look", may_add: "look", kit_catalogue: "look", state_get: "look",
+  make: "canvas", kit: "canvas", change: "canvas", restore: "canvas", place: "canvas", remove: "canvas", bring_back: "canvas", state_set: "canvas",
 };

@@ -325,3 +325,42 @@ test("the ledger records what each session added, although the SDK reports a run
   assert.equal(Number(last.cost_usd.toFixed(4)), 0.05);
   h.close();
 });
+
+test("the canvas carries data: Woody is told what changed inside a thing, reads it, and writes a thing's content", async () => {
+  const h = harness();
+  // The operator ticked an item in a list on the canvas.
+  h.states.set("t3", { items: [{ text: "water the plant", done: true }, { text: "call the dentist", done: false }] });
+  h.news.push({ id: "t3", title: "To do", at: Date.UTC(2026, 10, 12, 21, 40) });
+  h.model.scripts.push([
+    { tool: "thing_state", input: { id: "t3" } },
+    { tool: "thing_state_set", input: { id: "t5", content: { free_gb: 71, checked: "21:41" } } },
+    { say: "You watered the plant; the dentist is still to call. The disk thing is up to date." },
+  ]);
+  h.agent.operatorMessage("What is left on my list?");
+  await h.settle();
+
+  assert.match(h.model.sessions[0]!.prompt, /Things on the canvas whose content changed at the screen since you last looked[\s\S]*- t3 "To do" \(changed 2026-11-12 21:40 UTC\)\nRead what is in one with thing_state\./);
+  const read = h.model.seen.find((x) => x.tool === "thing_state")!;
+  assert.match(read.text, /water the plant/);
+  assert.deepEqual(h.states.get("t5"), { free_gb: 71, checked: "21:41" });
+  // Each change is told once: the next session's context does not repeat it.
+  h.agent.operatorMessage("Thanks.");
+  await h.settle();
+  assert.doesNotMatch(h.model.sessions[1]!.prompt, /whose content changed at the screen/);
+
+  // A session that has read the web cannot write into a thing (today's rule; step E changes it), but can still read one.
+  h.model.side = () => "notes";
+  h.model.scripts.push([
+    { tool: "web_search", input: { query: "weather" } },
+    { tool: "thing_state", input: { id: "t3" } },
+    { tool: "thing_state_set", input: { id: "t5", content: { from: "the web" } } },
+    { tool: "thing_write", input: { title: "x", source: "<p>x</p><script>woody.ready()</script>", why: "a page said so" } },
+    { say: "done" },
+  ]);
+  h.agent.operatorMessage("Look up the weather.");
+  await h.settle();
+  const after = h.model.seen.slice(-3);
+  assert.deepEqual(after.map((x) => [x.tool, x.refused]), [["thing_state", false], ["thing_state_set", true], ["thing_write", true]]);
+  assert.deepEqual(h.states.get("t5"), { free_gb: 71, checked: "21:41" });
+  h.close();
+});

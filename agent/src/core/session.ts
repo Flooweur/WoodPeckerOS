@@ -62,6 +62,8 @@ export class SessionState {
   turnSources: number[] = [];
   /** What Woody remembers that may bear on this session, found by words and by meaning before it started: the text that was searched for, and what was found. */
   recalled: { text: string; memories: Memory[] } | null = null;
+  /** Things on the canvas whose content changed at the screen since Woody last looked, as lines for the session's context. */
+  canvasNotes: string[] = [];
   /** Messages from the operator that arrived while the session was running. */
   arrivals: Array<{ queueId: number; event: number; text: string }> = [];
 

@@ -83,6 +83,8 @@ in
       WOODY_HUD_TLS_DIR = "/var/lib/woody-hud/tls";
       WOODY_TERM_SOCKET = "/run/woody-term/term.sock";
       WOODY_JOURNALCTL = "${config.systemd.package}/bin/journalctl";
+      # For the "services" feed that things on the canvas may read (hud/server/feeds.ts).
+      WOODY_SYSTEMCTL = "${config.systemd.package}/bin/systemctl";
       HOME = "/var/lib/woody-hud";
     };
     serviceConfig = {

@@ -19,6 +19,7 @@ export const PASSWORD_FILE = path.join(STATE_DIR, "host-password");
 export const TERM_SOCKET = process.env.WOODY_TERM_SOCKET ?? "";
 export const TERMINAL_FLAG = path.join(RUNTIME_DIR, "terminal-open");
 export const JOURNALCTL = process.env.WOODY_JOURNALCTL ?? "journalctl";
+export const SYSTEMCTL = process.env.WOODY_SYSTEMCTL ?? "systemctl";
 /** Where the operator's command line reaches the canvas of the running gateway. */
 export const CANVAS_SOCKET = process.env.WOODY_CANVAS_SOCKET ?? path.join(RUNTIME_DIR, "canvas.sock");
 

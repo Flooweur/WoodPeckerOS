@@ -151,7 +151,8 @@ export function createProtocol(core: Core) {
         break;
       case "mind": {
         try {
-          send(ws, { type: "mind_result", op: msg.op, ok: true, result: mindRequest(msg) });
+          // A caller that numbers its request (the gateway, reading a feed for a thing) gets the number back.
+          send(ws, { type: "mind_result", op: msg.op, ok: true, result: mindRequest(msg), ...(typeof msg.rid === "string" ? { rid: msg.rid } : {}) });
           const op = String(msg.op);
           const life = op === "interest_suggest" || op === "interest_drop" || op === "own_time" || op === "rhythm" || op === "study_add" || op === "study_drop" || op === "study_size";
           if (op === "method_restore" || op === "method_remove") {
@@ -175,7 +176,7 @@ export function createProtocol(core: Core) {
             }
           }
         } catch (err) {
-          send(ws, { type: "mind_result", op: msg.op, ok: false, error: err instanceof Error ? err.message : String(err) });
+          send(ws, { type: "mind_result", op: msg.op, ok: false, error: err instanceof Error ? err.message : String(err), ...(typeof msg.rid === "string" ? { rid: msg.rid } : {}) });
         }
         break;
       }

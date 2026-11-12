@@ -29,7 +29,13 @@ export const FILE_LIMITS = {
   entries: 500,
   depth: 5,
   name: 150,
+  /** The most a thing on the canvas may read of one file. */
+  readText: 1024 * 1024,
+  readPicture: 4 * 1024 * 1024,
 };
+
+/** Pictures a thing may show from the workbench. An SVG is text. */
+const PICTURES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 
 export type Entry = { path: string; size: number; mtime: number; dir: boolean };
 
@@ -130,6 +136,23 @@ export class Bench {
     if (!real.startsWith(root + path.sep)) throw new FilesError("that is not in the workbench", 403);
     if (!fs.statSync(real).isFile()) throw new FilesError("that is not a file", 400);
     return real;
+  }
+
+  /**
+   * One file, for a thing on the canvas to show: text as text, a picture as
+   * base64 with its type. Read-only, and only what resolve() accepts.
+   */
+  read(rel: string): { path: string; size: number; mtime: number; mime: string; text?: string; base64?: string } {
+    const file = this.resolve(rel);
+    const st = fs.statSync(file);
+    const ext = path.extname(file).toLowerCase();
+    const picture = PICTURES[ext];
+    if (st.size > (picture ? FILE_LIMITS.readPicture : FILE_LIMITS.readText)) throw new FilesError("that file is too large for a thing to read", 413);
+    const bytes = fs.readFileSync(file);
+    const base = { path: rel, size: st.size, mtime: st.mtimeMs };
+    if (picture) return { ...base, mime: picture, base64: bytes.toString("base64") };
+    if (bytes.includes(0)) throw new FilesError("that file is not text or a picture a thing can show", 415);
+    return { ...base, mime: ext === ".svg" ? "image/svg+xml" : ext === ".json" ? "application/json" : "text/plain", text: bytes.toString("utf8") };
   }
 
   /** Where a given file is kept: the "in" folder, under its own name, or with a number when that name is taken. */
