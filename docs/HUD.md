@@ -106,7 +106,7 @@ On the VM's own screen, **Terminal** in the lattice menu opens a real shell.
 
 ## What the kiosk's browser can reach
 
-Nothing but this machine. The browser on the VM's screen is started so that it resolves no outside name and cannot use WebRTC, and a firewall rule lets the `kiosk` user reach the loopback address only. This matters from Phase 7c on, when the screen will run code written by Woody.
+Nothing but this machine. The browser on the VM's screen is set by policy to look up no outside name and to keep WebRTC off the network, and a firewall rule lets the `kiosk` user reach the loopback address only. This matters from Phase 7c on, when the screen will run code written by Woody.
 
 ## Parts
 

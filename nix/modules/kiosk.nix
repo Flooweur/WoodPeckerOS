@@ -9,9 +9,12 @@
 # this flag a page could use it to send packets to any address (found by the
 # Phase 7a spike).
 #
-# --host-resolver-rules: the browser only ever talks to this machine, so it
-# resolves no other name. With the firewall rule for the kiosk user in
-# nix/locked/hud.nix, nothing shown on this screen can reach the network.
+# The browser only ever talks to this machine. A managed policy (at the end of
+# this file) sends everything else to a proxy address where nothing listens,
+# so it looks up no outside name and reaches no outside site. With the
+# firewall rule for the kiosk user in nix/locked/hud.nix, nothing shown on
+# this screen can reach the network. (A command-line flag did the same but
+# made the browser show a warning bar.)
 #
 # The session opens the bootstrap page written by the HUD gateway
 # (nix/locked/hud.nix), which loads the HUD with its access token.
@@ -44,7 +47,6 @@ let
           --disable-infobars \
           --disable-session-crashed-bubble \
           --webrtc-ip-handling-policy=disable_non_proxied_udp \
-          --host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost" \
           --user-data-dir="$HOME/.chromium-kiosk" \
           "--app=$1"
     }
@@ -95,6 +97,17 @@ in
         initial_session = { command = "${session}"; user = "kiosk"; };
         default_session = { command = "${session}"; user = "kiosk"; };
       };
+  };
+
+  # Policies for every Chromium on this machine (the kiosk's is the only one).
+  # Loopback addresses bypass the proxy by themselves, so the HUD still loads.
+  programs.chromium = {
+    enable = true;
+    extraOpts = {
+      ProxyMode = "fixed_servers";
+      ProxyServer = "127.0.0.1:9";
+      WebRtcIPHandling = "disable_non_proxied_udp";
+    };
   };
 
   fonts.packages = [ pkgs.jetbrains-mono ];

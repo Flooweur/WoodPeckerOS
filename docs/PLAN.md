@@ -169,7 +169,7 @@ Built and run in a container with the VM's own Chromium build (157), headless, t
 - The three-column HUD is replaced by the frame: a black canvas, the lattice in its corner with its menu (Pause, Stop, the records), the voice line beside it, a typing line that appears when you type anywhere, records that open below the lattice, and the approval prompt above everything. See [HUD.md](HUD.md).
 - Everything the old screen showed is a record. Nothing was dropped.
 - The source is split: `hud/web/src/frame/` holds the frame. The canvas will sit beside it. Both stay in the locked core until Phase 10 opens the canvas side to Woody.
-- The kiosk's browser is sealed from the network twice: it resolves no outside name, and a firewall rule lets the `kiosk` user reach the loopback address only.
+- The kiosk's browser is sealed from the network twice: it looks up no outside name (a managed browser policy; a command-line flag did the same but showed a warning bar in the VM), and a firewall rule lets the `kiosk` user reach the loopback address only.
 - Changed from the plan: the **changes** and **things** records and the **undo** and **mute** entries of the menu are not in 7b. They have nothing to show before the canvas exists, so they come with 7c (undo, changes, things) and Phase 11 (mute).
 - A mock of the gateway and the agent is now in the repository (`hud/dev/mock.cjs`).
 - Tested:
