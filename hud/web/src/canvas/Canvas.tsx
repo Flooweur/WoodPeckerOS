@@ -171,6 +171,7 @@ export function Canvas({
           onPin={() => tx({ type: "canvas_op", op: "pin", id: thing.id, pinned: !thing.pinned })}
           onClose={() => tx({ type: "canvas_op", op: "remove", id: thing.id })}
           onWhy={() => onWhy(thing.id)}
+          onNoteSeen={() => tx({ type: "canvas_op", op: "note_seen", id: thing.id })}
           onHealth={(phase, faults) => tx({ type: "canvas_op", op: "health", id: thing.id, version: thing.version, phase, faults, rid: "bhealth" })}
         />
       ))}
@@ -189,6 +190,7 @@ function ThingView({
   onPin,
   onClose,
   onWhy,
+  onNoteSeen,
   onHealth,
 }: {
   thing: ThingInfo;
@@ -201,6 +203,8 @@ function ThingView({
   onPin: () => void;
   onClose: () => void;
   onWhy: () => void;
+  /** The operator has read the note Woody left on this thing. */
+  onNoteSeen: () => void;
   /** Tell the gateway whether this version started: Woody's change is kept only if it did. */
   onHealth: (phase: "ready" | "failed", faults: string[]) => void;
 }) {
@@ -278,6 +282,16 @@ function ThingView({
         </button>
       </div>
       {thing.kind === "pretend" && <span className="thing-mark">pretend</span>}
+      {/* What Woody left without being asked says so, in the frame's own hand, until the operator has read it. */}
+      {thing.uninvited && thing.note && !thing.note_seen && phase === "ready" && (
+        <div className="thing-note">
+          <span className="thing-note-from">{thing.for === "woody" ? "Woody put this here for itself" : "Woody left this for you"}</span>
+          <span className="thing-note-text">{thing.note}</span>
+          <button onClick={onNoteSeen} title="Keep the thing and put the note away. It stays in the thing's record.">
+            ok
+          </button>
+        </div>
+      )}
       <div className="thing-grip" title="Resize" onPointerDown={(e) => onBegin(e, thing, "size")} onPointerMove={onMove} onPointerUp={onEnd} onPointerCancel={onEnd} />
     </div>
   );

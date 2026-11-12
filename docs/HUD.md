@@ -41,6 +41,16 @@ Everything the three-column HUD showed is still there, one click or one key away
 
 Two more records, also in the lattice menu, belong to the canvas: **Things** (every thing, on the canvas or put away: who made it, why, its versions and its source) and **Changes** (every change to the canvas with who made it and why, the attempts that were refused, and undo).
 
+**Its own life** (in the lattice menu) is the record of what Woody does when nothing is asked of it:
+
+- whether it is day, evening or night for Woody, and whether it is asleep;
+- its own share of the budget: what is free now and what is spent this month;
+- how many moments of its own it had today, and why the next one is or is not due;
+- how many things it added to the canvas today without being asked, out of the limit;
+- its interests, each with where it came from and its notes. You can suggest one and remove one;
+- what it did with its own time, from its journal, including the days it did nothing;
+- your handles: turn its own time off, set how many things it may add in a day unasked (0 to 20), set the hours of its day.
+
 ## The canvas
 
 A thing is a small live program Woody put on the canvas: a clock, a list, a chart. Each one runs sealed in its own frame, with no network and no access to the rest of the screen. It keeps working without Woody.
@@ -52,6 +62,13 @@ A thing is a small live program Woody put on the canvas: a clock, a list, a char
 - **Pretend.** A thing Woody declared as invented content has a dashed edge and a `PRETEND` mark drawn by the frame.
 - **A thing that does not work is not shown.** A thing appears once it says it is running. One that never does, or that tries to leave its frame, is covered with the reason.
 - The canvas is the same on the VM's screen and in your Windows browser, and survives restarts.
+
+### What Woody adds on its own
+
+- A thing Woody put there without having been asked is marked in its record ("Woody put it there on its own") and in the changes record ("on its own").
+- If it is for you, it carries a note saying what it is and why. The frame draws the note under the thing, outside the thing's own frame, until you click "ok". The note stays in the thing's record.
+- The gateway counts these additions and refuses the one over the day's limit (three by default). You set the limit in "Its own life", or with `woody-hud canvas limit <n> --as you`. Woody cannot.
+- Pinning, removing and undo work on them like on anything else, and Woody is told what you did.
 
 ### How Woody makes a thing
 
@@ -84,6 +101,8 @@ sudo -u woody-hud woody-hud canvas list
 | `canvas remove <id>` and `canvas bring_back <id>` | Takes it off the canvas, puts it back |
 | `canvas pin <id> [off]` | Pins or unpins it (as you) |
 | `canvas undo` | Takes back the last change (as you) |
+| `canvas limit [n]` | Shows how many things Woody may add in a day on its own and how many it has today; with a number and `--as you`, sets the limit |
+| `--uninvited --note "text"` on `make` and `kit` | Makes the thing as Woody would on its own: it needs the note, and counts against the day's limit |
 | `canvas list`, `canvas get <id>`, `canvas history [n]` | What is there, one thing with its source, the latest changes |
 
 These requests are made the way Woody makes them: a pinned thing refuses them, Pause refuses them, and a new thing that does not start is taken back. Add `--as you` to act as yourself. The file must be readable by the `woody-hud` user, which your home directory is not: use the system's copy as above, or copy your own file to `/tmp` first.
@@ -104,6 +123,7 @@ The ongoing state moves quicker when Woody is fresh and slower when it is tired.
 | Answering you | Rings spreading from the centre |
 | Working | Cells firing here and there |
 | Resting | Four centre cells breathing |
+| Asleep | Closed eyes and two Zs; one low line breathing slowly when expressions are off |
 | Waiting on you | The left edge blinking red |
 | Pacing itself | A full gauge |
 | Out of allowance | One red ember |
@@ -112,7 +132,7 @@ The ongoing state moves quicker when Woody is fresh and slower when it is tired.
 | Reading the web | Activity behind a wall with one gap |
 | Reflecting | Two halves breathing in turn |
 
-Moments play once over the state: woke up, your message arrived, a tool call, something saved, a goal done, a problem. Expressions are tied to real events: a smile when you come back after hours, a wink when a goal finishes within budget, a yawn after a long rest, three taps when it starts work on a goal, a tilted head when it asks you something, a worried face when it woke for a problem, a sparkle when you accept its proposal, a heart when you thank it, eyes towards the conversation while you type, and closed eyes when resting at night. They never cover a state that needs you, and Settings can turn them off.
+Moments play once over the state: woke up, your message arrived, a tool call, something saved, a goal done, a problem. Expressions are tied to real events: a smile when you come back after hours, a wink when a goal finishes within budget, a yawn after a long rest, three taps when it starts work on a goal, a tilted head when it asks you something, a worried face when it woke for a problem, a sparkle when you accept its proposal, a heart when you thank it, eyes towards the conversation while you type, and closed eyes while it is asleep (its night, with nobody at the screen). They never cover a state that needs you, and Settings can turn them off.
 
 ## Before you rebuild: two passwords to set
 

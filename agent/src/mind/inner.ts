@@ -25,6 +25,10 @@ export type InnerFacts = {
   newMemories: number;
   /** The model API is refusing requests. */
   apiBlocked: boolean;
+  /** It is night in Woody's rhythm. Left out, the night is taken to run from 23:00 to 07:00. */
+  night?: boolean;
+  /** Interests open on Woody's list, and how many of them it followed in the last two days. */
+  interests?: { open: number; followed: number };
 };
 
 const HOUR = 3_600_000;
@@ -54,7 +58,7 @@ export function innerState(f: InnerFacts): Inner {
   const within = (hours: number) => events.filter((e) => now - e.ts <= hours * HOUR);
   const sessions = events.filter((e) => e.kind === "session_end");
   const hour = new Date(now).getHours();
-  const night = hour >= 23 || hour < 7;
+  const night = f.night ?? (hour >= 23 || hour < 7);
 
   // ---- energy: what is left to work with, and how much was just spent ----
   const energy: Cause[] = [];
@@ -100,6 +104,7 @@ export function innerState(f: InnerFacts): Inner {
         const title = `"${String(d.title ?? "a thing")}"`;
         const mine = d.thing_by === "woody";
         if (d.by === "woody" && d.refused) add(ease, `I was refused on ${title}: ${String(d.refused)}`, -0.05 * w);
+        else if (d.by === "you" && d.op === "remove" && mine && d.thing_uninvited === true) add(ease, `you took away ${title}, which I had put there on my own`, -0.12 * w);
         else if (d.by === "woody" && d.op === "undo") add(ease, `${title} did not start and was taken back`, -0.06 * w);
         else if (d.by === "woody" && (d.op === "make" || d.op === "change")) add(ease, "things I made started and stayed", 0.03 * w);
         else if (d.by === "you" && d.op === "remove" && mine) add(ease, `you took ${title} off the canvas`, -0.08 * w);
@@ -115,6 +120,8 @@ export function innerState(f: InnerFacts): Inner {
   // ---- curiosity: something new to chew on, or only routine ----
   const curiosity: Cause[] = [];
   if (f.newMemories) curiosity.push({ text: `${plural(f.newMemories, "new thing")} learned in the last two days`, effect: Math.min(0.25, 0.04 * f.newMemories) });
+  if (f.interests?.followed) curiosity.push({ text: `I followed ${plural(f.interests.followed, "interest")} of my own lately`, effect: Math.min(0.15, 0.06 * f.interests.followed) });
+  else if (f.interests?.open) curiosity.push({ text: `${plural(f.interests.open, "interest")} on my list that I have not followed lately`, effect: Math.min(0.1, 0.03 * f.interests.open) });
   const read = events.filter((e) => e.kind === "session_tainted").reduce((s, e) => s + 0.08 * weight(e.ts, 24), 0);
   if (read) curiosity.push({ text: "I have been reading the web", effect: Math.min(0.2, read) });
   const quiet = within(24).filter((e) => e.kind === "session_end" && e.data.source !== "operator" && Array.isArray(e.data.tools) && e.data.tools.length === 0).length;

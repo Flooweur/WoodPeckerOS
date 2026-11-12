@@ -158,6 +158,7 @@ function canvasSnapshot(): Record<string, unknown> {
     type: "canvas",
     things: canvas.list().map((t) => ({ ...t, key: thingKey(t.id) })),
     undo: u ? { seq: u.seq, by: u.by, text: describe(u) } : null,
+    limits: canvas.limits(),
   };
 }
 
@@ -194,6 +195,9 @@ function tellWoody(): void {
         change: {
           seq: c.seq, by: c.by, op: c.op, id: c.id, title: c.title, why: c.why, refused: c.refused ?? null,
           thing_by: thing?.by ?? "woody", undid_by: undid?.by ?? null, pinned: c.op === "pin" && thing?.pinned === true,
+          // Whether Woody did it unasked, whether the thing was put there that way, and where a thing was moved.
+          uninvited: c.uninvited === true, thing_uninvited: thing?.uninvited === true, for: thing?.for ?? "you",
+          box: c.op === "place" ? (thing?.box ?? null) : null, from: c.op === "place" ? (c.before?.box ?? null) : null, screen: canvas.viewport,
         },
       }),
     );
@@ -215,6 +219,15 @@ function canvasOp(by: Actor, m: Record<string, any>): unknown {
         return changed(canvas.make(by, { ...m, source: buildPart(m.part, m.props) }));
       case "kit_catalogue":
         return kitCatalogue();
+      case "may_add":
+        // Asked by Woody before it spends anything on a thing nobody asked for.
+        return by === "woody" ? canvas.mayAdd(m) : true;
+      case "limits":
+        return canvas.limits();
+      case "set_limit":
+        return changed(canvas.setLimit(by, m.n));
+      case "note_seen":
+        return changed(canvas.seeNote(by, m.id));
       case "change":
         return changed(canvas.change(by, m));
       case "restore":
@@ -350,16 +363,19 @@ async function woodyRequest(m: Record<string, any>): Promise<unknown> {
         .map((t) => {
           const h = health.get(`${t.id}:${t.version}`);
           return {
-            id: t.id, title: t.title, kind: t.kind, for: t.for, made_by: t.by, why: t.why, version: t.version, pinned: t.pinned,
+            id: t.id, title: t.title, kind: t.kind, for: t.for, made_by: t.by, on_its_own: t.uninvited === true, note: t.note ?? null,
+            why: t.why, version: t.version, pinned: t.pinned,
             x: t.box.x, y: t.box.y, width: t.box.w, height: t.box.h,
             running: h ? (h.phase === "ready" ? (h.faults.length ? `yes, with faults: ${h.faults.join(" | ")}` : "yes") : `no: ${h.faults.join(" | ") || "it did not start"}`) : "not reported",
           };
         }),
-      put_away: all.filter((t) => t.removed).map((t) => ({ id: t.id, title: t.title })),
+      put_away: all.filter((t) => t.removed).map((t) => ({ id: t.id, title: t.title, made_by: t.by, on_its_own: t.uninvited === true })),
+      // Things you added today without being asked, and the most the operator allows in a day.
+      own_additions: { today: canvas.uninvitedToday(), limit: canvas.limits().uninvited_per_day },
       kit: kitCatalogue(),
     };
   }
-  if (op === "get" || op === "kit_catalogue") return canvasOp("woody", m);
+  if (op === "get" || op === "kit_catalogue" || op === "limits" || op === "may_add") return canvasOp("woody", m);
   if (!WOODY_CHANGES.has(op)) throw new CanvasError("that is the operator's alone to do");
   let paused: boolean;
   try {
@@ -1140,11 +1156,11 @@ if (process.argv[2] === "canvas") {
         request = { op, n: num(words[0]) ?? 20 };
         break;
       case "make":
-        request = { op, title: words[0], source: file(words[1]), kind: flags.pretend ? "pretend" : "real", for: flags.for, why: flags.why,
+        request = { op, title: words[0], source: file(words[1]), kind: flags.pretend ? "pretend" : "real", for: flags.for, why: flags.why, uninvited: Boolean(flags.uninvited), note: flags.note,
           box: flags.at ? Object.fromEntries(flags.at.split(",").map((v, i) => [["x", "y", "w", "h"][i]!, Number(v)])) : undefined };
         break;
       case "kit":
-        request = { op, part: words[0], props: JSON.parse(words[1] ?? "{}"), title: flags.title ?? words[0], why: flags.why };
+        request = { op, part: words[0], props: JSON.parse(words[1] ?? "{}"), title: flags.title ?? words[0], why: flags.why, for: flags.for, uninvited: Boolean(flags.uninvited), note: flags.note };
         break;
       case "change":
         request = { op, id: words[0], source: file(words[1]), why: flags.why, title: flags.title };
@@ -1160,11 +1176,15 @@ if (process.argv[2] === "canvas") {
       case "pin":
         request = { op, id: words[0], pinned: words[1] !== "off" };
         break;
+      case "limit":
+        request = words[0] === undefined ? { op: "limits" } : { op: "set_limit", n: Number(words[0]) };
+        break;
       default:
         console.error(
           "usage: woody-hud canvas list | history [n] | undo\n" +
-            "       woody-hud canvas make <title> <file> [--why text] [--pretend] [--for woody] [--at x,y,w,h]\n" +
-            "       woody-hud canvas kit <part> '<values as JSON>' [--title text] [--why text]\n" +
+            "       woody-hud canvas make <title> <file> [--why text] [--pretend] [--for woody] [--at x,y,w,h] [--uninvited --note text]\n" +
+            "       woody-hud canvas kit <part> '<values as JSON>' [--title text] [--why text] [--uninvited --note text]\n" +
+            "       woody-hud canvas limit [n]     how many things Woody may add in a day on its own (setting it needs --as you)\n" +
             "       woody-hud canvas change <id> <file> [--why text] [--title text]\n" +
             "       woody-hud canvas place <id> <x> <y> [w] [h] | remove <id> | bring_back <id> | get <id> | pin <id> [off]\n" +
             "       add --as you to act as the operator; without it the request is made as Woody would make it",

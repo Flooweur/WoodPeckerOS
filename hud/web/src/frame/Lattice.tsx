@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 export type MindStateName =
-  | "attending" | "working" | "resting" | "waiting" | "paused" | "out_of_allowance" | "pacing" | "no_credential" | "api_error";
+  | "attending" | "working" | "resting" | "sleeping" | "waiting" | "paused" | "out_of_allowance" | "pacing" | "no_credential" | "api_error";
 
 /** Shown instead of the plain state while a session is of a special kind. */
 export type Overlay = "web" | "reflecting" | null;
@@ -68,6 +68,8 @@ function stateCells(state: MindStateName, overlay: Overlay): Cell[] {
       return field((c, r) => ({ anim: "lat-pop 2.4s linear infinite", delay: hash(c, r) * 2.4 }));
     case "resting": // four centre cells breathing
       return field((c, r) => ((c === 3 || c === 4) && (r === 3 || r === 4) ? { anim: "lat-breathe 5s ease-in-out infinite" } : null));
+    case "sleeping": // one low line, breathing very slowly (the face with its Zs is the expression shown over it)
+      return field((c, r) => (r === 5 && c >= 2 && c <= 5 ? { anim: "lat-breathe 9s ease-in-out infinite" } : null));
     case "waiting": // the edge facing the inbox blinks
       return field((c) => (c === 0 ? { color: RED, opacity: 1, anim: "lat-blink 1.2s linear infinite" } : { opacity: 0.22 }));
     case "pacing": // a full gauge: the hour's ceiling is used
@@ -182,7 +184,7 @@ export function Lattice({
   const blocking = BLOCKING.includes(state);
   const shown: { key: string; cells: Cell[]; label: string } = useMemo(() => {
     if (!blocking && current) return { key: `p${current.seq}`, cells: playCells(current.name, current.seq * 37), label: current.name };
-    if (!blocking && hold && expressions && state === (hold === "asleep" ? "resting" : state)) {
+    if (!blocking && hold && expressions && state === (hold === "asleep" ? "sleeping" : state)) {
       return { key: `h-${hold}`, cells: playCells(hold, 0), label: hold };
     }
     // Only the ongoing state follows the pace. A state that needs the operator never changes its look.

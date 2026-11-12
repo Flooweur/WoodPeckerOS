@@ -55,11 +55,35 @@ const identity = {
 };
 let stateName = process.env.MOCK_STATE || "resting";
 let paused = Boolean(process.env.MOCK_PAUSED);
+let ownTime = true;
+const rhythm = { day: "07:00", night: "23:00" };
+const limits = { uninvited_per_day: 3, uninvited_today: 1 };
+let interests = EMPTY ? [] : [
+  { id: 1, topic: "How woodpeckers avoid concussion", origin: "you joked about my name on the first day", source: "woody", status: "open", created: now - 6 * 86_400_000, last_followed: now - 26 * 3_600_000, followed: 3,
+    notes: [{ ts: now - 3 * 86_400_000, text: "The hyoid bone wraps around the skull like a seat belt.", web: false }, { ts: now - 26 * 3_600_000, text: "A page claims the beak's two halves differ in length and spread the shock.", web: true }], dropped_reason: "" },
+  { id: 2, topic: "Tide tables and how they are computed", origin: "you mentioned sailing at the weekend", source: "woody", status: "open", created: now - 2 * 86_400_000, last_followed: 0, followed: 0, notes: [], dropped_reason: "" },
+  { id: 3, topic: "Btrfs snapshots", origin: "the operator suggested it", source: "operator", status: "open", created: now - 86_400_000, last_followed: now - 5 * 3_600_000, followed: 1,
+    notes: [{ ts: now - 5 * 3_600_000, text: "Snapshots here are taken before every rebuild; 14 are kept.", web: false }], dropped_reason: "" },
+  { id: 4, topic: "Paper sizes", origin: "a passing thought", source: "woody", status: "dropped", created: now - 9 * 86_400_000, last_followed: now - 8 * 86_400_000, followed: 1, notes: [], dropped_reason: "it went flat" },
+];
+const lifeResult = () => ({
+  ...state().life,
+  next: "its last moment of its own was 48 minutes ago; the next is in about 72 minutes",
+  budget: state().budget.own, session_usd: 0.4,
+  today: EMPTY ? [] : [{ ts: now - 5 * 3_600_000, kind: "free", nothing: false, cost_usd: 0.21, left: [], interests: ["Btrfs snapshots"] }, { ts: now - 48 * min, kind: "free", nothing: true, cost_usd: 0.03, left: [], interests: [] }],
+  interests,
+  journal: EMPTY ? [] : [
+    { id: 214, ts: now - 48 * min, wake: "I had time of my own.", did: "Answered without using tools.", outcome: "I chose to do nothing with it.", next: "", summary: "" },
+    { id: 209, ts: now - 5 * 3_600_000, wake: "I had time of my own.", did: "", outcome: "", next: "", summary: "I looked at how snapshots are taken on this machine, since you suggested it, and wrote down what I found. I did not put anything on the canvas: a note was enough." },
+    { id: 198, ts: now - 15 * 3_600_000, wake: "The day ended (2026-11-11).", did: "Looked back at what I did with my own time.", outcome: "I had 3 moments of my own today and used 2 of them. I followed \"How woodpeckers avoid concussion\". I put \"Hyoid sketch\" on the canvas. That cost $0.52 of my share.", next: "", summary: "" },
+  ],
+});
 const state = () => ({
   type: "state", model: "claude-sonnet-5-5",
   models: [{ id: "claude-sonnet-5-5", label: "Sonnet 5.5", note: "default" }, { id: "claude-opus-5-5", label: "Opus 5.5", note: "stronger" }],
   busy: stateName === "working" || stateName === "attending",
-  budget: { month: "2026-11", spent_usd: 19.1, cap_usd: 50, remaining_usd: 30.9, exhausted: false, daily_usd: 1.67, autonomous_usd: 1.42 },
+  budget: { month: "2026-11", spent_usd: 38.2, cap_usd: 100, remaining_usd: 61.8, exhausted: false, daily_usd: 3.33, autonomous_usd: 1.42, own: { share_usd: 25, spent_usd: 6.4, available_usd: 0.62 } },
+  life: { phase: stateName === "sleeping" ? "night" : "day", asleep: stateName === "sleeping", own_time: ownTime, day_start: rhythm.day, night_start: rhythm.night },
   has_credential: true,
   inner: {
     at: Date.now(),
@@ -74,7 +98,7 @@ const state = () => ({
     state: stateName,
     focus: stateName === "working" ? "Goal #4 (work): Find what fills the disk" : stateName === "resting" ? "until 14:35: look at the disk again"
       : stateName === "waiting" ? "2 request(s) need your decision" : stateName === "pacing" ? "12 sessions started by itself in the last hour (the ceiling). Next one at 15:07."
-      : stateName === "api_error" ? "API Error: 400 usage limit reached. Trying again at 15:20." : "",
+      : stateName === "api_error" ? "API Error: 400 usage limit reached. Trying again at 15:20." : stateName === "sleeping" ? "until 07:00" : "",
     since: now - 4 * min, mode: stateName === "working" ? "full" : null, tainted: false, failed_units: EMPTY ? [] : ["backup.service"], paused,
     queue: { operator: 0, autonomous: EMPTY ? 0 : 2 }, next_alarm: EMPTY ? null : { id: 4, due: now + 31 * min, reason: "look at the disk again" }, waiting_on_operator: 0,
   },
@@ -139,12 +163,18 @@ wss.on("connection", (ws) => {
   send(state());
   send(history);
   sendApprovals();
+  send({ type: "canvas", things: [], undo: null, limits });
   send({ type: "meters", cpu_pct: 12, mem_used_kb: 5_100_000, mem_total_kb: 8_000_000, disk_free_pct: 9, net_kbps: 38, uptime_s: 6 * 86_400, generation: 41 });
   ws.on("close", () => timers.forEach(clearTimeout));
   ws.on("message", (raw) => {
     const m = JSON.parse(raw.toString());
+    if (m.type === "canvas_op" && m.op === "set_limit") { limits.uninvited_per_day = m.n; send({ type: "canvas", things: [], undo: null, limits }); }
     if (m.type === "mind") {
-      const result = m.op === "goals" ? { goals: all, small_goal_usd: 1 } : m.op === "inbox" ? inbox : m.op === "identity" ? identity : m.op === "activity" ? activity
+      if (m.op === "own_time") { ownTime = Boolean(m.enabled); send(state()); }
+      if (m.op === "rhythm") { rhythm.day = m.day_start; rhythm.night = m.night_start; send(state()); }
+      if (m.op === "interest_drop") interests = interests.map((i) => (i.id === m.id ? { ...i, status: "dropped", dropped_reason: "removed by the operator" } : i));
+      if (m.op === "interest_suggest") interests = [...interests, { id: interests.length + 1, topic: m.topic, origin: "the operator suggested it", source: "operator", status: "open", created: Date.now(), last_followed: 0, followed: 0, notes: [], dropped_reason: "" }];
+      const result = m.op === "life" ? lifeResult() : m.op === "goals" ? { goals: all, small_goal_usd: 1 } : m.op === "inbox" ? inbox : m.op === "identity" ? identity : m.op === "activity" ? activity
         : m.op === "goal" ? { goal: all.find((g) => g.id === m.id), messages: [{ kind: "assistant", text: "The store is 41 GB so far." }, { kind: "user", text: "Leave my home directory out." }, { kind: "tool", name: "mcp__woody__goal_checkpoint" }] }
         : m.op === "memories" ? memories : m.op === "journal" ? journal : m.op === "brief" ? { time: "08:00", enabled: true } : {};
       send({ type: "mind_result", op: m.op, ok: true, result });

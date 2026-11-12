@@ -185,7 +185,21 @@ const effortSchema = z
   .describe("How much the job needs: small (simple, quick, almost free), normal (the default), hard (intricate, or a first try failed), best (only when the operator asks for the strongest model; slow and costly)");
 const whomSchema = z.enum(["operator", "yourself"]).optional().describe("Who it is for. Default: the operator");
 
-export function createCanvasTools(deps: { link: Link; write: Writer; canSpend: () => string | null }) {
+const noteSchema = z
+  .string()
+  .max(300)
+  .optional()
+  .describe("When you are putting this there without having been asked: a note for the operator, shown on the thing, saying what it is and why you thought of them. Required for an uninvited thing that is for them");
+
+export function createCanvasTools(deps: {
+  link: Link;
+  write: Writer;
+  /** A reason not to spend on a maker call of this size right now, or null. */
+  canSpend: (effort: Effort) => string | null;
+  /** True when the session in progress was not asked for by the operator: what it adds is uninvited. */
+  uninvited?: () => boolean;
+}) {
+  const uninvited = () => deps.uninvited?.() ?? false;
   const { link } = deps;
   const guarded = async (fn: () => Promise<ToolResult>): Promise<ToolResult> => {
     try {
@@ -222,6 +236,7 @@ export function createCanvasTools(deps: { link: Link; write: Writer; canSpend: (
         why: z.string().max(400).describe("Why you are putting it there, in a sentence. The operator sees this in the record of changes"),
         pretend: z.boolean().optional().describe("True if what it shows is invented"),
         for_whom: whomSchema,
+        note: noteSchema,
         x: z.number().optional(),
         y: z.number().optional(),
         width: z.number().optional(),
@@ -233,6 +248,7 @@ export function createCanvasTools(deps: { link: Link; write: Writer; canSpend: (
             await link.request("kit", {
               part: args.part, props: args.props, title: args.title, why: args.why,
               kind: args.pretend ? "pretend" : "real", for: args.for_whom === "yourself" ? "woody" : "you", box: box(args),
+              uninvited: uninvited(), note: args.note,
             }),
           ),
         ),
@@ -246,6 +262,7 @@ export function createCanvasTools(deps: { link: Link; write: Writer; canSpend: (
         why: z.string().max(400).describe("Why you are making it, in a sentence. The operator sees this in the record of changes"),
         pretend: z.boolean().optional().describe("True if what it shows is invented or playful rather than real. The canvas then marks it as pretend"),
         for_whom: whomSchema,
+        note: noteSchema,
         effort: effortSchema,
         x: z.number().optional().describe("Where to put it. Leave out to let the canvas find a free place"),
         y: z.number().optional(),
@@ -254,13 +271,19 @@ export function createCanvasTools(deps: { link: Link; write: Writer; canSpend: (
       },
       async (args) =>
         guarded(async () => {
-          const refusal = deps.canSpend();
+          const refusal = deps.canSpend(args.effort ?? "normal");
           if (refusal) return failure(refusal);
+          // The canvas checks an uninvited addition (the daily limit, the note) before anything is written or spent.
+          if (uninvited()) await link.request("may_add", { for: args.for_whom === "yourself" ? "woody" : "you", note: args.note });
           const made = await makeThing(
             deps,
             { brief: `Title: ${args.title}\n${args.brief}`, effort: args.effort ?? "normal", size: args.width && args.height ? `${args.width} by ${args.height}` : undefined },
             (source) =>
-              link.request("make", { title: args.title, source, why: args.why, kind: args.pretend ? "pretend" : "real", for: args.for_whom === "yourself" ? "woody" : "you", box: box(args) }, 40_000),
+              link.request(
+                "make",
+                { title: args.title, source, why: args.why, kind: args.pretend ? "pretend" : "real", for: args.for_whom === "yourself" ? "woody" : "you", box: box(args), uninvited: uninvited(), note: args.note },
+                40_000,
+              ),
           );
           return made.ok ? data({ ...(made.result as object), written_by: made.model, attempts: made.attempts }) : failure(made.error);
         }),
@@ -277,14 +300,14 @@ export function createCanvasTools(deps: { link: Link; write: Writer; canSpend: (
       },
       async (args) =>
         guarded(async () => {
-          const refusal = deps.canSpend();
+          const refusal = deps.canSpend(args.effort ?? "normal");
           if (refusal) return failure(refusal);
           const current = (await link.request("get", { id: args.id })) as { thing: { pinned: boolean }; source: string };
           if (current.thing.pinned) return failure(`Thing ${args.id} is pinned by the operator: it cannot be changed. Tell them, or make a separate thing if that is what they want.`);
           const made = await makeThing(
             deps,
             { brief: args.brief, effort: args.effort ?? "normal" },
-            (source) => link.request("change", { id: args.id, source, why: args.why, title: args.title }, 40_000),
+            (source) => link.request("change", { id: args.id, source, why: args.why, title: args.title, uninvited: uninvited() }, 40_000),
             current.source,
           );
           return made.ok ? data({ ...(made.result as object), written_by: made.model, attempts: made.attempts }) : failure(made.error);
@@ -294,13 +317,13 @@ export function createCanvasTools(deps: { link: Link; write: Writer; canSpend: (
       "thing_place",
       "Move or resize a thing on the canvas. Give only what should change. A pinned thing cannot be moved.",
       { id: z.string(), x: z.number().optional(), y: z.number().optional(), width: z.number().optional(), height: z.number().optional(), why: z.string().max(400).optional() },
-      async (args) => guarded(async () => data(await link.request("place", { id: args.id, box: box(args) ?? {}, raise: true, why: args.why }))),
+      async (args) => guarded(async () => data(await link.request("place", { id: args.id, box: box(args) ?? {}, raise: true, why: args.why, uninvited: uninvited() }))),
     ),
     tool(
       "thing_remove",
       "Take a thing off the canvas. It is kept with all its versions and the operator can bring it back. A pinned thing cannot be removed.",
       { id: z.string(), why: z.string().max(400).describe("Why, in a sentence") },
-      async (args) => guarded(async () => data(await link.request("remove", { id: args.id, why: args.why }))),
+      async (args) => guarded(async () => data(await link.request("remove", { id: args.id, why: args.why, uninvited: uninvited() }))),
     ),
   ];
 }

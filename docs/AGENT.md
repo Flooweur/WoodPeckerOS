@@ -16,6 +16,7 @@ The agent is a loop: it answers when you write, and it also wakes by itself on a
 - **Memory:** `remember`, `memory_search`, `memory_history`, `memory_update`, `memory_forget`, `journal_search`, `conversation_search`. These use the agent's own store (`/var/lib/woody/mind.db`), not the executor. See [MIND.md](MIND.md).
 - **Alarms:** `alarm_set`, `alarm_list`, `alarm_cancel`.
 - **Its own state:** `inner_state` returns how Woody is and the real events behind it. See "The inner state" in [MIND.md](MIND.md).
+- **Its interests:** `interest_add`, `interest_list`, `interest_note`, `interest_drop`: what Woody is curious about and where each interest came from. See "A life of its own" in [MIND.md](MIND.md).
 - **The web:** `web_search`, `web_fetch`, `web_allowlist`, `web_allow_request`. Woody only ever gets notes written by a separate reader that cannot act, and a session that used them can only observe and take notes afterwards.
 - **Reflection and identity:** `memory_merge`, `identity_propose` (a proposal changes nothing until you approve it).
 - **Goals:** `goal_board`, `goal_get`, `goal_review`, `goal_checkpoint`, `goal_propose`. Woody cannot create a goal in your name, accept a plan or raise a budget.
@@ -39,10 +40,10 @@ Woody puts things on the canvas through the HUD gateway, over a connection the g
 | best (only when you ask for the strongest) | Fable 5.2 | up to a minute, up to 26 cents |
 
 - **The trial.** The gateway shows the new thing on the screen and waits for it to say it runs. If it does not, the change is taken back and Woody is told why. The maker then gets one more attempt, by the next stronger model, with the error and what it wrote. After two failures Woody is told and says so.
-- **What it costs** is added to the monthly total as background spending. It is not yet counted against a goal's own budget.
+- **What it costs** is added to the monthly total. During a goal's session it counts against that goal's budget; in Woody's own time it comes out of Woody's share, where the strongest maker is not available.
 - **Events from things.** A thing can tell Woody that something happened on it (a button of the kit, or `woody.emit` in a made thing). Woody is woken with an event that names the thing; it is not treated as a message from you. At most six a minute from one thing and sixty an hour in all.
 - **A session that has read the web cannot change the canvas,** like every other action.
-- For now Woody changes the canvas when you ask or when a goal calls for it. Acting on the canvas on its own comes with Phase 8.
+- **On its own.** In its own time Woody may add to the canvas without being asked. Such a thing is marked as uninvited, needs a note when it is for you (`note` on `thing_make` and `kit_place`), and counts against the daily limit you set. The gateway enforces all three; see [HUD.md](HUD.md).
 
 ## Giving it the API key
 
@@ -115,8 +116,9 @@ When Woody asks for something that needs approval, the client prints the `woodyc
 | Chat, selectable | `claude-opus-5-5` | $4 / $20 |
 | Chat, selectable | `claude-fable-5-2` | $8 / $40 |
 | Triage, journal summaries and quarantined reading | `claude-haiku-5-5` | $0.10 / $0.50 |
+| Woody's own time | `claude-sonnet-5-5` | $2 / $10 |
 
-The chosen model is remembered across restarts. Every turn's cost, as reported by the SDK, is appended to `/var/lib/woody/usage.jsonl`. After each turn a short journal summary is written with `claude-haiku-5-5`; its cost is recorded there too, as "background". Two limits from `settings.nix` are enforced: `monthlyCapUsd` (new turns are refused once reached) and `perTurnCapUsd` (a single reply is stopped at that cost). What Woody does on its own is paced further: the cap is released day by day, with a reserve kept for answering you (see MIND.md).
+The chosen model is remembered across restarts. Every turn's cost, as reported by the SDK, is appended to `/var/lib/woody/usage.jsonl`. After each turn a short journal summary is written with `claude-haiku-5-5`; its cost is recorded there too, as "background". Two limits from `settings.nix` are enforced: `monthlyCapUsd` ($100; new turns are refused once reached) and `perTurnCapUsd` (a single reply is stopped at that cost). `ownShare` (0.25) is the part of the cap that Woody may spend in its own time. What Woody does on its own is paced further: the cap is released day by day, with a reserve kept for answering you (see MIND.md).
 
 ## Chat protocol
 

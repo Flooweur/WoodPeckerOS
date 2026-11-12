@@ -38,8 +38,8 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 | 4 | The mind loop: events, memory, goals, journal, alarms, pacer, web reading | Built; 4c, 4d and 4e await the VM test |
 | 5 | The first full HUD | Built; awaits the VM test |
 | 6 | Change of goal: security material removed, documents rewritten | Done (2026-11-12); awaits the VM rebuild |
-| 7 | **The canvas**: the frame, things, the kit, making | Built (7a to 7d). 7d (making) awaits the VM test |
-| 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | 8a (inner state) built; awaits the VM test. 8b (a life of its own) is next |
+| 7 | **The canvas**: the frame, things, the kit, making | Done (7a to 7d), tested in the VM |
+| 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | 8a (inner state) done, tested in the VM. 8b (a life of its own) built; awaits the VM test. 8c (identity and face) is next |
 | 9 | **Learning and showing**: open reading, studies, explainers, web pictures | Planned |
 | 10 | **Reshaping itself**: free change of its own program | Planned |
 | 11 | **Sound and voice** | Planned |
@@ -233,7 +233,26 @@ Built and run in a container with the VM's own Chromium build (157), headless, t
 - **Disagreement:** the negotiation rule is in Woody's instructions, with the rule that it never appears to comply while doing something else.
 - Not in 8a: the values do not yet change what Woody does on its own (there is no initiative before 8b), and the lattice only changes pace (its states become Woody's to redesign in 8c).
 - Tested: 7 tests of the inner state in the build (50 agent tests in all); the scripted browser check now also verifies that Woody is told of each canvas change once and in order (67 checks). The Machine record was looked at in a browser against the mock.
-- Not tested: how a real model carries the state in its tone. That is for the VM.
+- Tested in the VM by the operator on 2026-11-12.
+
+## Phase 8b results (2026-11-12): a life of its own
+
+- **Time of its own.** When nothing is asked of Woody (no message, no event, no goal to work on), plain code decides whether it takes a moment of its own (`agent/src/mind/life.ts`). The inner state decides with it: tired, it rests; rattled, it waits twice as long; curious, it comes back sooner. Each decision keeps its reason, shown in the record "Its own life".
+  - At most six moments a day, about two hours apart, each limited to $0.40. Never while you are talking with it (ten minutes after your last message), never while paused.
+  - A moment is a session of its own kind: it is told its interests, its canvas, how you handled the canvas lately and what it may spend, and that doing nothing is allowed. It runs on Sonnet 5.5 whatever model you chose for the conversation.
+  - It may look at the machine but not change it. It does not write to you: what it says at the end goes to its journal. If something is for you, it is a thing with a note.
+- **Its share of the budget.** The monthly cap is now $100 (`monthlyCapUsd`), and a quarter of it is Woody's own (`ownShare = 0.25`): $25 a month, released day by day like the rest. Its own time spends only from that share, and the maker's calls in that time too. It is a ceiling on what Woody spends for itself, not a reserve: answering you always comes first, and when your work has used the day's pace, Woody's own time waits.
+- **Interests.** A list of what Woody is curious about, each with where the curiosity came from (`interest_add`, `interest_list`, `interest_note`, `interest_drop`). At most twelve open. You see the list, can suggest an interest and can remove one. A session that has read the web cannot add or drop an interest; a note it takes is kept, labelled as coming from the web.
+- **Things left for you, with a note.** What Woody adds to the canvas without having been asked is marked as such by the gateway. A thing left for you must carry a note saying what it is and why; the frame shows the note under the thing until you have read it, and it stays in the thing's record.
+- **The daily limit.** At most three uninvited additions a day (your setting, 0 to 20, in "Its own life"). The gateway counts and refuses; Woody cannot change the setting. A thing that did not start does not count. What you ask for is never limited. Woody asks the canvas before the maker is paid, so a refusal costs nothing.
+- **The rhythm.** Woody's day runs from 07:00 to 23:00 by default (`dayStart`, `nightStart`, or from the HUD). In the last two hours of the day, its first moment is the evening tidy of the canvas. At night it sleeps: no time of its own and no standing duties. It stays awake while you were at the screen in the last half hour, and your messages and the goals you accepted are worked on at any hour. The lattice shows it asleep. The daily reflection belongs to the middle of the night (03:00 with the default hours), or to the first moment after it if the machine was off.
+- **The day's end.** When the night begins, what Woody did with its own time is written in its journal by plain code. A day on which it took no time, or let every moment pass, is recorded as that, with the reason.
+- **Noticing.** The record of how you handled the canvas (what you pinned, moved and where, took away, undid) is given to Woody in its own time and in its reflection. From a pattern it may store a conclusion about your taste, as a fact it inferred, never as your preference. The next brief tells you what it concluded so that you can correct it.
+- **The inner state** now reads the night from the rhythm, and curiosity rises with interests followed. Having something it left on its own taken away weighs on ease more than an ordinary removal.
+- **The cost of the maker and the web reader** during a goal's session now counts against that goal's budget (an open item since 7d).
+- **Known limit.** The gateway learns from the agent whether a request was asked for by you. The agent is not something Woody can change today; before Phase 10 opens the agent's program to free change, that judgement must move to the gateway.
+- Tested: 11 tests of the rhythm, the decision, the share, the interests, the digest and the prompts (61 agent tests in all); a test of the daily limit and the note in the gateway (12); the scripted browser check now covers the note on the screen, the limit, and what Woody is told (80 checks). The record "Its own life" was looked at in a browser against the mock.
+- Not tested: what a real model does with a moment of its own, and whether three additions a day and two hours between moments feel right. That is for the VM.
 
 ## Architecture
 
@@ -329,7 +348,7 @@ The inner life. After this phase, Woody does things nobody asked for and can say
 Built in three steps:
 
 - **8a. Inner state.** Built: see "Phase 8a results". The five values, what Woody is told, the true "why", the lattice's pace, the negotiation rule, and Woody being told what changes on the canvas.
-- **8b. A life of its own.** The interests list, the budget share (the cap goes to $100), time of its own, things left for you with a note, a daily limit, the rhythm of day and night, and noticing how you use the canvas.
+- **8b. A life of its own.** Built: see "Phase 8b results". The interests list, the budget share (the cap is $100), time of its own, things left for you with a note, a daily limit, the rhythm of day and night, and noticing how you use the canvas.
 - **8c. Identity and face.** The identity that evolves with versions and restore, and the lattice's states and expressions as data Woody can redesign.
 
 The whole of it:

@@ -38,8 +38,18 @@
 
   # Claude API spend limits enforced by the agent (USD). The monthly cap covers
   # chat and background work together; the per-turn cap stops one runaway reply.
-  monthlyCapUsd = 50;
+  monthlyCapUsd = 100;
   perTurnCapUsd = 2;
+
+  # Woody's own share of the monthly cap, as a fraction: what it may spend on
+  # its interests and its own projects, in its own time. 0 gives it none.
+  ownShare = 0.25;
+
+  # Woody's day, in the machine's local time. By day it is active; from
+  # nightStart to dayStart it sleeps unless you are there or have work for it.
+  # These are the defaults: you can change the hours from the HUD ("Its own life").
+  dayStart = "07:00";
+  nightStart = "23:00";
 
   # Where this repo is cloned inside the VM.
   repoPath = "/home/flooweur/WoodPeckerOS";

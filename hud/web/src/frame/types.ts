@@ -11,6 +11,8 @@ export type Budget = {
   exhausted: boolean;
   daily_usd?: number;
   autonomous_usd?: number;
+  /** Woody's own share of the month, what it has used of it, and what it may use now. */
+  own?: { share_usd: number; spent_usd: number; available_usd: number };
 };
 
 export type MindState = {
@@ -31,6 +33,30 @@ export type Feeling = { value: number; word: string; causes: Array<{ text: strin
 /** Woody's inner state, computed by the agent from the record (agent/src/mind/inner.ts). */
 export type Inner = { at: number; energy: Feeling; ease: Feeling; curiosity: Feeling; attention: Feeling; unease: Feeling };
 
+/** Woody's day, as the agent reports it with its state. */
+export type LifeNow = { phase: "day" | "evening" | "night"; asleep: boolean; own_time: boolean; day_start: string; night_start: string };
+export type Interest = {
+  id: number;
+  topic: string;
+  origin: string;
+  source: "woody" | "operator";
+  status: "open" | "dropped";
+  created: number;
+  last_followed: number;
+  followed: number;
+  notes: Array<{ ts: number; text: string; web: boolean }>;
+  dropped_reason: string;
+};
+/** The record of Woody's own life (the agent's "life" answer). */
+export type Life = LifeNow & {
+  next: string;
+  budget: { share_usd: number; spent_usd: number; available_usd: number };
+  session_usd: number;
+  today: Array<{ ts: number; kind: string; nothing: boolean; cost_usd: number; left: string[]; interests: string[] }>;
+  interests: Interest[];
+  journal: JournalEntry[];
+};
+
 export type AgentState = {
   model: string;
   models: Model[];
@@ -39,6 +65,7 @@ export type AgentState = {
   has_credential: boolean;
   mind_state?: MindState;
   inner?: Inner;
+  life?: LifeNow;
   mind?: Record<string, number>;
 };
 

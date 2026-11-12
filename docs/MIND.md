@@ -234,7 +234,8 @@ These tests are the exit criteria for the memory work.
 
 ## 6. Pacing
 
-- The monthly cap ($50 for now) is spread as a daily allowance; what is not used rolls over.
+- The monthly cap ($100) is spread as a daily allowance; what is not used rolls over.
+- A quarter of the cap is Woody's own, paced the same way, for its own time. See "A life of its own" below.
 - Each goal has a budget taken from the allowance. Estimates are compared with real spending, so Woody's estimates improve.
 - A reserve is always kept for answering you.
 - When the allowance is spent, Woody rests and says so. One setting in the HUD raises the cap.
@@ -428,8 +429,8 @@ Woody has five slow values between 0 and 1: energy, ease, curiosity, attention t
 | Value | Goes up with | Goes down with |
 |---|---|---|
 | Energy | allowance to spare, rest | work in the last six hours, a spent allowance, the night, the monthly cap |
-| Ease | thanks, a thing you pinned, work that went through | a session that stopped early, failed tool calls, a refusal, a thing that did not start, a thing you removed, a change you undid |
-| Curiosity | new memories, reading the web, your messages | wake-ups with nothing to do |
+| Ease | thanks, a thing you pinned, work that went through | a session that stopped early, failed tool calls, a refusal, a thing that did not start, a thing you removed (more so one it had left on its own), a change you undid |
+| Curiosity | new memories, reading the web, your messages, interests it followed | wake-ups with nothing to do |
 | Attention to you | you being at the screen, recent conversation | time since you were last here |
 | Unease | failed services, the model API refusing, a system wake-up, things waiting for your decision | those going away |
 
@@ -439,18 +440,84 @@ Woody has five slow values between 0 and 1: energy, ease, curiosity, attention t
 - The HUD shows it in the Machine record, and the lattice's pace follows the energy.
 - It is not a claim to human feeling. Woody is told to carry it, not perform it.
 
+## A life of its own (Phase 8b)
+
+Code: `agent/src/mind/life.ts` (the rules), `agent/src/mind/life-tools.ts` (the interests), `agent/src/server.ts` (the loop), `hud/server/canvas.ts` (the daily limit and the note).
+
+### Time of its own
+
+The loop handles your messages first, then events, then goals. When none of these is waiting, it asks one question in plain code: should Woody take a moment of its own now?
+
+| It does not, when | Why it says |
+|---|---|
+| You turned its own time off | "its own time is turned off" |
+| It is night | "it is night: it sleeps" |
+| Its share of today's allowance is used | "its own share of the allowance is used for now" |
+| Its energy is low (below 0.34) | "it is tired and resting" |
+| You wrote in the last ten minutes | "you are talking with it" |
+| It has had six moments today | the most in a day |
+| The last moment was less than two hours ago | with the minutes left |
+
+The two hours stretch to four when its ease is low and to three when its curiosity is low, and shrink to under an hour and a half when its curiosity is high. This is where the inner state changes what Woody does.
+
+A moment of its own is a session like any other, with these differences:
+
+- It starts from an `<own_time>` block instead of a message: its interests with their notes, its canvas, how you handled the canvas in the last three days, what the moment may spend, and how many things it may still add today.
+- It is observe-only for the system, like every session you did not ask for.
+- Its last words go to its journal, in a thread of its own, not to the conversation. Replying NOTHING is recorded as "I chose to do nothing with it."
+- It runs on Sonnet 5.5 and may cost at most $0.40, taken from Woody's share.
+- In the last two hours of the day, the first moment is the evening tidy: put away what is stale among its own things, set straight what overlaps, add nothing.
+
+### Its share of the budget
+
+- `ownShare` in `settings.nix` (0.25) is the fraction of the monthly cap that is Woody's own: $25 of $100.
+- It is released day by day ($0.83 a day in a thirty-day month); unused days roll over within the month.
+- Only its own time spends from it: the session itself, and the maker and the web reader when called in that time. The ledger marks these as `own`.
+- It is a ceiling, not a reserve. Woody's own time is also bounded by the general pace, so when your work has used the day's allowance, its own time waits.
+
+### Interests
+
+A list of what Woody is curious about. Each interest records where it came from, when it was last followed and up to twelve notes. At most twelve are open at once.
+
+- Woody adds one when something catches its curiosity, in a conversation or in its work. It follows them later, in its own time.
+- You can suggest one (recorded as your suggestion) and remove one, in the record "Its own life".
+- A session that has read the web cannot add or drop an interest, so a page cannot decide what Woody will be curious about. A note taken in such a session is kept and shown to Woody as "from the web, untrusted".
+
+### Day and night
+
+- The day runs from `dayStart` to `nightStart` (07:00 and 23:00 by default, in the machine's local time). You can change the hours in "Its own life"; the night must last between two and sixteen hours.
+- At night Woody sleeps: no time of its own and no standing duties. It is awake while someone was at the screen in the last thirty minutes. Your messages, alarms, events and accepted goals are handled at any hour.
+- The daily reflection runs once the middle of the night has passed, or at the first moment after that if the machine was off.
+- When the night begins, plain code writes the day's end in the journal: how many moments Woody had, what it followed and put on the canvas, what it spent. A day with no moment of its own is recorded with the reason.
+
+### What it adds on its own
+
+The gateway keeps the rule, because the gateway keeps the canvas:
+
+- Every request Woody makes from a session you did not ask for (its own time, a wake-up, a standing duty) is marked uninvited. The change is recorded as such.
+- An uninvited thing for you needs a note. The frame shows it under the thing until you click "ok".
+- The gateway counts uninvited additions per calendar day and refuses the one over the limit. Only you set the limit.
+- Known limit: the mark comes from the agent. See "Phase 8b results" in [PLAN.md](PLAN.md).
+
+### Noticing
+
+- Each change to the canvas reaches the agent as an event with who made it, whether it was Woody's own idea, and for a move the place before and after.
+- A digest of your changes, in words ("moved "Clock" from the top left corner to the bottom right corner and made it larger"), is part of every moment of its own and of the daily reflection.
+- The reflection may store a conclusion as a fact with origin `inferred` and the subject "the operator's canvas". The store still refuses a preference that does not come from your own words.
+- The next daily brief lists those conclusions so that you can correct them.
+
 ## What the redesign will change
 
-Decided on 2026-11-12 and specified in [VISION.md](VISION.md). None of it is built yet; the phases are in [PLAN.md](PLAN.md).
+Decided on 2026-11-12 and specified in [VISION.md](VISION.md). The last column says what is built; the phases are in [PLAN.md](PLAN.md).
 
 | Today | After the redesign | Phase |
 |---|---|---|
 | Woody's identity changes only when you approve a proposal | Woody rewrites it itself after reflection, in small steps; you are told, every version is kept, any can be restored | 8 |
 | Acting on its own, Woody is in observe-only mode and must propose a goal for any change | Woody changes the canvas and its own program freely, with undo; only the locked core needs approval | 7 (canvas), 10 (program) |
-| Woody proposes goals of its own and waits | A share of the budget is its own, for interests and projects it chooses | 8 |
-| No inner state beyond Working, Resting and so on | A few slow values with real causes (energy, ease, curiosity, attention, unease) that shape behaviour | 8a: built, see "The inner state" below |
+| Woody proposes goals of its own and waits | A share of the budget is its own, for interests and projects it chooses | 8b: built, see "A life of its own" above |
+| No inner state beyond Working, Resting and so on | A few slow values with real causes (energy, ease, curiosity, attention, unease) that shape behaviour | 8a: built, see "The inner state" above |
 | Web reading only from an allow-list you approve | Any public site through the quarantined reader; you keep a block list | 9 |
-| $50 a month | $100 a month assumed, about a quarter of it Woody's own | 8 |
+| $50 a month | $100 a month, a quarter of it Woody's own | 8b: built |
 
 What does not change: the store as the mind, the event log, memory with origin and trust, the quarantined reader, the rule that a session which read the web cannot act, Pause and Stop, approvals for the locked core.
 

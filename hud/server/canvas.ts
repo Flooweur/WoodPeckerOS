@@ -7,7 +7,10 @@
 //  * a pinned thing cannot be changed, moved or removed by Woody;
 //  * only the operator pins, unpins and undoes;
 //  * every change is recorded with who made it and why, and can be undone;
-//  * no version of a thing is ever deleted.
+//  * no version of a thing is ever deleted;
+//  * what Woody adds without having been asked is marked as such, carries a
+//    note when it is for the operator, and counts against a daily limit that
+//    only the operator sets.
 //
 // On disk, under <dir>:
 //   canvas.json            the things (without their source) and counters
@@ -37,6 +40,12 @@ export type Thing = {
   box: Box;
   pinned: boolean;
   removed: boolean;
+  /** Woody put it there without having been asked. */
+  uninvited?: boolean;
+  /** Woody's note to the operator on a thing it left for them: what it is and why. */
+  note?: string;
+  /** The operator has read the note. */
+  note_seen?: boolean;
 };
 export type Change = {
   seq: number;
@@ -52,11 +61,18 @@ export type Change = {
   before?: Partial<Pick<Thing, "version" | "title" | "box" | "pinned" | "removed">>;
   /** For an undo: the change it undid. */
   of?: number;
+  /** Woody did this without having been asked. */
+  uninvited?: boolean;
+};
+export type Settings = {
+  /** How many things Woody may add in a day without having been asked. Only the operator changes it. */
+  uninvited_per_day: number;
 };
 
 export class CanvasError extends Error {}
 
-export const LIMITS = { source: 300_000, state: 256_000, things: 80, title: 80, why: 400, versions: 500 };
+export const LIMITS = { source: 300_000, state: 256_000, things: 80, title: 80, why: 400, versions: 500, note: 300, uninvited_per_day: 20 };
+const DEFAULT_SETTINGS: Settings = { uninvited_per_day: 3 };
 const DEFAULT_SIZE = { w: 320, h: 220 };
 const GAP = 16;
 
@@ -72,6 +88,7 @@ export class Canvas {
   private undone = new Set<number>();
   private nextId = 1;
   private nextSeq = 1;
+  private settings: Settings = { ...DEFAULT_SETTINGS };
   /** The size of the screen that last reported it; used to place new things. */
   viewport = { w: 1600, h: 900 };
 
@@ -85,6 +102,8 @@ export class Canvas {
       this.things = Array.isArray(saved.things) ? saved.things : [];
       this.nextId = Number(saved.next_id) || 1;
       this.nextSeq = Number(saved.next_seq) || 1;
+      const perDay = Number(saved.settings?.uninvited_per_day);
+      if (Number.isInteger(perDay) && perDay >= 0 && perDay <= LIMITS.uninvited_per_day) this.settings.uninvited_per_day = perDay;
     } catch {
       // first start
     }
@@ -157,12 +176,69 @@ export class Canvas {
     return null;
   }
 
+  // ---- what Woody adds on its own ---------------------------------------------
+
+  /** Things Woody added today without having been asked. One that did not start and was taken back does not count. */
+  uninvitedToday(): number {
+    const start = new Date(this.now());
+    start.setHours(0, 0, 0, 0);
+    const takenBack = new Set(this.changes.filter((c) => c.op === "undo" && c.by === "woody" && c.of !== undefined).map((c) => c.of));
+    return this.changes.filter((c) => c.ts >= start.getTime() && c.by === "woody" && c.uninvited && c.op === "make" && !c.refused && !takenBack.has(c.seq)).length;
+  }
+
+  limits(): Settings & { uninvited_today: number } {
+    return { ...this.settings, uninvited_today: this.uninvitedToday() };
+  }
+
+  /** Only the operator sets how much Woody may add on its own. */
+  setLimit(by: Actor, perDay: unknown): Settings & { uninvited_today: number } {
+    if (by !== "you") throw new CanvasError("only the operator sets that limit");
+    const n = Number(perDay);
+    if (!Number.isInteger(n) || n < 0 || n > LIMITS.uninvited_per_day) throw new CanvasError(`the limit is a whole number from 0 to ${LIMITS.uninvited_per_day}`);
+    this.settings.uninvited_per_day = n;
+    this.save();
+    return this.limits();
+  }
+
+  /**
+   * May Woody add a thing now without having been asked? Throws the reason if
+   * not. Asked before anything is written, and checked again when it is added.
+   */
+  mayAdd(input: { for?: unknown; note?: unknown }): true {
+    const today = this.uninvitedToday();
+    if (today >= this.settings.uninvited_per_day) {
+      throw new CanvasError(
+        this.settings.uninvited_per_day === 0
+          ? "The operator has set the limit of uninvited additions to none: nothing is added to the canvas without their asking."
+          : `You have already added ${today} thing${today === 1 ? "" : "s"} on your own today, which is the limit the operator set. Keep the idea for another day, or improve something that is already there.`,
+      );
+    }
+    if (input.for !== "woody" && !text(input.note, LIMITS.note)) {
+      throw new CanvasError("A thing you leave for the operator without being asked needs a note saying what it is and why you thought of them.");
+    }
+    return true;
+  }
+
+  /** The operator has read the note on a thing. Not a change: it is not recorded and not undone. */
+  seeNote(by: Actor, id: unknown): Thing {
+    if (by !== "you") throw new CanvasError("only the operator does that");
+    const thing = this.find(id);
+    if (thing.note && !thing.note_seen) {
+      thing.note_seen = true;
+      this.save();
+    }
+    return structuredClone(thing);
+  }
+
   // ---- changing ------------------------------------------------------------
 
-  make(by: Actor, input: { title?: unknown; source?: unknown; kind?: unknown; for?: unknown; why?: unknown; box?: Partial<Box> }): Thing {
+  make(by: Actor, input: { title?: unknown; source?: unknown; kind?: unknown; for?: unknown; why?: unknown; box?: Partial<Box>; uninvited?: unknown; note?: unknown }): Thing {
     const source = this.checkSource(input.source);
     const title = text(input.title, LIMITS.title);
     if (!title) throw new CanvasError("a thing needs a title");
+    // Only Woody can be uninvited: what the operator makes is theirs.
+    const uninvited = by === "woody" && input.uninvited === true;
+    if (uninvited) this.checkUninvited(by, { id: "", title, why: text(input.why, LIMITS.why) }, input);
     if (this.things.filter((t) => !t.removed).length >= LIMITS.things) throw new CanvasError(`the canvas holds at most ${LIMITS.things} things; remove one first`);
     const id = `t${this.nextId++}`;
     const ts = this.now();
@@ -181,15 +257,34 @@ export class Canvas {
       pinned: false,
       removed: false,
     };
+    const note = by === "woody" ? text(input.note, LIMITS.note) : "";
+    if (uninvited) thing.uninvited = true;
+    if (note) thing.note = note;
     fs.mkdirSync(path.join(this.dir, "things", id), { recursive: true });
     this.write(path.join("things", id, "v1.html"), source);
     this.things.push(thing);
-    this.record({ by, op: "make", id, title, why, before: { removed: true } });
+    this.record({ by, op: "make", id, title, why, before: { removed: true }, ...(uninvited ? { uninvited: true } : {}) });
     return structuredClone(thing);
   }
 
+  /** The daily limit and the note, for something Woody adds on its own. A refusal is recorded. */
+  private checkUninvited(by: Actor, about: { id: string; title: string; why: string }, input: { for?: unknown; note?: unknown }): void {
+    try {
+      this.mayAdd(input);
+    } catch (err) {
+      const limit = this.uninvitedToday() >= this.settings.uninvited_per_day;
+      this.record({ by, op: "make", ...about, refused: limit ? "today's limit of things added on its own is reached" : "it had no note for the operator", uninvited: true });
+      throw err;
+    }
+  }
+
+  /** Marks a recorded change as one Woody made without having been asked. */
+  private own(by: Actor, input: { uninvited?: unknown }): { uninvited?: true } {
+    return by === "woody" && input.uninvited === true ? { uninvited: true } : {};
+  }
+
   /** A new version of a thing's source, and optionally a new title. */
-  change(by: Actor, input: { id?: unknown; source?: unknown; title?: unknown; why?: unknown }): Thing {
+  change(by: Actor, input: { id?: unknown; source?: unknown; title?: unknown; why?: unknown; uninvited?: unknown }): Thing {
     const thing = this.find(input.id);
     const why = text(input.why, LIMITS.why);
     this.guard(by, thing, "change", why);
@@ -204,7 +299,7 @@ export class Canvas {
     }
     const title = text(input.title, LIMITS.title);
     if (title) thing.title = title;
-    this.record({ by, op: "change", id: thing.id, title: thing.title, why, before });
+    this.record({ by, op: "change", id: thing.id, title: thing.title, why, before, ...this.own(by, input) });
     return structuredClone(thing);
   }
 
@@ -224,7 +319,7 @@ export class Canvas {
   }
 
   /** Move, resize or raise a thing. */
-  place(by: Actor, input: { id?: unknown; box?: Partial<Box>; raise?: unknown; why?: unknown }): Thing {
+  place(by: Actor, input: { id?: unknown; box?: Partial<Box>; raise?: unknown; why?: unknown; uninvited?: unknown }): Thing {
     const thing = this.find(input.id);
     const why = text(input.why, LIMITS.why);
     this.guard(by, thing, "place", why);
@@ -237,29 +332,32 @@ export class Canvas {
       h: clamp(b.h, 60, 4000, thing.box.h),
       z: input.raise ? this.topZ() + 1 : thing.box.z,
     };
-    this.record({ by, op: "place", id: thing.id, title: thing.title, why, before });
+    this.record({ by, op: "place", id: thing.id, title: thing.title, why, before, ...this.own(by, input) });
     return structuredClone(thing);
   }
 
   /** Take a thing off the canvas. It is kept, with all its versions. */
-  remove(by: Actor, input: { id?: unknown; why?: unknown }): Thing {
+  remove(by: Actor, input: { id?: unknown; why?: unknown; uninvited?: unknown }): Thing {
     const thing = this.find(input.id);
     const why = text(input.why, LIMITS.why);
     this.guard(by, thing, "remove", why);
     if (thing.removed) throw new CanvasError(`thing ${thing.id} is already off the canvas`);
     thing.removed = true;
-    this.record({ by, op: "remove", id: thing.id, title: thing.title, why, before: { removed: false } });
+    this.record({ by, op: "remove", id: thing.id, title: thing.title, why, before: { removed: false }, ...this.own(by, input) });
     return structuredClone(thing);
   }
 
   /** Put a removed thing back. */
-  bringBack(by: Actor, input: { id?: unknown; why?: unknown }): Thing {
+  bringBack(by: Actor, input: { id?: unknown; why?: unknown; uninvited?: unknown }): Thing {
     const thing = this.find(input.id);
     if (!thing.removed) throw new CanvasError(`thing ${thing.id} is on the canvas`);
+    // Putting back what was taken away is an addition like any other.
+    const uninvited = by === "woody" && input.uninvited === true;
+    if (uninvited) this.checkUninvited(by, { id: thing.id, title: thing.title, why: text(input.why, LIMITS.why) }, { for: thing.for, note: thing.note });
     if (this.things.filter((t) => !t.removed).length >= LIMITS.things) throw new CanvasError(`the canvas holds at most ${LIMITS.things} things; remove one first`);
     thing.removed = false;
     thing.box.z = this.topZ() + 1;
-    this.record({ by, op: "make", id: thing.id, title: thing.title, why: text(input.why, LIMITS.why) || "brought back", before: { removed: true } });
+    this.record({ by, op: "make", id: thing.id, title: thing.title, why: text(input.why, LIMITS.why) || "brought back", before: { removed: true }, ...(uninvited ? { uninvited: true } : {}) });
     return structuredClone(thing);
   }
 
@@ -359,7 +457,11 @@ export class Canvas {
     this.changes.push(change);
     if (this.changes.length > 2000) this.changes.shift();
     fs.appendFileSync(path.join(this.dir, "changes.jsonl"), JSON.stringify(change) + "\n");
-    this.write("canvas.json", JSON.stringify({ next_id: this.nextId, next_seq: this.nextSeq, things: this.things }, null, 1));
+    this.save();
+  }
+
+  private save(): void {
+    this.write("canvas.json", JSON.stringify({ next_id: this.nextId, next_seq: this.nextSeq, settings: this.settings, things: this.things }, null, 1));
   }
 
   /** Whole-file writes go through a temporary file, so a crash never leaves half a file. */

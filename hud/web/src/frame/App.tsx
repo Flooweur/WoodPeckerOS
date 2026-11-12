@@ -11,6 +11,7 @@ import type { CanvasResult, CanvasState } from "../canvas/types";
 import { ApprovalModal } from "./Approval";
 import { ChangesRecord, ThingsRecord } from "./CanvasRecords";
 import { Lattice, type MindStateName, type Overlay, type Play } from "./Lattice";
+import { LifeRecord } from "./Life";
 import { PanelView, type Panel } from "./Panels";
 import type {
   ActivityRow, AgentState, Approval, GatewayResult, Goal, Identity, Inner, InboxItem, Item, Mark, Meters, MindResult,
@@ -47,6 +48,7 @@ const STATE_LABEL: Record<MindStateName, string> = {
   attending: "ANSWERING YOU",
   working: "WORKING",
   resting: "RESTING",
+  sleeping: "ASLEEP",
   waiting: "WAITING ON YOU",
   paused: "PAUSED",
   out_of_allowance: "OUT OF ALLOWANCE",
@@ -314,7 +316,7 @@ export function App() {
           setMeters(msg as Meters);
           break;
         case "canvas":
-          setCanvas({ things: Array.isArray(msg.things) ? msg.things : [], undo: msg.undo ?? null });
+          setCanvas({ things: Array.isArray(msg.things) ? msg.things : [], undo: msg.undo ?? null, limits: msg.limits ?? undefined });
           break;
         case "canvas_result": {
           setCanvasResult({ seq: ++mindSeq.current, rid: msg.rid ?? null, op: String(msg.op), ok: Boolean(msg.ok), result: msg.result, error: msg.error });
@@ -496,12 +498,8 @@ export function App() {
 
   const mind = state?.mind_state;
   const mindName: MindStateName = paused ? "paused" : mind?.state ?? "resting";
-  const hour = new Date(now).getHours();
-  const hold: "listening" | "asleep" | null = typing
-    ? "listening"
-    : mindName === "resting" && mind && now - mind.since > 3_600_000 && (hour >= 23 || hour < 7)
-      ? "asleep"
-      : null;
+  // Asleep is Woody's own state now (its night, with nobody at the screen), not a guess from the clock.
+  const hold: "listening" | "asleep" | null = typing ? "listening" : mindName === "sleeping" ? "asleep" : null;
 
   const open = useMemo(() => goals.filter((g) => !g.standing && g.status !== "done" && g.status !== "dropped"), [goals]);
   const duties = useMemo(() => goals.filter((g) => g.standing), [goals]);
@@ -545,7 +543,7 @@ export function App() {
   const lastSaid = voiced[voiced.length - 1];
   const reply = lastSaid && lastSaid.kind !== "user" ? lastSaid : null;
   const you = lastYou && (!reply || lastYou.key < reply.key || lastSaid === lastYou) ? lastYou : null;
-  const showState = mindName !== "resting" || Boolean(trouble);
+  const showState = (mindName !== "resting" && mindName !== "sleeping") || Boolean(trouble);
 
   const openRecord = (p: Panel) => {
     setMenu(false);
@@ -675,7 +673,9 @@ export function App() {
             {budget ? money(budget.autonomous_usd ?? 0) : "…"} <span className="unit">free today</span>
           </div>
           {budget && <Bar fraction={budget.cap_usd > 0 ? budget.spent_usd / budget.cap_usd : 0} tone={budget.spent_usd / budget.cap_usd > 0.85 ? "red" : "amber"} small />}
-          <div className="note">{budget ? `${money(budget.spent_usd)} of $${budget.cap_usd} this month` : ""}</div>
+          <div className="note">
+            {budget ? `${money(budget.spent_usd)} of $${budget.cap_usd} this month${budget.own ? ` · Woody's own: ${money(budget.own.spent_usd)} of ${money(budget.own.share_usd)}` : ""}` : ""}
+          </div>
         </div>
       </div>
       <div className="readouts">
@@ -783,6 +783,7 @@ export function App() {
     talk: talkBody,
     things: <ThingsRecord canvas={canvas} tx={tx} result={canvasResult} pick={panel?.kind === "things" ? panel.id : undefined} />,
     changes: <ChangesRecord canvas={canvas} tx={tx} result={canvasResult} />,
+    life: <LifeRecord tx={tx} incoming={mindResult} version={version} canvas={canvas} />,
   };
   const count = (n: number, width = 2) => String(n).padStart(width, "0");
 
@@ -875,6 +876,9 @@ export function App() {
               </button>
               <button onClick={() => openRecord({ kind: "changes" })}>
                 <span className="code" /> CHANGES
+              </button>
+              <button onClick={() => openRecord({ kind: "life" })}>
+                <span className="code" /> ITS OWN LIFE <span className="n">{state?.life?.asleep ? "zz" : ""}</span>
               </button>
               <button onClick={() => openRecord({ kind: "memory" })}>
                 <span className="code">F5</span> MEMORY <span className="n">{count(state?.mind?.memories ?? 0, 3)}</span>

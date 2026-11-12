@@ -49,8 +49,15 @@ export function ThingsRecord({ canvas, tx, result, pick }: { canvas: CanvasState
           <p className="small">
             Made by {who(thing.by)} on {day(thing.created)}, for {thing.for === "you" ? "you" : "itself"}
             {thing.kind === "pretend" ? ". It is marked as pretend: what it shows is invented" : ""}.
+            {thing.uninvited ? " Woody put it there on its own: nobody asked for it." : ""}
           </p>
           {thing.why && <p>{thing.why}</p>}
+          {thing.note && (
+            <p>
+              <span className="dim small">Woody's note to you: </span>
+              {thing.note}
+            </p>
+          )}
           <div className="row-actions">
             {thing.removed ? (
               <button className="primary" onClick={() => op("bring_back")}>put it back on the canvas</button>
@@ -107,6 +114,7 @@ export function ChangesRecord({ canvas, tx, result }: { canvas: CanvasState; tx:
           <span className="who">{who(c.by)}</span>
           <span className="what">
             {c.refused ? `tried: ${c.text} · refused: ${c.refused}` : c.text}
+            {c.uninvited ? " (on its own)" : ""}
             {c.why && c.op !== "undo" && c.op !== "pin" ? ` · ${c.why}` : ""}
             {c.undone ? " (undone)" : ""}
           </span>

@@ -208,7 +208,7 @@ Dropping the security toolkit did not drop the protections. They are what makes 
 - **The kiosk is software-rendered** (about 28 frames a second at full size). Things must be light; the frame suspends a thing that hogs the processor.
 - **The isolation of things** rests on the browser's sandbox, a strict content policy and a separate origin. It is defence in depth, not a proof.
 - **Identity drift.** Small daily steps can add up. The first identity is kept as an anchor to compare against, and any version can be restored.
-- **Surprise fatigue.** Too many uninvited changes would become noise. Hence the daily limit, pinning and undo.
+- **Surprise fatigue.** Too many uninvited changes would become noise. Hence the daily limit, pinning and undo. The limit is enforced by the canvas, but whether a change was asked for is reported by Woody's program, which Woody cannot change today; this must be settled before Phase 10.
 - **Attachment.** A machine that seems alive invites it. The design answers with honesty about what Woody is and with nothing built to increase dependence.
 
 ## Already there

@@ -125,6 +125,7 @@ input[type="checkbox"] { accent-color: var(--amber); }
 .state-mark.attending { background: var(--amber); border-radius: 50%; }
 .state-mark.working { background: var(--amber); }
 .state-mark.resting { border: 2px solid var(--amber); }
+.state-mark.sleeping { border-bottom: 2px solid var(--amber); opacity: 0.7; }
 .state-mark.waiting { border: 2px solid var(--red-soft); background: linear-gradient(90deg, var(--red-soft) 50%, transparent 50%); }
 .state-mark.pacing { border: 2px dashed var(--amber); }
 .state-mark.out_of_allowance { border: 2px solid var(--red-soft); }
@@ -266,6 +267,13 @@ textarea { resize: vertical; }
 
 .stack.wide { max-width: none; }
 .search.three { grid-template-columns: minmax(0, 1fr) auto auto; }
+.record.interest > summary { display: grid; gap: 2px; cursor: pointer; list-style: none; }
+.record.interest > summary::-webkit-details-marker { display: none; }
+.record.interest > summary .one { color: var(--text); }
+.record.interest[open] > summary .one { color: var(--amber); }
+.record.interest p { margin: 4px 0 0 12px; }
+.life .settings { max-width: 640px; }
+.life input[type="time"] { width: auto; }
 .record.inline { grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: 5px 0; }
 .log { font-size: 12px; display: grid; gap: 1px; }
 .log > div { display: grid; grid-template-columns: 62px minmax(0, 190px) minmax(0, 1fr); gap: 10px; padding: 1px 0; }

@@ -23,7 +23,8 @@ export type Panel =
   | { kind: "activity" }
   | { kind: "machine" }
   | { kind: "things"; id?: string }
-  | { kind: "changes" };
+  | { kind: "changes" }
+  | { kind: "life" };
 
 const STATUS: Record<string, string> = {
   inbox: "to be reviewed",
@@ -94,6 +95,7 @@ export function PanelView({
     : panel.kind === "machine" ? "WOODY AND THE MACHINE"
     : panel.kind === "things" ? "THINGS ON THE CANVAS"
     : panel.kind === "changes" ? "CHANGES TO THE CANVAS"
+    : panel.kind === "life" ? "WOODY'S OWN LIFE"
     : "SETTINGS";
   // The conversation scrolls by itself, like the terminal: it gets no padded body.
   const bare = panel.kind === "terminal" || panel.kind === "talk";

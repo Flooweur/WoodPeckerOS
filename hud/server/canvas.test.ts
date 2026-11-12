@@ -154,3 +154,69 @@ test("a thing is served as a sealed document", () => {
   }
   assert.ok(!/allow-same-origin|allow-top-navigation|allow-popups|allow-forms/.test(THING_POLICY));
 });
+
+test("what Woody adds on its own: marked, with a note, within the operator's daily limit", () => {
+  const dir = tempDir();
+  let now = new Date(2026, 10, 12, 9, 0, 0).getTime();
+  const canvas = new Canvas(dir, () => (now += 1000));
+  assert.deepEqual(canvas.limits(), { uninvited_per_day: 3, uninvited_today: 0 });
+
+  // Asked for: not uninvited, no note needed, does not count.
+  const asked = canvas.make("woody", { title: "Clock", source: CLOCK, why: "you asked" });
+  assert.equal(asked.uninvited, undefined);
+  // The operator's own things are never uninvited, whatever the request says.
+  assert.equal(canvas.make("you", { title: "Mine", source: CLOCK, uninvited: true, note: "x" }).uninvited, undefined);
+  assert.equal(canvas.uninvitedToday(), 0);
+
+  // Left for the operator without being asked: it needs a note.
+  assert.throws(() => canvas.make("woody", { title: "Tides", source: CLOCK, uninvited: true }), /needs a note/);
+  assert.equal(canvas.last()!.refused, "it had no note for the operator");
+  const left = canvas.make("woody", { title: "Tides", source: CLOCK, uninvited: true, note: "You mentioned sailing: today's tides.", why: "from my interest in tides" });
+  assert.deepEqual([left.uninvited, left.note, left.note_seen], [true, "You mentioned sailing: today's tides.", undefined]);
+  assert.equal(canvas.last()!.uninvited, true);
+  // Something of its own needs no note, and counts all the same.
+  const own = canvas.make("woody", { title: "My notes", source: CLOCK, uninvited: true, for: "woody" });
+  assert.equal(own.note, undefined);
+  assert.equal(canvas.uninvitedToday(), 2);
+
+  // One that did not start and was taken back does not count.
+  canvas.make("woody", { title: "Broken", source: CLOCK, uninvited: true, for: "woody" });
+  canvas.takeBack(canvas.last()!.seq, "it did not start");
+  assert.equal(canvas.uninvitedToday(), 2);
+  // One the operator undid still counts: it did appear on their screen.
+  canvas.make("woody", { title: "Third", source: CLOCK, uninvited: true, for: "woody" });
+  canvas.undo("you");
+  assert.equal(canvas.uninvitedToday(), 3);
+
+  // The limit: refused, recorded, nothing made.
+  const before = canvas.list().length;
+  assert.throws(() => canvas.mayAdd({ for: "woody" }), /already added 3 things on your own today/);
+  assert.throws(() => canvas.make("woody", { title: "Fourth", source: CLOCK, uninvited: true, for: "woody" }), /limit the operator set/);
+  assert.equal(canvas.list().length, before);
+  assert.match(canvas.last()!.refused ?? "", /today's limit/);
+  // Putting back what was taken away is an addition too.
+  canvas.remove("woody", { id: own.id, uninvited: true, why: "tidying" });
+  assert.equal(canvas.last()!.uninvited, true);
+  assert.throws(() => canvas.bringBack("woody", { id: own.id, uninvited: true }), /limit the operator set/);
+  // What the operator asks for is never limited.
+  assert.equal(canvas.make("woody", { title: "Asked again", source: CLOCK }).removed, false);
+
+  // Only the operator sets the limit, and it survives a restart.
+  assert.throws(() => canvas.setLimit("woody", 10), /only the operator/);
+  assert.throws(() => canvas.setLimit("you", 99), /whole number from 0 to 20/);
+  assert.equal(canvas.setLimit("you", 5).uninvited_per_day, 5);
+  assert.equal(canvas.make("woody", { title: "Fourth", source: CLOCK, uninvited: true, for: "woody" }).uninvited, true);
+  const again = new Canvas(dir, () => now);
+  assert.deepEqual(again.limits(), { uninvited_per_day: 5, uninvited_today: 4 });
+  assert.equal(again.get(left.id).note, "You mentioned sailing: today's tides.");
+
+  // The note is read by the operator, not by Woody.
+  assert.throws(() => again.seeNote("woody", left.id), /only the operator/);
+  assert.equal(again.seeNote("you", left.id).note_seen, true);
+
+  // A new day starts a new count; a limit of none refuses everything uninvited.
+  now += 24 * 3_600_000;
+  assert.equal(again.uninvitedToday(), 0);
+  again.setLimit("you", 0);
+  assert.throws(() => again.mayAdd({ for: "woody" }), /limit of uninvited additions to none/);
+});

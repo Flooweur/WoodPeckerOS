@@ -39,6 +39,10 @@ in
       WOODY_EXEC_SOCKET = "/run/woody/exec.sock";
       WOODY_MONTHLY_CAP_USD = toString settings.monthlyCapUsd;
       WOODY_TURN_CAP_USD = toString settings.perTurnCapUsd;
+      # Woody's own life (Phase 8b): its share of the cap and the hours of its day.
+      WOODY_OWN_SHARE = toString settings.ownShare;
+      WOODY_DAY_START = settings.dayStart;
+      WOODY_NIGHT_START = settings.nightStart;
       NIX_LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ];
     };
     serviceConfig = {

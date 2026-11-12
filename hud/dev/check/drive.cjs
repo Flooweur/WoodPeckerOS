@@ -308,8 +308,35 @@ function startGateway() {
   await sleep(500);
   check("a thing cannot flood Woody: six events a minute at most", thingEvents.filter((e) => e.id === kitIds.buttons).length === 6, `${thingEvents.filter((e) => e.id === kitIds.buttons).length} got through`);
 
+  // ---- what Woody adds on its own: the note, the mark, the daily limit ----
+  const TIDES = "<p id=p></p><script>p.textContent = 'tides'; woody.ready()</script>";
+  const NOTE = "You mentioned sailing: here are today's tides.";
+  const noNote = await woody("make", { title: "No note", source: TIDES, uninvited: true });
+  check("a thing left for the operator unasked needs a note", !noNote.ok && /needs a note/.test(noNote.error), noNote.error);
+  const left = await woody("make", { title: "Today's tides", source: TIDES, uninvited: true, note: NOTE, why: "from my interest in tides" });
+  check("with a note it is made, tried on the screen and marked as put there on its own", left.ok && left.result.started === true && left.result.thing.uninvited === true, left.ok ? "" : left.error);
+  const leftId = left.ok ? left.result.thing.id : "none";
+  check("the frame shows Woody's note on it", await until(`document.querySelector('[data-thing="${leftId}"] .thing-note-text')?.textContent === ${JSON.stringify(NOTE)}`));
+  check("the note sits below the thing and covers none of it", await js(`(() => { const t = document.querySelector('[data-thing="${leftId}"]'); return t.querySelector(".thing-note").getBoundingClientRect().top >= t.querySelector("iframe").getBoundingClientRect().bottom - 1; })()`));
+  await shot("8-left-with-a-note");
+  await js(`document.querySelector('[data-thing="${leftId}"] .thing-note button').click()`);
+  check("once the operator has read it, the note is put away and stays in the thing's record", (await until(`!document.querySelector('[data-thing="${leftId}"] .thing-note')`)) && (await things()).find((t) => t.id === leftId)?.note_seen === true);
+  const own2 = await woody("kit", { part: "text", props: KIT_SAMPLES.text, title: "own two", uninvited: true, for: "woody" });
+  const own3 = await woody("kit", { part: "text", props: KIT_SAMPLES.text, title: "own three", uninvited: true, for: "woody" });
+  const mayAdd = await woody("may_add", { for: "woody" });
+  const own4 = await woody("kit", { part: "text", props: KIT_SAMPLES.text, title: "own four", uninvited: true, for: "woody" });
+  check("three things added on its own in a day, and no more", own2.ok && own3.ok && !mayAdd.ok && !own4.ok && /limit the operator set/.test(own4.error), own4.ok ? "the fourth was made" : own4.error);
+  check("what the operator asks for is not limited", (await woody("kit", { part: "text", props: KIT_SAMPLES.text, title: "asked for", why: "you asked" })).ok);
+  const look2 = await woody("look");
+  check("Woody sees how many it has added and the limit", look2.ok && look2.result.own_additions.today === 3 && look2.result.own_additions.limit === 3 && look2.result.things.find((t) => t.id === leftId)?.on_its_own === true, JSON.stringify(look2.result?.own_additions));
+  check("Woody cannot raise its own limit", !(await woody("set_limit", { n: 20 })).ok && !(await cli("limit", "20")).ok);
+  check("the operator can", (await cli("limit", "5", "--as", "you")).ok && (await woody("kit", { part: "text", props: KIT_SAMPLES.text, title: "own four", uninvited: true, for: "woody" })).ok);
+
   // ---- Woody is told what changes on the canvas, its own changes and the operator's ----
   const told = (test) => canvasEvents.some(test);
+  check("Woody is told which of its changes were its own idea", told((c) => c.by === "woody" && c.op === "make" && c.uninvited === true && c.id === leftId) && told((c) => c.by === "woody" && c.op === "make" && c.uninvited === false));
+  check("and where the operator moved a thing", told((c) => c.by === "you" && c.op === "place" && c.from && c.box && (c.from.x !== c.box.x || c.from.w !== c.box.w) && c.screen?.w === 1600));
+  check("a refusal for the daily limit is part of the record", told((c) => c.by === "woody" && /today's limit/.test(c.refused || "")));
   check("Woody is told when the operator pins a thing it made", told((c) => c.by === "you" && c.op === "pin" && c.pinned === true && c.thing_by === "woody" && c.id === "t1"));
   check("and when the operator takes a thing off the canvas", told((c) => c.by === "you" && c.op === "remove" && c.title === "Tomorrow on Mars"));
   check("and when the operator undoes something", told((c) => c.by === "you" && c.op === "undo"));
