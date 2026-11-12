@@ -74,19 +74,31 @@ export function cosine(a: Float32Array, b: Float32Array): number {
 }
 
 /**
- * The stored items closest in meaning to the question, closest first.
+ * How similar an item must be to the question to count as related, given the
+ * similarities of all items.
  *
- * Something is always "closest", also when nothing is related. So an item is
- * kept only if it stands out from the rest: its similarity is well above the
- * average of all items (by one and a half standard deviations). With very few
- * items there is no "rest" to compare with, and a fixed floor is used.
+ * Something is always "closest", also when nothing is related, and with a real
+ * model even unrelated texts are fairly similar (about 0.4 with bge-m3). So an
+ * item must stand out from the background: the less similar half of the
+ * items, which is unrelated whatever the question. It must be above that
+ * half's average by three of its standard deviations and by at least 0.10.
+ * (Measured with bge-m3 on 2026-11-12: related memories stood 0.13 to 0.28
+ * above the background, the closest unrelated ones 0.05 to 0.07.)
+ * With fewer than four items there is no background, and a fixed floor is used.
  */
+export function relatedFloor(sims: number[]): number {
+  if (sims.length < 4) return 0.55;
+  const low = [...sims].sort((a, b) => a - b).slice(0, Math.ceil(sims.length / 2));
+  const mean = low.reduce((s, x) => s + x, 0) / low.length;
+  const sd = Math.sqrt(low.reduce((s, x) => s + (x - mean) ** 2, 0) / low.length);
+  return mean + Math.max(3 * sd, 0.1);
+}
+
+/** The stored items related in meaning to the question (see relatedFloor), closest first. */
 export function nearest(query: Float32Array, items: Array<{ id: number; vec: Float32Array }>, limit: number): number[] {
   const scored = items.map((it) => ({ id: it.id, sim: cosine(query, it.vec) }));
   if (!scored.length) return [];
-  const mean = scored.reduce((s, x) => s + x.sim, 0) / scored.length;
-  const sd = Math.sqrt(scored.reduce((s, x) => s + (x.sim - mean) ** 2, 0) / scored.length);
-  const floor = scored.length >= 12 ? mean + 1.5 * sd : 0.5;
+  const floor = relatedFloor(scored.map((x) => x.sim));
   return scored
     .filter((x) => x.sim >= floor)
     .sort((a, b) => b.sim - a.sim)

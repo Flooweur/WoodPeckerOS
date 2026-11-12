@@ -149,7 +149,9 @@ export function createSessions(core: Core) {
     // What Woody remembers that may bear on this, found by words and by meaning, for the context below.
     if (!goal && (operator || (trigger && !own && !reflecting && !studying && item.source !== "brief"))) {
       const about = operator ? text : `${trigger!.headline} ${trigger!.detail}`;
-      s.recalled = { text: about, memories: await core.recall(about, { limit: 48 }) };
+      // A failure here must never keep a session from starting: the context then searches by words.
+      const memories = await core.recall(about, { limit: 48 }).catch(() => null);
+      if (memories) s.recalled = { text: about, memories };
     }
     const model = own ? cfg.ownModel : state.model;
     setMind(operator ? "attending" : "working", operator ? "your message" : own ? (s.study ? "time of its own: its study" : "time of its own") : trigger!.headline);

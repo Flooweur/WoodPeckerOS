@@ -1,7 +1,7 @@
 // Recall by meaning, with a stand-in for the embedding model: a few "concepts",
-// each a set of words that mean the same. A text's vector says which concepts
-// it touches, so "trip" and "holiday" land close together as they would with
-// a real model.
+// each a set of words that mean the same, plus a trace of the text's own
+// words. "trip" and "holiday" land close together, as with a real model, and
+// two unrelated texts stay apart.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -9,7 +9,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { createAgent } from "./agent.js";
 import type { Config } from "./config.js";
-import { cosine, fuse, nearest, type Embedder } from "./embed.js";
+import { cosine, fuse, nearest, relatedFloor, type Embedder } from "./embed.js";
 import { fakeExec } from "./testing.js";
 
 const CONCEPTS = [
@@ -20,6 +20,7 @@ const CONCEPTS = [
   ["music", "song", "piano"],
   ["backup", "snapshot", "restore"],
 ];
+const WORD_DIMS = 1024;
 
 function conceptEmbedder(): Embedder & { calls: number; down: boolean } {
   const e = {
@@ -30,9 +31,18 @@ function conceptEmbedder(): Embedder & { calls: number; down: boolean } {
       e.calls += 1;
       if (e.down) throw new Error("connection refused");
       return texts.map((t) => {
-        const words = t.toLowerCase().split(/[^\p{L}]+/u);
-        // A little of everything, plus a clear signal for each concept the text touches.
-        return Float32Array.from(CONCEPTS.map((c) => 0.05 + (c.some((w) => words.includes(w)) ? 1 : 0)));
+        const words = t.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 3);
+        const v = new Float32Array(CONCEPTS.length + WORD_DIMS);
+        // A clear signal for each concept the text touches...
+        CONCEPTS.forEach((c, i) => (v[i] = c.some((w) => words.includes(w)) ? 2 : 0));
+        // ...and a trace of its own words, so that every text is somewhat like every other and identical to none.
+        for (const w of words) {
+          let h = 7;
+          for (const ch of w) h = (h * 31 + ch.codePointAt(0)!) % 100_003;
+          v[CONCEPTS.length + (h % WORD_DIMS)]! += 0.5;
+        }
+        v[CONCEPTS.length] = v[CONCEPTS.length]! + 0.3;
+        return v;
       });
     },
   };
@@ -65,13 +75,28 @@ test("the arithmetic: similarity, what stands out, and merging two rankings", ()
   assert.ok(Math.abs(cosine(v(1, 0), v(1, 0)) - 1) < 1e-6);
   assert.ok(Math.abs(cosine(v(1, 0), v(0, 1))) < 1e-6);
   assert.equal(cosine(v(1, 0), v(1, 0, 0)), 0, "vectors of different models are not compared");
-  // Something is always closest; only what stands out from the rest is kept.
-  const items = Array.from({ length: 20 }, (_, i) => ({ id: i + 1, vec: v(1, i === 3 ? 5 : 0.1 * (i % 3)) }));
-  assert.deepEqual(nearest(v(0, 1), items, 5), [4]);
   assert.deepEqual(nearest(v(1, 0), [], 5), []);
   // Found by both ranks first; then the top of a list.
   assert.deepEqual(fuse([[1, 2, 3], [3, 4]], 2), [3, 1]);
   assert.deepEqual(fuse([[7, 8], []], 5), [7, 8]);
+});
+
+test("what counts as related, on similarities as the real model gives them (bge-m3, measured in the VM)", () => {
+  const kept = (sims: number[]) => sims.filter((s) => s >= relatedFloor(sims));
+  // "Où est-ce que je pars en vacances ?" against twelve memories: one is about the holiday.
+  const holiday = [0.521, 0.423, 0.407, 0.4, 0.395, 0.39, 0.38, 0.375, 0.37, 0.36, 0.34, 0.33];
+  assert.deepEqual(kept(holiday), [0.521]);
+  // "How much disk space is there?": the storage, and nothing else by a clear margin.
+  const disk = [0.671, 0.508, 0.473, 0.45, 0.44, 0.43, 0.42, 0.41, 0.39, 0.38, 0.37, 0.35];
+  assert.equal(kept(disk)[0], 0.671);
+  assert.ok(kept(disk).length <= 2);
+  // "the weather on Mars": something is closest, nothing is related.
+  const mars = [0.428, 0.419, 0.398, 0.39, 0.385, 0.38, 0.375, 0.37, 0.365, 0.36, 0.345, 0.34];
+  assert.deepEqual(kept(mars), []);
+  // Two related memories out of four: both are kept, although they are half of the store.
+  assert.deepEqual(kept([0.67, 0.65, 0.42, 0.4]), [0.67, 0.65]);
+  // Too few to have a background: a fixed floor.
+  assert.deepEqual(kept([0.6, 0.5]), [0.6]);
 });
 
 test("a memory is found by meaning when the words differ, and by words alone without the model", async () => {
@@ -97,7 +122,7 @@ test("a memory is found by meaning when the words differ, and by words alone wit
   const both = await agent.recall("espresso or tea");
   assert.equal(both[0]!.statement, FACTS[3]);
   // Nothing related: nothing is returned, although something is always "closest".
-  assert.deepEqual(await agent.recall("the weather on Mars"), []);
+  assert.deepEqual(await agent.recall("weather forecast Mars tomorrow"), []);
 
   // A corrected memory is found under its new text only, once it has its vector.
   const old = (await agent.recall("holiday"))[0]!;

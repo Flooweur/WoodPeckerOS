@@ -209,6 +209,7 @@ The review itself did not look at the running machine. With access to it, these 
 | The tool descriptions' part of that | Roughly three quarters |
 | What the Agent SDK adds by itself | About 360 tokens and one second |
 | First words of an answer | After about 3 seconds, for a question needing one tool call |
+| One lookup by meaning (bge-m3 on the VM's processor) | About 0.1 second; the model uses 766 MB of memory. A question in French finds a memory written in English |
 
 What follows from it:
 
