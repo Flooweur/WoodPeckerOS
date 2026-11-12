@@ -155,6 +155,16 @@ pub fn unit_result(stderr: &str) -> Option<String> {
     stderr.lines().find_map(|l| l.trim().strip_prefix("Finished with result: ").map(|r| r.trim().to_string()))
 }
 
+/// What Nix reported, without the trace that leads to it: Nix ends with the
+/// error itself ("error: attribute 'x' missing"), after many lines of context.
+pub fn nix_error(stderr: &str) -> String {
+    let lines: Vec<&str> = stderr.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with("GC Warning")).collect();
+    match lines.iter().rposition(|l| l.starts_with("error:")) {
+        Some(i) => tail(&lines[i..lines.len().min(i + 6)].join(" "), 600),
+        None => tail(&own_trouble(&lines.join("\n")), 600),
+    }
+}
+
 /// The summary lines systemd-run adds are not trouble; anything else on its stderr is.
 fn own_trouble(stderr: &str) -> String {
     const SUMMARY: &[&str] = &["Running as unit:", "Finished with result:", "Main processes terminated with:", "Service runtime:", "CPU time consumed:", "Memory peak:", "Memory swap peak:", "IP traffic", "IO bytes"];
@@ -331,7 +341,7 @@ pub fn run(cfg: &Config, map: &Map<String, Value>) -> Result<Value, String> {
                 "the programs could not be prepared (packages: {}; python: {}). Check the names against the package set. What Nix said: {}",
                 req.packages.join(", "),
                 req.python.join(", "),
-                tail(&own_trouble(&ran.stderr), 1200)
+                nix_error(&ran.stderr)
             ));
         }
         env_path = Some(path);
@@ -441,6 +451,18 @@ Finished with result: oom-kill
 Memory peak: 2G
 ").as_deref(), Some("oom-kill"));
         assert_eq!(unit_result("nothing of the kind"), None);
+        // Of what Nix says, the error itself is kept, not the trace before it.
+        let said = "GC Warning: Could not open /proc/stat
+error:
+       … while calling the 'derivationStrict' builtin
+         at «nix-internal»/derivation-internal.nix:37:12:
+       error: attribute 'no-such-program' missing
+       at «string»:1:153:
+Finished with result: exit-code
+";
+        let err = nix_error(said);
+        assert!(err.starts_with("error: attribute 'no-such-program' missing"), "{err}");
+        assert!(!err.contains("derivationStrict"));
         assert_eq!(own_trouble("Running as unit: x.service
 Finished with result: exit-code
 Main processes terminated with: code=exited/status=1
