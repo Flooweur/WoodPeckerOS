@@ -7,8 +7,8 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { Budget, autonomousAllowance, pace } from "../budget.js";
-import { describeTurn, eventPreamble, preamble, systemPrompt } from "./context.js";
-import { PolicyError, Store, ftsQuery } from "./store.js";
+import { describeTurn, eventPreamble, goalPreamble, preamble, systemPrompt } from "./context.js";
+import { PolicyError, Store, ftsQuery, type GoalReview } from "./store.js";
 
 function tempDb(): string {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "woody-mind-")), "mind.db");
@@ -383,4 +383,200 @@ test("pacer: the cap is released day by day, rolls over, and keeps a reserve for
   assert.ok(s.spent_usd <= daily * 3, `spent ${s.spent_usd}`);
   assert.equal(s.exhausted, false); // the operator can still be answered
   assert.ok(s.remaining_usd > 40);
+});
+
+// ---- Phase 4c: the goals board --------------------------------------------
+
+/** The next piece of work that is not a standing duty (those are always seeded). */
+const nextOwnWork = (store: Store) => {
+  const w = store.nextGoalWork();
+  return w && !w.goal.standing ? w : null;
+};
+
+const review = (over: Partial<GoalReview> = {}): GoalReview => ({
+  understanding: "The operator wants a list of what listens on the network.",
+  judgement: "Feasible and cheap; nothing risky.",
+  recommendation: "proceed",
+  plan: ["Query listening ports", "Write the list to the workspace"],
+  estimate_usd: 0.2,
+  estimate_minutes: 5,
+  changes_system: false,
+  questions: [],
+  ...over,
+});
+
+test("goals: a small read-only goal starts by itself, observe-only, and stops at its budget", () => {
+  const store = new Store(tempDb());
+  const g = store.addGoal({ title: "List what listens on the network", description: "Ports and owners.", owner: "operator" });
+  assert.equal(g.status, "inbox");
+  assert.deepEqual(store.nextGoalWork()?.kind, "review");
+
+  // Not started yet: no checkpoint possible.
+  assert.throws(() => store.checkpoint(g.id, { dossier: "started anyway", next_step: "x", status: "active" }), PolicyError);
+
+  const r = store.setReview(g.id, review(), 1);
+  assert.equal(r.status, "ready");
+  assert.equal(r.accepted, true);
+  assert.equal(r.auto_started, true); // observe-only: the operator never accepted a plan
+  assert.equal(r.budget_usd, 1);
+  const work = store.nextGoalWork()!;
+  assert.deepEqual([work.kind, work.goal.id], ["work", g.id]);
+
+  let cur = store.noteGoalSession(g.id, 0.3, false);
+  assert.equal(cur.status, "active");
+  cur = store.checkpoint(g.id, { dossier: "Ports listed: 22, 7800.", next_step: "Write the file", status: "active" });
+  assert.equal(cur.next_step, "Write the file");
+
+  // Overrun: the goal stops and waits for the operator, who may give it more.
+  cur = store.noteGoalSession(g.id, 0.8, true);
+  assert.equal(cur.status, "waiting");
+  assert.match(cur.waiting_reason, /budget of \$1\.00 is used up/);
+  assert.equal(store.nextGoalWork()?.goal.id === g.id, false);
+  assert.deepEqual(store.inbox().map((i) => [i.kind, i.goal.id]), [["blocked", g.id]]);
+  cur = store.acceptGoal(g.id);
+  assert.deepEqual([cur.status, cur.budget_usd], ["active", 2]);
+
+  cur = store.checkpoint(g.id, { dossier: "All done.", next_step: "", status: "done", outcome: "The list is in notes/ports.md." });
+  assert.equal(cur.status, "done");
+  assert.equal(store.goals().some((x) => x.id === g.id), false);
+  assert.equal(store.goals({ includeClosed: true }).some((x) => x.id === g.id), true);
+  store.close();
+});
+
+test("goals: anything that changes the system, costs more, or is advised against waits for the operator", () => {
+  const store = new Store(tempDb());
+  const mk = (t: string) => store.addGoal({ title: t, owner: "operator" }).id;
+
+  const system = mk("Install htop");
+  assert.equal(store.setReview(system, review({ changes_system: true }), 1).status, "review");
+  const costly = mk("Audit every package");
+  assert.equal(store.setReview(costly, review({ estimate_usd: 4 }), 1).status, "review");
+  const unwise = mk("Disable the firewall for speed");
+  assert.equal(store.setReview(unwise, review({ recommendation: "reconsider" }), 1).status, "review");
+  const unclear = mk("Make it better");
+  const q = store.setReview(unclear, review({ plan: [], questions: ["Better in what way?"] }), 1);
+  assert.deepEqual([q.status, q.accepted], ["waiting", false]);
+
+  // None of them is picked up for work.
+  assert.equal(nextOwnWork(store), null);
+  assert.deepEqual(new Set(store.inbox().map((i) => i.kind)), new Set(["plan", "blocked"]));
+  // A goal with open questions cannot be accepted; the others can.
+  assert.throws(() => store.acceptGoal(unclear), PolicyError);
+  const accepted = store.acceptGoal(system);
+  assert.deepEqual([accepted.status, accepted.accepted, accepted.auto_started], ["ready", true, false]); // full permissions
+  assert.equal(accepted.budget_usd, 0.3); // 1.5 x the estimate
+  assert.equal(store.nextGoalWork()!.goal.id, system);
+
+  // After the operator answers, Woody reviews again.
+  assert.equal(store.setReview(unclear, review(), 1).status, "ready");
+  // An accepted goal is not re-reviewed behind the operator's back.
+  assert.throws(() => store.setReview(system, review(), 1), PolicyError);
+
+  // The operator's order decides what is worked on first.
+  store.acceptGoal(costly);
+  store.moveGoal(costly, "top");
+  assert.equal(store.nextGoalWork()!.goal.id, costly);
+  // Rewriting a goal sends it back to be reviewed.
+  const edited = store.editGoal(costly, { description: "Only the security-relevant ones." });
+  assert.deepEqual([edited.status, edited.accepted, edited.review], ["inbox", false, null]);
+  store.close();
+});
+
+test("goals: Woody's proposals do nothing until the operator accepts them", () => {
+  const store = new Store(tempDb());
+  const p = store.addGoal({ title: "Rotate old snapshots weekly", description: "Add a timer.", owner: "woody", reasoning: "The disk fills up." });
+  assert.equal(p.status, "proposed");
+  assert.equal(nextOwnWork(store), null);
+  assert.throws(() => store.setReview(p.id, review(), 1), PolicyError);
+  assert.throws(() => store.checkpoint(p.id, { dossier: "did it anyway", next_step: "", status: "active" }), PolicyError);
+  assert.deepEqual(store.inbox().map((i) => i.kind), ["proposal"]);
+
+  const accepted = store.acceptGoal(p.id);
+  assert.deepEqual([accepted.status, accepted.idea_ok, accepted.accepted], ["inbox", true, false]);
+  assert.equal(store.nextGoalWork()!.kind, "review");
+
+  const rejected = store.addGoal({ title: "Another idea", description: "Something else.", owner: "woody", reasoning: "Because." });
+  assert.equal(store.dropGoal(rejected.id, "operator").status, "dropped");
+
+  for (let i = 0; i < 10; i++) store.addGoal({ title: `Idea ${i}`, description: "x".repeat(12), owner: "woody", reasoning: "y".repeat(12) });
+  assert.throws(() => store.addGoal({ title: "One too many", description: "x".repeat(12), owner: "woody", reasoning: "y".repeat(12) }), /proposals waiting/);
+  store.close();
+});
+
+test("goals: three sessions without a checkpoint stop a goal", () => {
+  const store = new Store(tempDb());
+  const g = store.addGoal({ title: "Write a report", owner: "operator" });
+  store.setReview(g.id, review({ changes_system: true }), 1);
+  store.acceptGoal(g.id, 10);
+  assert.equal(store.noteGoalSession(g.id, 0.1, false).status, "active");
+  assert.equal(store.noteGoalSession(g.id, 0.1, false).status, "active");
+  const stuck = store.noteGoalSession(g.id, 0.1, false);
+  assert.equal(stuck.status, "waiting");
+  assert.match(stuck.waiting_reason, /without a checkpoint/);
+  assert.equal(store.acceptGoal(g.id).stalls, 0);
+  store.close();
+});
+
+test("standing goals: seeded, run when due, bounded by a weekly budget, and never closed", () => {
+  const store = new Store(tempDb());
+  let t = Date.UTC(2026, 10, 12, 8);
+  store.now = () => t;
+  const standing = store.goals().filter((g) => g.standing);
+  assert.equal(standing.length, 4);
+  assert.deepEqual(standing.filter((g) => g.standing!.enabled).map((g) => g.title), ["Keep this machine healthy", "Keep improving yourself"]);
+  const health = standing[0]!;
+  store.setStanding(standing[1]!.id, { enabled: false }); // keep this test about one duty
+
+  let next = store.nextGoalWork()!;
+  assert.deepEqual([next.kind, next.goal.id], ["standing", health.id]); // due at once after installation
+  // An operator goal always comes before a standing duty.
+  const g = store.addGoal({ title: "Something the operator wants", owner: "operator" });
+  assert.equal(store.nextGoalWork()!.goal.id, g.id);
+  store.dropGoal(g.id, "operator");
+
+  store.noteGoalSession(health.id, 0.4, true);
+  const after = store.checkpoint(health.id, { dossier: "All services up; disk at 40%.", next_step: "Look at snapshot count", status: "done", outcome: "x" });
+  assert.equal(after.status, "standing"); // a duty has no end
+  assert.equal(store.nextGoalWork()?.goal.id === health.id, false); // not due again yet
+  t += 6 * 3_600_000 + 1;
+  assert.equal(store.nextGoalWork()!.goal.id, health.id);
+
+  // The weekly budget stops it; a new week frees it again.
+  store.noteGoalSession(health.id, 1.2, true);
+  t += 6 * 3_600_000 + 1;
+  assert.equal(store.nextGoalWork()?.goal.id === health.id, false);
+  t += 7 * DAY;
+  assert.equal(store.nextGoalWork()!.goal.id, health.id);
+
+  assert.throws(() => store.dropGoal(health.id, "operator"), PolicyError);
+  assert.equal(store.setStanding(health.id, { enabled: false }).standing!.enabled, false);
+  assert.equal(store.goals().filter((x) => x.standing?.enabled).length, 0);
+  assert.equal(store.nextGoalWork(), null);
+  store.close();
+});
+
+test("a goal session is framed by the goal, its dossier and its permissions", () => {
+  const store = new Store(tempDb());
+  const g = store.addGoal({ title: "Map the lab network", description: "Hosts and services.", owner: "operator" });
+  store.setReview(g.id, review({ changes_system: true }), 1);
+  store.acceptGoal(g.id);
+  store.noteGoalSession(g.id, 0.05, false);
+  store.checkpoint(g.id, { dossier: "Found three hosts so far.", next_step: "Scan 192.168.222.130", status: "active" });
+  const goal = store.goal(g.id)!;
+
+  const full = goalPreamble(store, goal, "work", "full");
+  assert.match(full, /<goal id="\d+" status="active" from="the operator">/);
+  assert.match(full, /Found three hosts so far\./);
+  assert.match(full, /Next step: Scan 192\.168\.222\.130/);
+  assert.match(full, /the operator accepted this plan/);
+  assert.match(full, /call goal_checkpoint/);
+  assert.doesNotMatch(full, /<operator_message>/);
+
+  const observe = goalPreamble(store, goal, "message", "observe", { operatorText: "Skip the printer." });
+  assert.match(observe, /observe-only/);
+  assert.match(observe, /<operator_message>\nSkip the printer\.\n<\/operator_message>/);
+
+  // The board is part of every context, so Woody can talk about goals in the main conversation.
+  assert.match(preamble(store, store.mainThread(), "how are the goals going?", true), /#\d+ \[active\] Map the lab network \(next: Scan/);
+  store.close();
 });

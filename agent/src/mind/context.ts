@@ -9,7 +9,7 @@
 //
 // Because of the recap, continuity never depends on a model conversation
 // surviving: a restart, a new session or a month's pause all start from here.
-import type { JournalEntry, Memory, Message, Store } from "./store.js";
+import type { Goal, JournalEntry, Memory, Message, Store } from "./store.js";
 
 const TAIL_MESSAGES = 14;
 const MESSAGE_CLIP = 1200;
@@ -135,6 +135,12 @@ function contextBlock(store: Store, thread: number, userText: string, fresh: boo
     lines.push("", "No stored memory matched this message. Use memory_search if you need to look further.");
   }
 
+  const board = store.goals().filter((g) => !g.standing);
+  if (board.length) {
+    lines.push("", "The goals board (the operator's order):");
+    for (const g of board.slice(0, 15)) lines.push(`- #${g.id} [${g.status}] ${g.title}${g.next_step ? ` (next: ${clip(g.next_step, 120)})` : ""}`);
+  }
+
   const alarms = store.pendingAlarms();
   if (alarms.length) {
     lines.push("", "Alarms you have set:");
@@ -147,6 +153,61 @@ function contextBlock(store: Store, thread: number, userText: string, fresh: boo
     ...lines,
     "</context>",
   ];
+}
+
+export type GoalWork = "review" | "work" | "standing" | "message";
+
+function goalBlock(g: Goal, mode: "full" | "observe"): string[] {
+  const lines = [`<goal id="${g.id}" status="${g.status}" from="${g.owner === "operator" ? "the operator" : "your own proposal, accepted by the operator"}">`, `Title: ${g.title}`];
+  if (g.description) lines.push("Description:", g.description);
+  if (g.review) {
+    lines.push("", "Your review:", `Understanding: ${g.review.understanding}`, `Judgement: ${g.review.judgement}`);
+    if (g.review.plan.length) lines.push("Plan:", ...g.review.plan.map((s, i) => `${i + 1}. ${s}`));
+    lines.push(`Estimate: $${g.review.estimate_usd.toFixed(2)}, ${g.review.estimate_minutes} minutes. ${g.review.changes_system ? "The plan changes the system." : "The plan is read-only."}`);
+  }
+  if (g.dossier) lines.push("", "Dossier (your last checkpoint):", g.dossier);
+  if (g.next_step) lines.push("", `Next step: ${g.next_step}`);
+  if (g.waiting_reason) lines.push("", `Waiting because: ${g.waiting_reason}`);
+  if (g.standing) {
+    lines.push("", `This is a standing duty with no end. Spent this week: $${g.standing.week_spent_usd.toFixed(2)} of $${g.standing.weekly_usd.toFixed(2)}.`);
+  } else if (g.budget_usd > 0) {
+    lines.push("", `Budget: $${g.spent_usd.toFixed(2)} spent of $${g.budget_usd.toFixed(2)}.`);
+  }
+  lines.push(
+    "",
+    mode === "full"
+      ? "Permissions: the operator accepted this plan, so you may carry it out within your normal rules (approvals and the locked core still apply)."
+      : "Permissions: observe-only. You may look, research and write in your workspace. You may not change the system; if a change is needed, say so and let the operator accept a plan.",
+    "</goal>",
+  );
+  return lines;
+}
+
+const GOAL_TASK: Record<GoalWork, string> = {
+  review:
+    "Nobody is typing: you are reviewing this goal by yourself. Understand what is really wanted, look at whatever you need to with your tools, and judge it honestly: is it feasible, worth it, risky, in scope? If it is unwise or unclear, say so. Then call goal_review with your understanding, judgement, plan and estimate, or with the questions that stop you from planning. Your final reply is posted in the goal's thread for the operator: say in two or three sentences what you concluded and what happens next.",
+  work:
+    "Nobody is typing: you are working on this goal by yourself. Do the next step, and as many further steps as fit in this session. Before you finish, call goal_checkpoint with an updated dossier (what is done, what was decided and why, what you found) and the exact next step, so that you could resume from it alone with no other memory. Set the status to done with an outcome report when the goal is achieved, or to waiting with a clear question when you need the operator. Your final reply is posted in the goal's thread: a short progress note.",
+  standing:
+    "Nobody is typing: this is one round of a standing duty. Do one useful round, within the budget. Report to the operator only what deserves their attention; propose a goal (goal_propose) for anything that needs a change. Finish by calling goal_checkpoint with what you checked and what to look at next time. If nothing deserves the operator's attention, reply with exactly: NOTHING",
+  message: "The operator wrote in this goal's thread. Answer them there. If their message settles your questions, review the goal again (goal_review) or continue the work and checkpoint it.",
+};
+
+/** The context for a session about one goal, in that goal's own thread. */
+export function goalPreamble(
+  store: Store,
+  goal: Goal,
+  work: GoalWork,
+  mode: "full" | "observe",
+  opts: { operatorText?: string; retry?: boolean } = {},
+  now = new Date(),
+): string {
+  const about = `${goal.title} ${goal.description} ${opts.operatorText ?? ""}`;
+  const parts = [...contextBlock(store, goal.thread_id, about, true, now), "", ...goalBlock(goal, mode), ""];
+  if (opts.operatorText !== undefined) parts.push("<operator_message>", opts.operatorText, "</operator_message>", "");
+  parts.push(GOAL_TASK[work]);
+  if (opts.retry) parts.push("You were restarted while on this once already. Check your recent tool calls in the recap before repeating any action.");
+  return parts.join("\n");
 }
 
 /** A mechanical summary of what happened in a turn, used for the journal. */

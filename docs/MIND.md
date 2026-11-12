@@ -1,6 +1,6 @@
 # The mind (design)
 
-Status: **4a and 4b are built** (the store, journal, memory and context assembly; then the loop, alarms, system events, Pause and the pacer; see "What 4a built" and "What 4b built" at the end). The rest is design. This is the specification for Phase 4 (the mind loop) and the base that Phase 5 (HUD) and Phase 6 (security toolkit) build on.
+Status: **4a, 4b and 4c are built** (the store, journal, memory and context assembly; then the loop, alarms, system events, Pause and the pacer; then the goals board; see "What 4a built", "What 4b built" and "What 4c built" at the end). The rest is design. This is the specification for Phase 4 (the mind loop) and the base that Phase 5 (HUD) and Phase 6 (security toolkit) build on.
 
 Woody stops being a chat that runs when you type. It becomes a process that is always present: it wakes on its own, works towards goals, rests, and treats your messages as one kind of event among others.
 
@@ -327,3 +327,36 @@ Limits to know:
 | Message delivered while working | | To do |
 | Approval decided later | | To do |
 | Kill mid-work with a real session | | To do |
+
+## What 4c built
+
+Code: goals in `agent/src/mind/store.ts`, `agent/src/mind/goal-tools.ts`, the goal context in `agent/src/mind/context.ts`, scheduling in `agent/src/server.ts`, the views in `hud/web/src/Board.tsx`.
+
+- **The board.** You add goals in the HUD (or with `/goal-add` in `woody-chat`). Each goal has its own thread, where Woody asks questions and reports, and where you can write to it.
+- **Review.** When Woody has nothing more urgent, it reviews the next goal in your inbox: it restates it, judges it (and may advise against it), plans it, and estimates cost and time, or asks the questions that stop it from planning.
+- **Who starts what** is decided by a rule in the store, not by the model:
+  - open questions: the goal waits on you;
+  - a plan that is read-only, estimated under your small-goal limit (one dollar to start with, adjustable in the HUD), and that Woody recommends: it starts by itself, in observe-only mode, with that limit as its budget;
+  - everything else waits for you to accept the plan. Accepting gives the goal full permissions and a budget of one and a half times the estimate.
+- **Observe-only mode** applies whenever Woody acts on its own without a plan you accepted: wake-ups, small goals, standing duties. It may look, research, write in its workspace and ask for an approval. It may not apply a configuration change that would take effect without you seeing it; it must propose a goal instead. The tool layer enforces this.
+- **Work.** Accepted goals are worked on in your order, one bounded session at a time. Each goal session starts from the goal's dossier, not from an earlier conversation, and must end with a checkpoint: the dossier rewritten and the exact next step.
+- **Stops.** A goal stops and lands in your inbox when its budget is used up, when three sessions in a row end without a checkpoint, or when Woody needs an answer. Accepting it again lets it continue (with double the budget if that was the reason).
+- **Proposals.** Woody can propose goals. They do nothing until you accept the idea, after which they are reviewed like yours. At most ten can wait.
+- **Standing duties,** seeded at the first start: "Keep this machine healthy" (every 6 hours, $1.50 a week) and "Keep improving yourself" (weekly, $2 a week) are on; "Stay up to date" and "Practise in the lab" are off until web access (4e) and the security toolkit (Phase 6) exist. Each can be turned on or off in the HUD. They run in observe-only mode and report only what deserves your attention.
+- **Order of attention:** your messages, then approvals, jobs, alarms and system events, then goals to review, then accepted goals, then standing duties. All of it is subject to Pause and to the pacer.
+- **HUD:** three plain views behind the buttons in the top bar: **inbox** (plans to accept, questions, proposals), **goals** (the board, with a form to add one, and each goal's detail and thread), **journal**.
+
+Limits to know:
+
+- The estimate is the model's guess. The budget, not the estimate, is what is enforced.
+- "Read-only" is declared by Woody in its review. The declaration decides whether the goal may start alone, but the permissions do not depend on it: a goal started that way stays in observe-only mode whatever its plan says.
+- A goal session's reply appears in the goal's thread; the main conversation only gets a line when a goal needs you or is done.
+
+### Test status
+
+| Test | Automated | By hand in the VM |
+|---|---|---|
+| Small-goal rule, acceptance, budgets, stalls, proposals, standing duties, ordering | 6 more store tests (24 in total) | |
+| Goal commands over the socket | Smoke test without an API key | |
+| A goal reviewed, questioned, estimated and completed unattended | | To do |
+| Observe-only refusal of a free configuration change | | To do |

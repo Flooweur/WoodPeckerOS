@@ -14,6 +14,7 @@ The agent is a loop: it answers when you write, and it also wakes by itself on a
 - **See the screen:** `screenshot` returns a picture of the kiosk display and saves a copy under `screenshots/` in the workspace.
 - **Memory:** `remember`, `memory_search`, `memory_history`, `memory_update`, `memory_forget`, `journal_search`, `conversation_search`. These use the agent's own store (`/var/lib/woody/mind.db`), not the executor. See [MIND.md](MIND.md).
 - **Alarms:** `alarm_set`, `alarm_list`, `alarm_cancel`.
+- **Goals:** `goal_board`, `goal_get`, `goal_review`, `goal_checkpoint`, `goal_propose`. Woody cannot create a goal in your name, accept a plan or raise a budget.
 - **HUD:** `hud_notify` raises a notice on the HUD. `clipboard_offer` shows a notice with a Copy button. Woody cannot read the clipboard; paste into the chat instead.
 - It runs under systemd hardening with no capabilities and a read-only view of the system. Its only writable place is `/var/lib/woody`.
 - It cannot open the approval socket. When a tool needs approval, the call waits until a human decides.
@@ -68,6 +69,11 @@ sudo woody-chat
 | `/mind` | Counts of events, messages, journal entries and memories |
 | `/alarms`, `/unalarm 3` | List Woody's alarms; cancel one |
 | `/pulse` | Run a pulse now instead of waiting for the next minute |
+| `/goals`, `/inbox` | The goals board; what needs you |
+| `/goal 3` | Goal 3 in full, with its thread |
+| `/goal-add title \| details` | Add a goal |
+| `/accept 3`, `/drop 3` | Accept a proposal or a plan (or let a stopped goal continue); drop a goal |
+| `/say 3 text` | Write to Woody in goal 3's thread |
 | `/stop` | Interrupt the current reply |
 | `/quit` | Leave |
 
@@ -88,9 +94,11 @@ The chosen model is remembered across restarts. Every turn's cost, as reported b
 
 WebSocket on `/run/woody-agent/agent.sock`, JSON messages.
 
-Client to agent: `chat {text}`, `set_model {model}`, `new_session`, `interrupt`, `get_state`, `get_history`, `pulse`, `mind {op, ...}` (ops: `memories`, `memory`, `add`, `correct`, `pin`, `unpin`, `forget`, `journal`, `alarms`, `alarm_cancel`, `identity`, `stats`).
+Client to agent: `chat {text}`, `set_model {model}`, `new_session`, `interrupt`, `get_state`, `get_history`, `pulse`, `mind {op, ...}` (ops: `memories`, `memory`, `add`, `correct`, `pin`, `unpin`, `forget`, `journal`, `alarms`, `alarm_cancel`, `identity`, `stats`, and for the board `goals`, `goal`, `inbox`, `goal_add`, `goal_edit`, `goal_accept`, `goal_drop`, `goal_move`, `goal_message`, `standing`, `small_goal_limit`).
 
-Agent to client: `state` (now with `mind_state`: what Woody is doing, the queue, the next alarm), `note` (a wake-up), `history` (the stored conversation, sent on connect), `mind_result`, `user_text`, `turn_start`, `assistant_delta`, `assistant_text`, `tool_use`, `tool_result`, `approval_pending`, `approval_resolved`, `result`, `error`.
+Agent to client: `state` (now with `mind_state`: what Woody is doing, the queue, the next alarm), `note` (a wake-up), `goals_changed`, `history` (the stored conversation, sent on connect), `mind_result`, `user_text`, `turn_start`, `assistant_delta`, `assistant_text`, `tool_use`, `tool_result`, `approval_pending`, `approval_resolved`, `result`, `error`.
+
+Messages about a session carry a `thread` number. The main conversation has one thread; each goal has its own.
 
 ## Logs
 

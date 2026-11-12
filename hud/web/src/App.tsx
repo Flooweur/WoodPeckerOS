@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Board, type MindResult, type Tab } from "./Board";
 
 // ---- protocol types -------------------------------------------------------
 
@@ -19,6 +20,7 @@ type AgentState = {
   budget: Budget;
   has_credential: boolean;
   mind_state?: MindState;
+  mind?: { goals_need_you?: number };
 };
 
 const MIND_LABEL: Record<MindState["state"], string> = {
@@ -95,6 +97,12 @@ export function App() {
   const [draft, setDraft] = useState("");
   const [notices, setNotices] = useState<Notice[]>([]);
   const [paused, setPaused] = useState(false);
+  const [boardTab, setBoardTab] = useState<Tab | null>(null);
+  const [mindResult, setMindResult] = useState<MindResult | null>(null);
+  const [boardVersion, setBoardVersion] = useState(0);
+  /** The id of the main conversation; messages of goal threads are shown in the board instead. */
+  const mainThread = useRef<number | null>(null);
+  const mindSeq = useRef(0);
 
   const socket = useRef<WebSocket | null>(null);
   const nextKey = useRef(1);
@@ -107,7 +115,18 @@ export function App() {
 
   const onMessage = useCallback(
     (msg: Record<string, any>) => {
+      // Activity in a goal's thread belongs to the board, not to the main conversation.
+      if (typeof msg.thread === "number" && mainThread.current !== null && msg.thread !== mainThread.current && msg.type !== "history") {
+        if (msg.type === "result" || msg.type === "assistant_text" || msg.type === "user_text") setBoardVersion((v) => v + 1);
+        return;
+      }
       switch (msg.type) {
+        case "mind_result":
+          setMindResult({ seq: ++mindSeq.current, op: String(msg.op), ok: Boolean(msg.ok), result: msg.result, error: msg.error });
+          break;
+        case "goals_changed":
+          setBoardVersion((v) => v + 1);
+          break;
         case "state":
           setState(msg as unknown as AgentState);
           setAgentUp(true);
@@ -120,6 +139,7 @@ export function App() {
           break;
         case "history":
           // The conversation as stored by the agent: shown again after a reload.
+          mainThread.current = typeof msg.thread === "number" ? msg.thread : null;
           setItems(
             (Array.isArray(msg.items) ? msg.items : []).map((it: Record<string, unknown>) => ({
               ...it,
@@ -313,6 +333,15 @@ export function App() {
           <button className="ghost" disabled={busy || !agentUp} onClick={() => { tx({ type: "new_session" }); setItems([]); }}>
             new chat
           </button>
+          <button className={boardTab === "inbox" ? "on" : "ghost"} onClick={() => setBoardTab(boardTab === "inbox" ? null : "inbox")}>
+            inbox{(state?.mind?.goals_need_you ?? 0) + approvals.length > 0 ? ` (${(state?.mind?.goals_need_you ?? 0) + approvals.length})` : ""}
+          </button>
+          <button className={boardTab === "goals" ? "on" : "ghost"} onClick={() => setBoardTab(boardTab === "goals" ? null : "goals")}>
+            goals
+          </button>
+          <button className={boardTab === "journal" ? "on" : "ghost"} onClick={() => setBoardTab(boardTab === "journal" ? null : "journal")}>
+            journal
+          </button>
           <button
             className={paused ? "danger" : "ghost"}
             disabled={!executorUp}
@@ -379,6 +408,18 @@ export function App() {
           )}
         </div>
       </footer>
+
+      {boardTab && (
+        <Board
+          tab={boardTab}
+          setTab={setBoardTab}
+          onClose={() => setBoardTab(null)}
+          tx={tx}
+          incoming={mindResult}
+          version={boardVersion}
+          approvals={approvals.length}
+        />
+      )}
 
       {notices.length > 0 && (
         <div className="notices" aria-live="polite">

@@ -8,6 +8,8 @@
 //           /memories [words]   /memory <id>   /remember <text>   /correct <id> <text>
 //           /pin <id>   /unpin <id>   /forget <id>   /journal [n]   /mind
 //           /alarms   /unalarm <id>   /pulse
+//           /goals   /inbox   /goal <id>   /goal-add <title> | <details>   /accept <id>
+//           /drop <id>   /say <id> <text>
 import readline from "node:readline";
 import { WebSocket } from "ws";
 
@@ -136,6 +138,15 @@ function memoryRow(m: Record<string, any>): string {
   return `  #${m.id} [${m.kind}; ${ORIGIN[m.origin] ?? m.origin}; ${when}${flags ? `; ${flags}` : ""}] ${m.statement}`;
 }
 
+function goalRow(g: Record<string, any>): string {
+  const money = g.standing
+    ? `$${g.standing.week_spent_usd.toFixed(2)}/$${g.standing.weekly_usd.toFixed(2)} this week${g.standing.enabled ? "" : ", off"}`
+    : g.budget_usd > 0
+      ? `$${g.spent_usd.toFixed(2)}/$${g.budget_usd.toFixed(2)}`
+      : "";
+  return `  #${g.id} [${g.status}] ${g.title}${money ? ` (${money})` : ""}${g.waiting_reason ? ` — ${g.waiting_reason}` : ""}`;
+}
+
 function printMind(op: string, result: any): void {
   switch (op) {
     case "memories":
@@ -153,6 +164,42 @@ function printMind(op: string, result: any): void {
       break;
     case "forget":
       console.log(dim(`  deleted ${result.deleted.map((i: number) => `#${i}`).join(", ")}`));
+      break;
+    case "goals":
+      for (const g of result.goals) console.log(goalRow(g));
+      console.log(dim(`  small-goal limit: $${result.small_goal_usd}`));
+      break;
+    case "inbox":
+      if (!result.length) console.log(dim("  nothing needs you"));
+      for (const i of result) console.log(`  ${i.kind === "plan" ? "plan to accept" : i.kind === "blocked" ? "needs your answer" : "proposal"}: ${goalRow(i.goal).trim()}`);
+      break;
+    case "goal": {
+      const g = result.goal;
+      console.log(goalRow(g));
+      if (g.description) console.log(`    ${g.description}`);
+      if (g.reasoning) console.log(dim(`    why: ${g.reasoning}`));
+      if (g.review) {
+        console.log(`    review: ${g.review.understanding}`);
+        console.log(`    judgement (${g.review.recommendation}): ${g.review.judgement}`);
+        g.review.plan.forEach((s: string, n: number) => console.log(`      ${n + 1}. ${s}`));
+        console.log(dim(`    estimate $${g.review.estimate_usd}, ${g.review.estimate_minutes} min, ${g.review.changes_system ? "changes the system" : "read-only"}`));
+        for (const q of g.review.questions) console.log(amber(`    ? ${q}`));
+      }
+      if (g.dossier) console.log(`    dossier: ${g.dossier}`);
+      if (g.outcome) console.log(`    outcome: ${g.outcome}`);
+      for (const m of result.messages) {
+        if (m.kind === "user" || m.kind === "assistant") console.log(`    ${m.kind === "user" ? "you" : "woody"}: ${m.text}`);
+      }
+      break;
+    }
+    case "goal_add":
+    case "goal_accept":
+    case "goal_drop":
+    case "goal_edit":
+      console.log(goalRow(result));
+      break;
+    case "goal_message":
+      console.log(dim("  sent"));
       break;
     case "alarms":
     case "alarm_cancel":
@@ -206,6 +253,29 @@ function mindCommand(text: string): boolean {
       return true;
     case "/alarms":
       mind("alarms");
+      return true;
+    case "/goals":
+      mind("goals", { all: rest[0] === "all" });
+      return true;
+    case "/inbox":
+      mind("inbox");
+      return true;
+    case "/goal":
+      mind("goal", { id });
+      return true;
+    case "/goal-add": {
+      const [title, ...details] = arg.split("|");
+      mind("goal_add", { title: (title ?? "").trim(), description: details.join("|").trim() });
+      return true;
+    }
+    case "/accept":
+      mind("goal_accept", { id });
+      return true;
+    case "/drop":
+      mind("goal_drop", { id });
+      return true;
+    case "/say":
+      mind("goal_message", { id, text: rest.slice(1).join(" ") });
       return true;
     case "/unalarm":
       mind("alarm_cancel", { id });

@@ -38,7 +38,7 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 | 1 | Base system and rollback | Done |
 | 2 | Privileged core, agent, thin HUD | Done |
 | 3 | System hands (3a observe and operate; 3b self-modification; 3c screenshots and clipboard) | Done |
-| 4 | **Mind loop**: events, state, memory, goals, journal, alarms, pacer, web access | 4a done, 4b built (VM test pending), 4c next |
+| 4 | **Mind loop**: events, state, memory, goals, journal, alarms, pacer, web access | 4a and 4b done, 4c built (VM test pending), 4d next |
 | 5 | **Full HUD**, designed around the loop | Planned |
 | 6 | **Security toolkit** | Planned |
 
@@ -96,6 +96,13 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 - Pause is enforced in the executor and was tested live against the built binary.
 - Found while building: the SDK delivers queued messages only after the current reply, so mid-work delivery uses a hook that runs between tool calls, with a one-time key so tool output cannot imitate the operator.
 - Wake-ups with a real model are untested outside the VM.
+
+## Phase 4c results (2026-11-12)
+
+- The goals board: goals with their own threads, review by Woody (understanding, judgement, plan, estimate, questions), the small-goal rule, acceptance with a budget, checkpoints, stops for budget or lack of progress, proposals, four standing duties, and plain HUD views for inbox, goals and journal. Details in [MIND.md](MIND.md).
+- Added beyond the design: an observe-only mode, enforced in the tool layer, for everything Woody does on its own without a plan the operator accepted.
+- The rule that decides what may start is code in the store; the model only supplies the review.
+- A goal handled end to end by a real model is untested outside the VM.
 
 ## Review of the original brief: what changes and why
 

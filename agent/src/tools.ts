@@ -28,6 +28,8 @@ export type LoopHooks = {
   /** Follow a configuration change in the background (it survives a restart of the agent). */
   watchConfig(candidate: string): void;
   unwatchConfig(candidate: string): void;
+  /** "observe": Woody is acting on its own without an accepted plan, and may not change the system. */
+  mode(): "full" | "observe";
 };
 
 type ToolResult = {
@@ -294,6 +296,22 @@ export function createToolServer(exec: ExecutorClient, notify: Notify, files: Fi
         "Apply a staged configuration change (the candidate id from config_propose). The executor takes a snapshot, builds the new system, activates it on trial, checks that the core services are healthy, and only then makes it permanent; on any failure it restores the previous system by itself. If the change touches the locked core or the privilege fingerprint, it first waits for the operator's approval in the HUD, where they see the diff. This call follows the job for up to ten minutes; if it is still running, continue with config_status. If your own code changed, you will be restarted during the job: check config_status afterwards.",
         { candidate: z.string().describe("Candidate id returned by config_propose") },
         async (args) => {
+          if (loop.mode() === "observe") {
+            // On its own, Woody may only ask: a change that needs approval goes to
+            // the operator; a free change needs an accepted plan first.
+            let needsApproval = false;
+            try {
+              const st = await exec.action("config.status", { candidate: args.candidate });
+              needsApproval = st.status === "ok" && Boolean((st.result as { requires_approval?: boolean }).requires_approval);
+            } catch {
+              /* treated as not needing approval: refused below */
+            }
+            if (!needsApproval) {
+              return failure(
+                "Not applied: you are acting on your own, in observe-only mode, and this change would take effect without the operator seeing it. Propose it as a goal (goal_propose) with the plan, or tell the operator; once they accept, you can apply it.",
+              );
+            }
+          }
           const started = await run("config.apply", { candidate: args.candidate });
           if (started.isError) return started;
           // Parked for approval: the job has not started; the outcome will wake Woody.

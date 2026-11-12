@@ -10,6 +10,7 @@
 //   queue     everything that can wake Woody, waiting to be handled
 //   alarms    wake-ups Woody set for itself
 //   watches   things in progress elsewhere whose outcome Woody is waiting for
+//   goals     the board: what the operator wants done, Woody's proposals, standing duties
 //
 // The model's context is assembled from here on every turn (context.ts), so
 // nothing important exists only in a model conversation. See docs/MIND.md.
@@ -66,7 +67,7 @@ export class PolicyError extends Error {}
 export type QueueItem = {
   id: number;
   ts: number;
-  source: "operator" | "alarm" | "system" | "job" | "approval";
+  source: "operator" | "alarm" | "system" | "job" | "approval" | "goal";
   kind: string;
   payload: Record<string, unknown>;
   priority: number;
@@ -76,7 +77,122 @@ export type QueueItem = {
 export type Alarm = { id: number; due: number; reason: string; created: number; status: string };
 export type Watch = { id: number; kind: string; ref: string; created: number; data: Record<string, unknown> };
 
-const SCHEMA_VERSION = 2;
+export type GoalStatus = "inbox" | "review" | "ready" | "active" | "waiting" | "done" | "dropped" | "proposed" | "standing";
+
+export type GoalReview = {
+  understanding: string;
+  judgement: string;
+  recommendation: "proceed" | "reconsider";
+  plan: string[];
+  estimate_usd: number;
+  estimate_minutes: number;
+  /** False only if the plan observes, researches and writes in the workspace, nothing more. */
+  changes_system: boolean;
+  questions: string[];
+};
+
+export type Standing = { enabled: boolean; cadence_minutes: number; weekly_usd: number; week_spent_usd: number; week_start: number };
+
+export type Goal = {
+  id: number;
+  title: string;
+  description: string;
+  /** Why Woody proposed it (proposals only). */
+  reasoning: string;
+  owner: "operator" | "woody";
+  status: GoalStatus;
+  position: number;
+  created: number;
+  updated: number;
+  thread_id: number;
+  review: GoalReview | null;
+  /** The operator wrote the goal or accepted the proposal. */
+  idea_ok: boolean;
+  /** Work may proceed: the operator accepted the plan, or the small-goal rule applied. */
+  accepted: boolean;
+  /** Started under the small-goal rule: observe-only until the operator accepts a plan. */
+  auto_started: boolean;
+  budget_usd: number;
+  spent_usd: number;
+  dossier: string;
+  next_step: string;
+  waiting_reason: string;
+  outcome: string;
+  stalls: number;
+  last_worked: number;
+  standing: Standing | null;
+};
+
+const MAX_OPEN_PROPOSALS = 10;
+
+const SCHEMA_VERSION = 3;
+
+const SCHEMA_V3 = `
+ALTER TABLE threads ADD COLUMN goal_id INTEGER;
+
+CREATE TABLE goals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  reasoning TEXT NOT NULL DEFAULT '',
+  owner TEXT NOT NULL,
+  status TEXT NOT NULL,
+  position REAL NOT NULL,
+  created INTEGER NOT NULL,
+  updated INTEGER NOT NULL,
+  thread_id INTEGER,
+  review TEXT,
+  idea_ok INTEGER NOT NULL DEFAULT 0,
+  accepted INTEGER NOT NULL DEFAULT 0,
+  auto_started INTEGER NOT NULL DEFAULT 0,
+  budget_usd REAL NOT NULL DEFAULT 0,
+  spent_usd REAL NOT NULL DEFAULT 0,
+  dossier TEXT NOT NULL DEFAULT '',
+  next_step TEXT NOT NULL DEFAULT '',
+  waiting_reason TEXT NOT NULL DEFAULT '',
+  outcome TEXT NOT NULL DEFAULT '',
+  stalls INTEGER NOT NULL DEFAULT 0,
+  last_worked INTEGER NOT NULL DEFAULT 0,
+  standing TEXT
+);
+CREATE INDEX goals_status ON goals (status, position);
+`;
+
+/** The duties Woody has from day one. The operator can retune or disable each. */
+const STANDING_GOALS: Array<{ title: string; description: string; enabled: boolean; cadence_minutes: number; weekly_usd: number }> = [
+  {
+    title: "Keep this machine healthy",
+    description:
+      "Look over the machine: failed services, disk space, snapshots, memory, and anything in the logs that deserves attention. Fix nothing by yourself: report what matters to the operator, and propose a goal for any change the system needs.",
+    enabled: true,
+    cadence_minutes: 360,
+    weekly_usd: 1.5,
+  },
+  {
+    title: "Keep improving yourself",
+    description:
+      "Review how your recent work went (the journal, failed sessions, things the operator had to correct) and your own code and configuration. When you see a real improvement to your tools, your instructions or the system, propose it as a goal with a plan. Do not change anything without an accepted plan.",
+    enabled: true,
+    cadence_minutes: 10_080,
+    weekly_usd: 2,
+  },
+  {
+    title: "Stay up to date",
+    description:
+      "Follow NixOS, your own dependencies, Claude and the Agent SDK, and security news; tell the operator what matters and propose upgrades. Disabled until Woody can read the web (Phase 4e).",
+    enabled: false,
+    cadence_minutes: 1440,
+    weekly_usd: 2,
+  },
+  {
+    title: "Practise in the lab",
+    description:
+      "Practise on the lab targets inside the engagement scope and write up what you learned. Disabled until the security toolkit exists (Phase 6).",
+    enabled: false,
+    cadence_minutes: 2880,
+    weekly_usd: 3,
+  },
+];
 
 const SCHEMA_V2 = `
 CREATE TABLE queue (
@@ -342,6 +458,25 @@ export class Store {
       this.tx(() => {
         this.db.exec(SCHEMA_V2);
         this.setMeta("schema_version", "2");
+      });
+    }
+    if (version < 3) {
+      this.tx(() => {
+        this.db.exec(SCHEMA_V3);
+        const now = this.now();
+        STANDING_GOALS.forEach((s, i) => {
+          const t = this.db.prepare("INSERT INTO threads (kind, title, created) VALUES ('goal', ?, ?)").run(s.title, now);
+          const standing: Standing = { enabled: s.enabled, cadence_minutes: s.cadence_minutes, weekly_usd: s.weekly_usd, week_spent_usd: 0, week_start: now };
+          // First run: the health check soon, the others a day from now.
+          const lastWorked = i === 0 ? 0 : now - Math.max(0, s.cadence_minutes - 1440) * 60_000;
+          const r = this.db
+            .prepare(
+              "INSERT INTO goals (title, description, owner, status, position, created, updated, thread_id, idea_ok, last_worked, standing) VALUES (?, ?, 'operator', 'standing', ?, ?, ?, ?, 1, ?, ?)",
+            )
+            .run(s.title, s.description, 1000 + i, now, now, Number(t.lastInsertRowid), lastWorked, JSON.stringify(standing));
+          this.db.prepare("UPDATE threads SET goal_id = ? WHERE id = ?").run(Number(r.lastInsertRowid), Number(t.lastInsertRowid));
+        });
+        this.setMeta("schema_version", "3");
       });
     }
   }
@@ -845,6 +980,323 @@ export class Store {
     this.db.exec(`VACUUM INTO '${file.replaceAll("'", "''")}'`);
   }
 
+  // ---- goals -------------------------------------------------------------
+
+  private toGoal(r: Row): Goal {
+    const parse = <T>(v: unknown): T | null => {
+      if (typeof v !== "string") return null;
+      try {
+        return JSON.parse(v) as T;
+      } catch {
+        return null;
+      }
+    };
+    return {
+      id: Number(r.id),
+      title: String(r.title),
+      description: String(r.description),
+      reasoning: String(r.reasoning),
+      owner: r.owner as Goal["owner"],
+      status: r.status as GoalStatus,
+      position: Number(r.position),
+      created: Number(r.created),
+      updated: Number(r.updated),
+      thread_id: Number(r.thread_id),
+      review: parse<GoalReview>(r.review),
+      idea_ok: Number(r.idea_ok) === 1,
+      accepted: Number(r.accepted) === 1,
+      auto_started: Number(r.auto_started) === 1,
+      budget_usd: Number(r.budget_usd),
+      spent_usd: Number(r.spent_usd),
+      dossier: String(r.dossier),
+      next_step: String(r.next_step),
+      waiting_reason: String(r.waiting_reason),
+      outcome: String(r.outcome),
+      stalls: Number(r.stalls),
+      last_worked: Number(r.last_worked),
+      standing: parse<Standing>(r.standing),
+    };
+  }
+
+  private touchGoal(id: number, sets: string, ...args: Array<string | number | null>): void {
+    this.db.prepare(`UPDATE goals SET ${sets}, updated = ? WHERE id = ?`).run(...args, this.now(), id);
+  }
+
+  goal(id: number): Goal | null {
+    const row = this.db.prepare("SELECT * FROM goals WHERE id = ?").get(id) as Row | undefined;
+    return row ? this.toGoal(row) : null;
+  }
+
+  private needGoal(id: number): Goal {
+    const g = this.goal(id);
+    if (!g) throw new PolicyError(`no goal #${id}`);
+    return g;
+  }
+
+  /** The board: open goals in the operator's order, then (optionally) closed ones, newest first. */
+  goals(opts: { includeClosed?: boolean } = {}): Goal[] {
+    const open = this.db.prepare("SELECT * FROM goals WHERE status NOT IN ('done', 'dropped') ORDER BY position, id").all() as Row[];
+    const closed = opts.includeClosed
+      ? (this.db.prepare("SELECT * FROM goals WHERE status IN ('done', 'dropped') ORDER BY updated DESC LIMIT 50").all() as Row[])
+      : [];
+    return [...open, ...closed].map((r) => this.toGoal(r));
+  }
+
+  /**
+   * A new goal. Written by the operator it lands in the inbox, to be
+   * reviewed. Suggested by Woody it is only a proposal until the operator
+   * accepts it.
+   */
+  addGoal(g: { title: string; description?: string; owner: Goal["owner"]; reasoning?: string }): Goal {
+    const title = g.title.trim().replace(/\s+/g, " ");
+    const description = (g.description ?? "").trim();
+    if (title.length < 3 || title.length > 140) throw new PolicyError("a goal needs a title of 3 to 140 characters");
+    if (description.length > 6000) throw new PolicyError("the description is too long (limit 6000 characters)");
+    const count = (sql: string) => Number((this.db.prepare(sql).get() as Row).n);
+    if (g.owner === "woody" && count("SELECT count(*) AS n FROM goals WHERE status = 'proposed'") >= MAX_OPEN_PROPOSALS) {
+      throw new PolicyError(`there are already ${MAX_OPEN_PROPOSALS} proposals waiting for the operator; do not add more until some are decided`);
+    }
+    if (count("SELECT count(*) AS n FROM goals WHERE status NOT IN ('done', 'dropped')") >= 200) throw new PolicyError("the board is full");
+    return this.tx(() => {
+      const now = this.now();
+      const position = Number((this.db.prepare("SELECT coalesce(max(position), 0) + 1 AS p FROM goals").get() as Row).p);
+      const t = this.db.prepare("INSERT INTO threads (kind, title, created) VALUES ('goal', ?, ?)").run(title, now);
+      const thread = Number(t.lastInsertRowid);
+      const r = this.db
+        .prepare(
+          "INSERT INTO goals (title, description, reasoning, owner, status, position, created, updated, thread_id, idea_ok) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(title, description, (g.reasoning ?? "").trim().slice(0, 3000), g.owner, g.owner === "operator" ? "inbox" : "proposed", position, now, now, thread, g.owner === "operator" ? 1 : 0);
+      const id = Number(r.lastInsertRowid);
+      this.db.prepare("UPDATE threads SET goal_id = ? WHERE id = ?").run(id, thread);
+      this.event("goal_created", { id, owner: g.owner, title }, { actor: g.owner });
+      return this.goal(id)!;
+    });
+  }
+
+  /** The operator rewrites a goal. A changed description sends it back to be reviewed. */
+  editGoal(id: number, change: { title?: string; description?: string }): Goal {
+    const g = this.needGoal(id);
+    if (g.status === "done" || g.status === "dropped") throw new PolicyError("a closed goal cannot be edited");
+    const title = change.title === undefined ? g.title : change.title.trim().replace(/\s+/g, " ");
+    const description = change.description === undefined ? g.description : change.description.trim();
+    if (title.length < 3 || title.length > 140) throw new PolicyError("a goal needs a title of 3 to 140 characters");
+    if (description.length > 6000) throw new PolicyError("the description is too long (limit 6000 characters)");
+    const reReview = description !== g.description && ["review", "ready", "waiting"].includes(g.status) && !g.standing;
+    if (reReview) this.touchGoal(id, "title = ?, description = ?, status = 'inbox', review = NULL, accepted = 0, auto_started = 0", title, description);
+    else this.touchGoal(id, "title = ?, description = ?", title, description);
+    this.event("goal_edited", { id, re_review: reReview }, { actor: "operator" });
+    return this.goal(id)!;
+  }
+
+  /**
+   * Woody's review of a goal: what it understood, whether it is wise, the
+   * plan and the estimate. The outcome follows the operator's rule:
+   *  - open questions: the goal waits on the operator;
+   *  - a read-only plan under the small-goal limit, on a goal whose idea the
+   *    operator wrote or accepted, that Woody recommends: it may start by
+   *    itself, in observe-only mode;
+   *  - anything else waits for the operator to accept the plan.
+   */
+  setReview(id: number, review: GoalReview, smallLimitUsd: number): Goal {
+    const g = this.needGoal(id);
+    if (g.standing) throw new PolicyError("a standing goal is not reviewed");
+    if (!["inbox", "review", "waiting"].includes(g.status) || g.accepted) {
+      throw new PolicyError(`goal #${id} is ${g.status}${g.accepted ? " and already accepted" : ""}; it cannot be reviewed now`);
+    }
+    if (!review.understanding.trim() || !review.judgement.trim()) throw new PolicyError("a review needs your understanding of the goal and your judgement of it");
+    if (!review.questions.length && !review.plan.length) throw new PolicyError("give a plan, or ask the questions that stop you from planning");
+    if (!(review.estimate_usd >= 0) || !(review.estimate_minutes >= 0)) throw new PolicyError("estimates must be zero or more");
+    const clean: GoalReview = {
+      understanding: review.understanding.trim().slice(0, 2000),
+      judgement: review.judgement.trim().slice(0, 2000),
+      recommendation: review.recommendation === "reconsider" ? "reconsider" : "proceed",
+      plan: review.plan.map((s) => s.trim().slice(0, 500)).filter(Boolean).slice(0, 20),
+      estimate_usd: Math.round(review.estimate_usd * 100) / 100,
+      estimate_minutes: Math.round(review.estimate_minutes),
+      changes_system: Boolean(review.changes_system),
+      questions: review.questions.map((s) => s.trim().slice(0, 500)).filter(Boolean).slice(0, 8),
+    };
+    let status: GoalStatus = "review";
+    let auto = 0;
+    let budget = g.budget_usd;
+    let reason = "";
+    if (clean.questions.length) {
+      status = "waiting";
+      reason = "Woody has questions before it can plan.";
+    } else if (g.idea_ok && clean.recommendation === "proceed" && !clean.changes_system && clean.estimate_usd <= smallLimitUsd) {
+      status = "ready";
+      auto = 1;
+      budget = smallLimitUsd;
+    }
+    this.touchGoal(
+      id,
+      "review = ?, status = ?, accepted = ?, auto_started = ?, budget_usd = ?, waiting_reason = ?, stalls = 0",
+      JSON.stringify(clean), status, auto, auto, budget, reason,
+    );
+    this.event("goal_reviewed", { id, status, auto_started: Boolean(auto), estimate_usd: clean.estimate_usd, changes_system: clean.changes_system });
+    return this.goal(id)!;
+  }
+
+  /**
+   * The operator says yes. To a proposal: the idea is accepted and it goes to
+   * be reviewed. To a reviewed plan: work may start, with full permissions
+   * and a budget. To a goal that ran out of budget: more budget.
+   */
+  acceptGoal(id: number, budgetUsd?: number): Goal {
+    const g = this.needGoal(id);
+    if (g.status === "proposed") {
+      this.touchGoal(id, "status = 'inbox', idea_ok = 1");
+    } else if (g.status === "review" && g.review && !g.review.questions.length) {
+      const budget = budgetUsd ?? Math.max(0.25, Math.round(g.review.estimate_usd * 150) / 100);
+      this.touchGoal(id, "status = 'ready', accepted = 1, auto_started = 0, budget_usd = ?, waiting_reason = ''", budget);
+    } else if (g.status === "waiting" && (g.accepted || g.auto_started)) {
+      // Unblocks a goal that stopped for budget or lack of progress.
+      const budget = budgetUsd ?? (g.spent_usd >= g.budget_usd ? Math.round(g.budget_usd * 200) / 100 : g.budget_usd);
+      this.touchGoal(id, "status = 'active', budget_usd = ?, waiting_reason = '', stalls = 0", budget);
+    } else {
+      throw new PolicyError(`goal #${id} is ${g.status}; there is nothing to accept`);
+    }
+    this.event("goal_accepted", { id, from: g.status }, { actor: "operator" });
+    return this.goal(id)!;
+  }
+
+  dropGoal(id: number, actor: string, reason = ""): Goal {
+    const g = this.needGoal(id);
+    if (g.standing) throw new PolicyError("a standing goal cannot be dropped; disable it instead");
+    if (g.status === "done" || g.status === "dropped") throw new PolicyError(`goal #${id} is already closed`);
+    this.touchGoal(id, "status = 'dropped', outcome = ?", reason.trim().slice(0, 1000));
+    this.event("goal_dropped", { id }, { actor });
+    return this.goal(id)!;
+  }
+
+  /** Moves a goal one place up or down among the open goals, or to the top. */
+  moveGoal(id: number, where: "up" | "down" | "top"): void {
+    const open = this.goals().filter((g) => !g.standing);
+    const i = open.findIndex((g) => g.id === id);
+    if (i < 0) throw new PolicyError(`no open goal #${id}`);
+    const set = (gid: number, p: number) => this.db.prepare("UPDATE goals SET position = ? WHERE id = ?").run(p, gid);
+    if (where === "top") {
+      set(id, open[0]!.position - 1);
+    } else {
+      const other = open[where === "up" ? i - 1 : i + 1];
+      if (!other) return;
+      set(id, other.position);
+      set(other.id, open[i]!.position);
+    }
+    this.event("goal_moved", { id, where }, { actor: "operator" });
+  }
+
+  /**
+   * Woody's checkpoint at the end of a work session: where the goal stands
+   * and the exact next step. A goal must be resumable from this alone.
+   */
+  checkpoint(
+    id: number,
+    c: { dossier: string; next_step: string; status: "active" | "waiting" | "done"; waiting_reason?: string; outcome?: string },
+  ): Goal {
+    const g = this.needGoal(id);
+    if (!g.standing && !g.accepted) throw new PolicyError(`goal #${id} has not been started; review it first`);
+    if (!["ready", "active", "waiting", "standing"].includes(g.status)) throw new PolicyError(`goal #${id} is ${g.status}; it is not being worked on`);
+    const dossier = c.dossier.trim();
+    if (!dossier || dossier.length > 12_000) throw new PolicyError("the dossier must be between 1 and 12000 characters");
+    if (c.status === "waiting" && !c.waiting_reason?.trim()) throw new PolicyError("say what you are waiting for from the operator");
+    if (c.status === "done" && !c.outcome?.trim()) throw new PolicyError("a finished goal needs an outcome report");
+    const status: GoalStatus = g.standing ? "standing" : c.status;
+    this.touchGoal(
+      id,
+      "dossier = ?, next_step = ?, status = ?, waiting_reason = ?, outcome = ?, stalls = 0, last_worked = ?",
+      dossier, c.next_step.trim().slice(0, 1000), status, status === "waiting" ? c.waiting_reason!.trim().slice(0, 1000) : "",
+      c.status === "done" ? c.outcome!.trim().slice(0, 4000) : g.outcome, this.now(),
+    );
+    this.event("goal_checkpoint", { id, status });
+    return this.goal(id)!;
+  }
+
+  /**
+   * Called by the loop after every session on a goal: adds the cost, and
+   * stops the goal for the operator when its budget is used up or when it
+   * has made no recorded progress three sessions in a row.
+   */
+  noteGoalSession(id: number, costUsd: number, checkpointed: boolean): Goal {
+    const g = this.needGoal(id);
+    const now = this.now();
+    const spent = g.spent_usd + costUsd;
+    let status = g.status === "ready" ? "active" : g.status;
+    let reason = g.waiting_reason;
+    const stalls = checkpointed ? 0 : g.stalls + 1;
+    let standing = g.standing;
+    if (standing) {
+      const week = 7 * 86_400_000;
+      if (now - standing.week_start >= week) standing = { ...standing, week_start: now, week_spent_usd: 0 };
+      standing = { ...standing, week_spent_usd: standing.week_spent_usd + costUsd };
+    } else if (status === "active") {
+      if (g.budget_usd > 0 && spent >= g.budget_usd) {
+        status = "waiting";
+        reason = `The budget of $${g.budget_usd.toFixed(2)} is used up ($${spent.toFixed(2)} spent). Accept to give it more, or drop it.`;
+      } else if (stalls >= 3) {
+        status = "waiting";
+        reason = "Three work sessions ended without a checkpoint. Something is stuck; tell Woody how to continue, or drop it.";
+      }
+    }
+    this.touchGoal(
+      id,
+      "spent_usd = ?, status = ?, waiting_reason = ?, stalls = ?, last_worked = ?, standing = ?",
+      spent, status, reason, stalls, now, standing ? JSON.stringify(standing) : null,
+    );
+    return this.goal(id)!;
+  }
+
+  setStanding(id: number, change: Partial<Pick<Standing, "enabled" | "cadence_minutes" | "weekly_usd">>): Goal {
+    const g = this.needGoal(id);
+    if (!g.standing) throw new PolicyError(`goal #${id} is not a standing goal`);
+    const next = { ...g.standing };
+    if (change.enabled !== undefined) next.enabled = Boolean(change.enabled);
+    if (change.cadence_minutes !== undefined) next.cadence_minutes = Math.min(43_200, Math.max(30, Math.round(change.cadence_minutes)));
+    if (change.weekly_usd !== undefined) next.weekly_usd = Math.min(100, Math.max(0, change.weekly_usd));
+    this.touchGoal(id, "standing = ?", JSON.stringify(next));
+    this.event("standing_changed", { id, ...change }, { actor: "operator" });
+    return this.goal(id)!;
+  }
+
+  /**
+   * What Woody should work on next, by itself: a goal waiting to be
+   * reviewed, then accepted goals in the operator's order, then a standing
+   * duty that is due and still has budget this week.
+   */
+  nextGoalWork(): { goal: Goal; kind: "review" | "work" | "standing" } | null {
+    const now = this.now();
+    const all = this.goals();
+    const review = all.find((g) => g.status === "inbox");
+    if (review) return { goal: review, kind: "review" };
+    const work = all.find((g) => (g.status === "ready" || g.status === "active") && g.accepted && !g.standing);
+    if (work) return { goal: work, kind: "work" };
+    const due = all
+      .filter((g) => g.standing?.enabled)
+      .filter((g) => {
+        const s = g.standing!;
+        const weekSpent = now - s.week_start >= 7 * 86_400_000 ? 0 : s.week_spent_usd;
+        return weekSpent < s.weekly_usd && now - g.last_worked >= s.cadence_minutes * 60_000;
+      })
+      .sort((a, b) => a.last_worked - b.last_worked)[0];
+    return due ? { goal: due, kind: "standing" } : null;
+  }
+
+  /** What needs the operator: plans to accept, questions and blocks, proposals. */
+  inbox(): Array<{ kind: "plan" | "blocked" | "proposal"; goal: Goal }> {
+    const out: Array<{ kind: "plan" | "blocked" | "proposal"; goal: Goal }> = [];
+    for (const g of this.goals()) {
+      if (g.status === "review") out.push({ kind: "plan", goal: g });
+      else if (g.status === "waiting") out.push({ kind: "blocked", goal: g });
+      else if (g.status === "proposed") out.push({ kind: "proposal", goal: g });
+    }
+    return out;
+  }
+
+  threadOfGoal(id: number): number {
+    return this.needGoal(id).thread_id;
+  }
+
   // ---- identity ----------------------------------------------------------
 
   identity(): { version: number; text: string } {
@@ -861,6 +1313,8 @@ export class Store {
       memories: count("SELECT count(*) AS n FROM memories WHERE superseded_by IS NULL"),
       superseded: count("SELECT count(*) AS n FROM memories WHERE superseded_by IS NOT NULL"),
       alarms: count("SELECT count(*) AS n FROM alarms WHERE status = 'pending'"),
+      goals_open: count("SELECT count(*) AS n FROM goals WHERE status NOT IN ('done', 'dropped', 'standing')"),
+      goals_need_you: count("SELECT count(*) AS n FROM goals WHERE status IN ('review', 'waiting', 'proposed')"),
       queued: count("SELECT count(*) AS n FROM queue WHERE status = 'pending'"),
       identity_version: this.identity().version,
     };
