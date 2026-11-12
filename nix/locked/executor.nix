@@ -104,7 +104,7 @@ let
       # The programs every run has without asking. Anything else is named in
       # the request and taken from the package set this system was built from.
       path = map (p: "${lib.getBin p}/bin") (with pkgs; [
-        bash coreutils findutils gnugrep gnused gawk diffutils file which less
+        bash coreutils findutils gnugrep gnused gawk diffutils file which less util-linux procps
         gnutar gzip bzip2 xz zstd unzip zip
         curl git jq python3
       ]);

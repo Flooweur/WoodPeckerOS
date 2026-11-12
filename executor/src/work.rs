@@ -142,10 +142,23 @@ pub fn nix_expr(packages: &[String], python: &[String]) -> String {
         let libs: Vec<String> = python.iter().map(|l| format!("ps.\"{l}\"")).collect();
         paths.push(format!("(p.python3.withPackages (ps: [ {} ]))", libs.join(" ")));
     }
+    // No "$" anywhere in it: systemd replaces ${...} in the command of a unit, and would empty it.
     format!(
-        "let p = (builtins.getFlake \"nixpkgs\").legacyPackages.${{builtins.currentSystem}}; in p.buildEnv {{ name = \"workbench-env\"; paths = [ {} ]; }}",
+        "let p = builtins.getAttr builtins.currentSystem (builtins.getFlake \"nixpkgs\").legacyPackages; in p.buildEnv {{ name = \"workbench-env\"; paths = [ {} ]; }}",
         paths.join(" ")
     )
+}
+
+/// How systemd says a unit ended ("success", "exit-code", "oom-kill", "timeout", "signal"),
+/// read from the summary systemd-run prints when the unit is finished.
+pub fn unit_result(stderr: &str) -> Option<String> {
+    stderr.lines().find_map(|l| l.trim().strip_prefix("Finished with result: ").map(|r| r.trim().to_string()))
+}
+
+/// The summary lines systemd-run adds are not trouble; anything else on its stderr is.
+fn own_trouble(stderr: &str) -> String {
+    const SUMMARY: &[&str] = &["Running as unit:", "Finished with result:", "Main processes terminated with:", "Service runtime:", "CPU time consumed:", "Memory peak:", "Memory swap peak:", "IP traffic", "IO bytes"];
+    stderr.lines().map(str::trim).filter(|l| !l.is_empty() && !SUMMARY.iter().any(|s| l.starts_with(s))).collect::<Vec<_>>().join(" ")
 }
 
 /// The properties of the transient unit a step runs in.
@@ -234,7 +247,8 @@ fn run_unit(w: &Work, name: &str, properties: &[String], env: &[String], command
     let started = now_ms();
     let mut cmd = Command::new(&w.timeout);
     cmd.arg("--kill-after=10").arg(hard_timeout_s.to_string()).arg(&w.systemd_run);
-    cmd.args(["--wait", "--pipe", "--collect", "--quiet", "--unit", name]);
+    // Without --quiet: systemd-run then says on its stderr how the unit ended (see unit_result).
+    cmd.args(["--wait", "--pipe", "--collect", "--unit", name]);
     for p in properties {
         cmd.arg("-p").arg(p);
     }
@@ -317,7 +331,7 @@ pub fn run(cfg: &Config, map: &Map<String, Value>) -> Result<Value, String> {
                 "the programs could not be prepared (packages: {}; python: {}). Check the names against the package set. What Nix said: {}",
                 req.packages.join(", "),
                 req.python.join(", "),
-                tail(&ran.stderr, 1200)
+                tail(&own_trouble(&ran.stderr), 1200)
             ));
         }
         env_path = Some(path);
@@ -340,14 +354,19 @@ pub fn run(cfg: &Config, map: &Map<String, Value>) -> Result<Value, String> {
 
     let cut = ran.stdout.len() > MAX_OUTPUT;
     let shown = &ran.stdout[..ran.stdout.len().min(MAX_OUTPUT)];
-    let timed_out = ran.code == 124 || ran.code == 137 || ran.seconds >= req.timeout_s as f64;
+    let result = unit_result(&ran.stderr);
+    // The memory limit ends the whole unit at once: the script gets no chance to say anything.
+    let out_of_memory = result.as_deref() == Some("oom-kill");
+    let timed_out = !out_of_memory && (ran.code == 124 || result.as_deref() == Some("timeout") || ran.seconds >= req.timeout_s as f64);
     // systemd-run reports its own trouble (a property it does not know, a unit that could not start) on stderr.
-    let trouble = if ran.stdout.is_empty() && ran.code != 0 && !ran.stderr.trim().is_empty() { Some(tail(&ran.stderr, 600)) } else { None };
+    let own = own_trouble(&ran.stderr);
+    let trouble = if ran.code != 0 && !own.is_empty() { Some(tail(&own, 600)) } else { None };
     Ok(json!({
         "exit_code": ran.code,
         "output": String::from_utf8_lossy(shown),
         "output_cut": cut,
         "timed_out": timed_out,
+        "out_of_memory": out_of_memory,
         "seconds": (ran.seconds * 10.0).round() / 10.0,
         "prepare_seconds": (prepare_s * 10.0).round() / 10.0,
         "network": req.network,
@@ -415,6 +434,22 @@ mod tests {
     fn the_expression_names_only_packages_of_the_pinned_set() {
         let e = nix_expr(&["ffmpeg".into(), "jq".into()], &["numpy".into(), "scikit-learn".into()]);
         assert!(e.contains("builtins.getFlake \"nixpkgs\""));
+        // systemd would replace anything written with a dollar sign in a unit's command.
+        assert!(!e.contains('$'));
+        assert_eq!(unit_result("Running as unit: x.service
+Finished with result: oom-kill
+Memory peak: 2G
+").as_deref(), Some("oom-kill"));
+        assert_eq!(unit_result("nothing of the kind"), None);
+        assert_eq!(own_trouble("Running as unit: x.service
+Finished with result: exit-code
+Main processes terminated with: code=exited/status=1
+Service runtime: 1s
+CPU time consumed: 10ms
+Memory peak: 1M
+"), "");
+        assert_eq!(own_trouble("Unknown assignment: Foo=bar
+Finished with result: success"), "Unknown assignment: Foo=bar");
         assert!(e.contains("paths = [ p.ffmpeg p.jq (p.python3.withPackages (ps: [ ps.\"numpy\" ps.\"scikit-learn\" ])) ]"));
         assert_eq!(nix_expr(&["jq".into()], &[]).matches("python3").count(), 0);
     }

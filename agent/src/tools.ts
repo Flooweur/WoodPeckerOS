@@ -346,7 +346,7 @@ export function createSystemTools(exec: Exec, notify: Notify, files: Files, loop
             return failure(`work.run could not be sent: ${err instanceof Error ? err.message : String(err)}`);
           }
           if (reply.status !== "ok") return settle(reply, "work.run");
-          const r = reply.result as { exit_code: number; output: string; output_cut: boolean; timed_out: boolean; seconds: number; prepare_seconds: number; network: boolean; trouble?: string | null };
+          const r = reply.result as { exit_code: number; output: string; output_cut: boolean; timed_out: boolean; out_of_memory?: boolean; seconds: number; prepare_seconds: number; network: boolean; trouble?: string | null };
           // The whole output can be very long: the beginning and the end are shown, the rest is said to be left out.
           const KEEP_HEAD = 12_000;
           const KEEP_TAIL = 6_000;
@@ -355,6 +355,7 @@ export function createSystemTools(exec: Exec, notify: Notify, files: Files, loop
           return data({
             exit_code: r.exit_code,
             ...(r.timed_out ? { timed_out: `the script was stopped after ${args.timeout_seconds ?? 60} seconds` } : {}),
+            ...(r.out_of_memory ? { out_of_memory: "the run was stopped at once for using more memory than a run may (2 GB); nothing it printed was kept" } : {}),
             ...(r.trouble ? { trouble: r.trouble } : {}),
             seconds: r.seconds,
             ...(r.prepare_seconds ? { seconds_preparing_programs: r.prepare_seconds } : {}),
