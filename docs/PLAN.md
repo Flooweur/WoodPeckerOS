@@ -44,6 +44,9 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 | 10 | **Reshaping itself**: free change of its own program | Planned |
 | 11 | **Sound and voice** | Planned |
 | 12 | **Programs on the canvas** | Planned |
+| 13 | **Universal pipes**: outputs of things wired to inputs of things, the machine, Woody and approved actions | Planned (decided 2026-11-12) |
+| 14 | **Triggers on meaning**: alerts on what a change means, on pages, things, files and logs | Planned (decided 2026-11-12) |
+| 15 | **Mail as a source**: one read-only folder that triggers can watch | Planned (decided 2026-11-12) |
 
 ## Phase 0 results (2026-11-11)
 
@@ -477,6 +480,105 @@ Built in three steps: 9a open reading (built: see "Phase 9a results"), 9b studie
 - **Spike:** how to show a program's picture inside a thing (a hidden display relayed to the browser), and how it performs under software rendering.
 - **Programs as things:** a program runs under its own unprivileged user; Woody opens, places and closes it; you use it with mouse and keyboard.
 - **Done when:** a file manager and a text editor are usable inside things on the canvas.
+
+### Phases 13 to 15: pipes, triggers on meaning, mail
+
+Discussed with the operator on 2026-11-12, after Phase 9. Three ideas were on the table: universal pipes, triggers on meaning, and disposable tools. Disposable tools were dropped by the operator during the discussion. The other two go at the end of the roadmap, pipes first.
+
+**What the two share.** Today a thing can save its own state, read the machine's meters and tell Woody that something happened. It has no inputs and no outputs. Both ideas need **ports**: named inputs and outputs, carried by the frame. A pipe is an output wired to an input. A trigger is a source, a stage where a model judges what a change means, and "tell the operator" as the end.
+
+**Where the rules must live.** These phases come after Phase 10, when Woody can change its own program. So nothing in them may be enforced by the agent: routing, limits and the pinned rule belong to the gateway, standing approvals to the executor.
+
+Decisions:
+
+| Question | Decision |
+|---|---|
+| What may be at the ends of a pipe | Things, the machine's feeds (meters, logs, service states, the clock), files, Woody (a pipe that wakes it), the operator (a notice), and actions on the system |
+| A model inside a pipe | Allowed where code alone cannot make two ends fit. Marked on the canvas, runs only when the value changes, with its own budget |
+| Piping a pinned thing | The operator's own drag is permission for that one change, recorded and undoable. The thing stays pinned otherwise |
+| How pipes are shown | Faint lines, always, drawn by the frame; brighter for a moment when a value passes |
+| A port the thing does not have yet | The pipe appears at once as a dashed line with the words typed; it becomes solid when both ends work, or says why it cannot be done |
+| Woody's own pipes | Anywhere on the canvas except pinned things, counted against its daily limit of unasked changes. An action pipe always needs the operator |
+| How an action pipe may act | Approved once, as a standing rule, on the approval channel. The approval shows the action, which values are fixed and which come from the pipe, and the most runs a day |
+| What may feed an action pipe | Anything, once the operator approved the pipe: also content from the web or a model's judgement of it. The content may supply the action's values |
+| Which actions a pipe may run | Starting, stopping and restarting services under the standing approval. A configuration change raised by a pipe waits for a yes each time. The locked core and the services that can never be touched stay out of reach |
+| Sources a trigger can watch | Web pages, things and files, the machine's logs and state, mail |
+| When a trigger is unsure | It goes in the daily brief, not in an alert. Every check is kept in a record |
+| When a trigger fires | The operator is told, with what changed, the passage that decided it and why it matters. They can answer "worth it" or "not worth it" |
+| Woody's own triggers | Allowed, paid from its own share. They wake Woody in its own time, and may alert the operator when Woody judges they would want to know, counted like things it leaves unasked |
+| Running cost | Each trigger and each model stage has its own monthly budget (50 cents by default), shown. When it is used up it stops until the next month and says so |
+| Reaching the operator when away | The alert waits on the screen and in the daily brief. A phone notification is not part of these phases |
+| How much mail Woody may read | One folder or label the operator chooses, read-only. Never the rest of the mailbox; never send, delete or mark |
+
+One decision departs from principle 7 ("untrusted content can inform, never instruct") and from the poison test of Phase 9: an approved action pipe may be fed by content from the web, and that content may supply the action's values. It was the operator's choice, made twice against the recommendation. What bounds it: only service actions run without a further yes; the executor's catalogue checks every value; the list of services that can never be touched still holds; the pipe has a daily cap; every run is in the audit log; the operator can switch the pipe off. What remains possible: a crafted page can stop or restart an ordinary service as often as the cap allows.
+
+#### Phase 13: universal pipes
+
+The largest phase since the canvas. Four steps.
+
+- **13a. Ports and plain pipes.**
+  - A thing declares its outputs and inputs when it is made: a name, a kind (number, text, list, record, picture, event) and a sentence. The bridge gains `woody.output(name, value)` and `woody.input(name, fn)`.
+  - The gateway carries values, keeps the last one for each pipe, and limits size and rate. A loop of pipes is refused or slowed.
+  - The kit's parts get ports. The machine's feeds become sources.
+  - The frame draws the lines. A **Pipes** record lists each pipe with its ends, when a value last passed, a switch and undo.
+- **13b. Making a pipe by hand, and in words.**
+  - Drag from a thing, choose or type what comes out, drop on another thing, choose or type what it feeds.
+  - Each thing offers suggestions. A typed port that does not exist yet makes Woody have the thing changed to provide it, and write a small adapter when the two kinds differ. The adapter is code in a sandbox, written once.
+  - Woody gets tools to make and remove pipes.
+- **13c. Meaning in a pipe.** A model stage with no tools, for what code cannot do ("the mood of this text" into a colour). It runs on change only, within its budget, and is drawn differently.
+- **13d. Action pipes.** Standing approvals in the executor (a change to the locked core): the approval names the action, the fixed values, the values that come from the pipe and the daily cap.
+- **Spikes first:**
+  - Whether a reader model can locate a region of a picture well enough ("the face of the dog"). Woody never sees pictures, so a pipe like the operator's example rests on this.
+  - How many lines the software-rendered screen draws without slowing things down.
+- **Risks:**
+  - "Anything into anything" will sometimes be impossible or wrong. A pipe that cannot be made must say so plainly, and a pipe that works must be testable by looking at the value that passes.
+  - A model stage makes a pipe slower, costlier and not repeatable. Hence code by default.
+  - Action pipes: see the note on principle 7 above.
+- **Done when:**
+  - the dog's face becomes the clock's background by one drag and two typed phrases, or Woody says why it cannot;
+  - a pipe between two kit parts works with no model call at all;
+  - a pipe to a pinned thing changed it once, with an undo;
+  - a model stage stopped when its budget was used and said so;
+  - an approved action pipe restarted a service within its cap, each run is in the audit log, and switching it off stopped it;
+  - a pipe fed by web content could not raise a configuration change without a yes.
+
+#### Phase 14: triggers on meaning
+
+Ordinary watchers react to bytes. A trigger reacts to what a change means for the operator. Three steps.
+
+- **How one check goes:**
+  1. Look at the source.
+  2. Compare with what was seen last time, by plain code. No change means no model call.
+  3. A judge model with no tools reads the change, the operator's sentence and what Woody knows of them that is relevant. It answers: clearly yes, clearly no, or unsure, with the passage that decided it.
+  4. Yes raises a notice by the lattice. Unsure goes in the daily brief. No is only recorded.
+- **Auditing the silence.** No tool of this kind publishes how many changes it wrongly keeps quiet about, and that rate cannot be known in advance here either. So each trigger keeps its record (looked 212 times, changed 14, alerted 2), and every change it stayed silent about can be read there. The operator's "worth it" and "not worth it" are kept with the trigger as examples, in their words.
+- **14a. Pages.** Fetched on a schedule under the rules of Phase 9a.
+- **14b. Things and files,** through the ports of Phase 13.
+- **14c. Logs and the machine's state,** including "like last Tuesday": the operator or Woody marks a stretch of time as an episode, and it is kept as a reference to compare against. This needs a spike: a judge reading a summary of the episode, or a small local model that measures likeness.
+- **Safety:**
+  - What a trigger reads is untrusted, and the judge cannot act.
+  - An alert shows the source's words as quotations, and addresses follow the links rule of Phase 9a.
+  - A trigger that fires never starts a session that can act.
+- **Done when:**
+  - a page changed five times in ways that do not matter and once in a way that does, and the operator got one alert with the passage;
+  - an unsure case appeared in the daily brief and nowhere else;
+  - the record showed every check and every silence;
+  - a "not worth it" changed what the trigger alerted on afterwards;
+  - a trigger stopped when its budget was used and said so;
+  - Woody set a trigger of its own from its share, and one alert of its own counted against its daily limit.
+
+#### Phase 15: mail as a source
+
+"When the contractor's reply sounds like a delay." A phase of its own, because mail is private and is written by strangers.
+
+- **Reading:** the executor reads one folder or label over an encrypted connection, as a user with no rights. The credential sits in a root-only file. There is no action that sends, deletes or marks.
+- **Quarantine:** a message is read by the judge model with no tools, like a web page. Woody gets the verdict and a short quotation, not the mail.
+- **Open questions, to settle when the phase starts:**
+  - which mail provider, and how Woody signs in (an application password or the provider's own sign-in);
+  - whether attachments are read (not at first);
+  - how long anything from a message is kept (the verdict and the quotation only).
+- **To know:** what the judge reads is sent to the model provider.
+- **Done when:** a reply in the chosen folder that announces a delay in polite words raised an alert, a reply that confirms the date did not, and nothing outside that folder was ever read.
 
 ## Verification
 
