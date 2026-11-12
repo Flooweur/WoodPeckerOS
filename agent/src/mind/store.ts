@@ -915,10 +915,26 @@ export class Store {
     return out;
   }
 
-  /** How many autonomous events were handled since a given time (for rate limits). */
+  /**
+   * How many autonomous sessions ran since a given time (for the hourly
+   * ceiling). Sessions the model API refused are not counted: they did
+   * nothing and cost nothing.
+   */
   autonomousHandledSince(ts: number): number {
-    const row = this.db.prepare("SELECT count(*) AS n FROM queue WHERE source != 'operator' AND status = 'handled' AND handled_ts >= ?").get(ts) as Row;
+    const row = this.db
+      .prepare("SELECT count(*) AS n FROM queue WHERE source != 'operator' AND status = 'handled' AND handled_ts >= ? AND note NOT LIKE 'The model API refused%'")
+      .get(ts) as Row;
     return Number(row.n);
+  }
+
+  /** When the hourly ceiling will next have room: the time the max-th most recent session leaves the window. */
+  autonomousSlotFreeAt(windowMs: number, max: number): number {
+    const row = this.db
+      .prepare(
+        "SELECT handled_ts FROM queue WHERE source != 'operator' AND status = 'handled' AND note NOT LIKE 'The model API refused%' ORDER BY handled_ts DESC LIMIT 1 OFFSET ?",
+      )
+      .get(max - 1) as Row | undefined;
+    return row ? Number(row.handled_ts) + windowMs : this.now();
   }
 
   // ---- alarms ------------------------------------------------------------

@@ -125,10 +125,10 @@ pre {
 .composer-buttons { display: flex; flex-direction: column; gap: 6px; }
 
 /* ---- presence: what Woody is doing right now ---- */
-.presence { font-size: 13px; color: var(--amber-soft); max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.presence { font-size: 13px; color: var(--amber-soft); max-width: 80ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .presence strong { color: var(--amber); text-transform: uppercase; letter-spacing: 0.1em; font-size: 12px; }
 .presence.working strong, .presence.attending strong { color: var(--ok); }
-.presence.paused strong, .presence.out_of_allowance strong, .presence.no_credential strong, .presence.waiting strong, .presence.api_error strong { color: var(--red); }
+.presence.paused strong, .presence.out_of_allowance strong, .presence.no_credential strong, .presence.waiting strong, .presence.api_error strong, .presence.pacing strong { color: var(--red); }
 
 /* ---- the board: inbox, goals, journal (plain; redesigned in Phase 5) ---- */
 button.on { background: #1a1204; border-color: var(--amber); }

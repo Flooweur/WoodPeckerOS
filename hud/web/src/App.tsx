@@ -6,7 +6,7 @@ import { Board, type MindResult, type Tab } from "./Board";
 type Model = { id: string; label: string; note: string };
 type Budget = { month: string; spent_usd: number; cap_usd: number; remaining_usd: number; exhausted: boolean };
 type MindState = {
-  state: "attending" | "working" | "resting" | "waiting" | "paused" | "out_of_allowance" | "no_credential" | "api_error";
+  state: "attending" | "working" | "resting" | "waiting" | "paused" | "out_of_allowance" | "pacing" | "no_credential" | "api_error";
   focus: string;
   since: number;
   queue: { operator: number; autonomous: number };
@@ -30,6 +30,7 @@ const MIND_LABEL: Record<MindState["state"], string> = {
   waiting: "waiting on you",
   paused: "paused",
   out_of_allowance: "out of allowance",
+  pacing: "pacing itself",
   no_credential: "no API key",
   api_error: "model API refused",
 };
@@ -315,7 +316,7 @@ export function App() {
         {mind && (
           <div className={`presence ${paused ? "paused" : mind.state}`} title={mind.focus}>
             <strong>{paused ? "paused" : MIND_LABEL[mind.state]}</strong>
-            {mind.focus && <span className="dim"> · {mind.focus.length > 70 ? `${mind.focus.slice(0, 70)}…` : mind.focus}</span>}
+            {mind.focus && <span className="dim"> · {mind.focus.length > 110 ? `${mind.focus.slice(0, 110)}…` : mind.focus}</span>}
           </div>
         )}
         <div className="controls">

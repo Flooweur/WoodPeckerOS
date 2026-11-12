@@ -160,7 +160,7 @@ let paused = false;
 /** Messages from the operator that arrived while a session was running. */
 let arrivals: Array<{ queueId: number; event: number; text: string }> = [];
 
-type MindStateName = "attending" | "working" | "resting" | "waiting" | "paused" | "out_of_allowance" | "no_credential" | "api_error";
+type MindStateName = "attending" | "working" | "resting" | "waiting" | "paused" | "out_of_allowance" | "pacing" | "no_credential" | "api_error";
 
 /**
  * When the model API refuses requests (a spending limit on the key, an
@@ -716,14 +716,27 @@ async function runSession(item: QueueItem): Promise<void> {
 
 // ---- the loop ------------------------------------------------------------
 
-/** Why Woody may not act on its own right now, or null if it may. */
-function autonomyBlock(): MindStateName | null {
-  if (paused) return "paused";
-  if (!hasCredential()) return "no_credential";
-  if (Date.now() < apiBlock.until) return "api_error";
+const hhmm = (ts: number) => `${new Date(ts).toISOString().slice(11, 16)} UTC`;
+
+/** Why Woody may not act on its own right now (with the reason in words), or null if it may. */
+function autonomyBlock(): { state: MindStateName; why: string } | null {
+  if (paused) return { state: "paused", why: "You paused Woody." };
+  if (!hasCredential()) return { state: "no_credential", why: "No API key is configured." };
+  if (Date.now() < apiBlock.until) return { state: "api_error", why: `${apiBlock.reason} Trying again at ${hhmm(apiBlock.until)}.` };
   const b = budget.status();
-  if (b.exhausted || b.autonomous_usd < MIN_AUTONOMOUS_USD) return "out_of_allowance";
-  if (store.autonomousHandledSince(Date.now() - 3_600_000) >= MAX_AUTONOMOUS_PER_HOUR) return "out_of_allowance";
+  if (b.exhausted) return { state: "out_of_allowance", why: `The monthly cap of $${b.cap_usd} is spent.` };
+  if (b.autonomous_usd < MIN_AUTONOMOUS_USD) {
+    return {
+      state: "out_of_allowance",
+      why: `Spent $${b.spent_usd.toFixed(2)} this month; the daily pace ($${b.daily_usd.toFixed(2)} a day) has not released more yet. It refills at midnight UTC.`,
+    };
+  }
+  if (store.autonomousHandledSince(Date.now() - 3_600_000) >= MAX_AUTONOMOUS_PER_HOUR) {
+    return {
+      state: "pacing",
+      why: `${MAX_AUTONOMOUS_PER_HOUR} sessions started by itself in the last hour (the ceiling). Next one at ${hhmm(store.autonomousSlotFreeAt(3_600_000, MAX_AUTONOMOUS_PER_HOUR))}.`,
+    };
+  }
   return null;
 }
 
@@ -732,9 +745,9 @@ function restingState(): void {
   const block = autonomyBlock();
   const waiting = store.activeWatches().filter((w) => w.kind === "approval").length;
   const next = store.pendingAlarms()[0];
-  if (block === "paused") setMind("paused", depth.autonomous ? `${depth.autonomous} event(s) waiting` : "");
-  else if (block === "api_error") setMind("api_error", `${apiBlock.reason} Trying again at ${new Date(apiBlock.until).toISOString().slice(11, 16)} UTC.`);
-  else if (block && depth.autonomous) setMind(block, `${depth.autonomous} event(s) waiting`);
+  // Work is held back if something is queued, or a goal is waiting for Woody's attention.
+  const held = depth.autonomous > 0 || store.nextGoalWork() !== null;
+  if (block && (held || block.state === "paused" || block.state === "api_error")) setMind(block.state, block.why);
   else if (waiting) setMind("waiting", `${waiting} request(s) need your decision`);
   else setMind("resting", next ? `until ${new Date(next.due).toISOString().slice(11, 16)} UTC: ${next.reason}` : "");
 }

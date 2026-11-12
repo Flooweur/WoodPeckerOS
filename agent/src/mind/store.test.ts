@@ -596,3 +596,22 @@ test("goals: a review that never completes stops after three attempts and can be
   for (let i = 0; i < 5; i++) assert.equal(store.noteGoalSession(g.id, 0, true).status, "inbox");
   store.close();
 });
+
+test("the hourly ceiling ignores sessions the API refused, and knows when it frees", () => {
+  const store = new Store(tempDb());
+  let t = Date.UTC(2026, 10, 12, 2, 0);
+  store.now = () => t;
+  const run = (note: string) => {
+    const id = store.enqueue({ source: "goal", kind: "review", payload: {} })!;
+    store.claimNext();
+    store.finishQueued(id, "handled", note);
+    t += 60_000;
+  };
+  for (let i = 0; i < 7; i++) run("The model API refused the request (API Error: 400 ...)");
+  assert.equal(store.autonomousHandledSince(t - 3_600_000), 0);
+  for (let i = 0; i < 12; i++) run("");
+  assert.equal(store.autonomousHandledSince(t - 3_600_000), 12);
+  // The first of the twelve real sessions ended at 02:07; a slot frees one hour later.
+  assert.equal(store.autonomousSlotFreeAt(3_600_000, 12), Date.UTC(2026, 10, 12, 3, 7));
+  store.close();
+});
