@@ -224,7 +224,7 @@ What follows from it:
 | Step | State |
 |---|---|
 | A | Done, tested in the VM (commit `46e03f2`). Not done: one snapshot script instead of two, a formatter and a linter |
-| B | Done: the session object, the policy table, the loop under test (9 tests against a scripted model), the loop's file split in eight, the in-process checker removed, two ledgers, the tokens of each session recorded, recall by meaning with a local model (bge-m3). The rules text is rewritten at less than half its length (1,276 words for 2,717), read and approved by the operator, and in force (`agent/src/core/rules.ts`) |
+| B | Done: the session object, the policy table, the loop under test (9 tests against a scripted model), the loop's file split in eight, the in-process checker removed, two ledgers, the tokens of each session recorded, recall by meaning with a local model (bge-m3). The rules text is rewritten at less than half its length (1,276 words for 2,717), read and approved by the operator, and in force (`agent/src/core/rules.ts`). The gateway is split in seven files (1,312 lines down to 810) and the frame's main file in four (1,148 down to 730), with no change in behaviour |
 | C | Done and tested in the VM: the workbench (the action `work.run`, a user and a disk of its own, named programs, limits, the network rule) and the exchange of files in the HUD. See [WORKBENCH.md](WORKBENCH.md). Not built: long jobs in the background; the folder shared with the Windows host (decided against); upload from a phone (step F) |
 
 ### The order that follows

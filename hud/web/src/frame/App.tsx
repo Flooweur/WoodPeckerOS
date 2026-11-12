@@ -16,12 +16,15 @@ import { FaceRecord } from "./Face";
 import { StudiesRecord } from "./Studies";
 import { MethodsRecord } from "./Methods";
 import { FilesRecord } from "./Files";
+import { ActivityRecord, GoalsRecord, MachineRecord, NeedsRecord, TalkRecord } from "./FrameRecords";
+import { Menu } from "./Menu";
+import { ALERT_STATES, SAVING_TOOLS, STATE_LABEL, StateMark, count } from "./parts";
 import { ownDesigns, type Design } from "./faceData";
 import { PanelView, type Panel } from "./Panels";
 import type {
-  ActivityRow, AgentState, Approval, GatewayResult, Goal, Identity, Inner, InboxItem, Item, Mark, Meters, MindResult,
+  ActivityRow, AgentState, Approval, GatewayResult, Goal, Identity, InboxItem, Item, Meters, MindResult,
 } from "./types";
-import { TOOL_PREFIX, clock, money, until, usd } from "./types";
+import { TOOL_PREFIX, clock, usd } from "./types";
 
 /** The lines of the conversation that are speech: yours, Woody's, and a failure to answer. */
 type Said = Extract<Item, { kind: "user" | "assistant" | "error" }>;
@@ -49,65 +52,6 @@ const ERROR_TEXT: Record<string, string> = {
   "pause-failed": "Pause could not be changed",
 };
 
-const STATE_LABEL: Record<MindStateName, string> = {
-  attending: "ANSWERING YOU",
-  working: "WORKING",
-  resting: "RESTING",
-  sleeping: "ASLEEP",
-  waiting: "WAITING ON YOU",
-  paused: "PAUSED",
-  out_of_allowance: "OUT OF ALLOWANCE",
-  pacing: "PACING ITSELF",
-  no_credential: "NO API KEY",
-  api_error: "MODEL REFUSED",
-};
-const INNER: Array<[keyof Omit<Inner, "at">, string]> = [
-  ["energy", "energy"], ["ease", "ease"], ["curiosity", "curiosity"], ["attention", "attention to you"], ["unease", "unease"],
-];
-const ALERT_STATES: MindStateName[] = ["waiting", "paused", "out_of_allowance", "no_credential", "api_error"];
-
-/** Tools whose use means something was written down. */
-const SAVING_TOOLS = ["remember", "memory_update", "memory_merge", "goal_checkpoint", "goal_review", "goal_propose", "fs_write", "alarm_set"];
-
-// One shape per kind of event.
-const MARK_PATH: Record<Mark, string> = {
-  said: "M5 1 A4 4 0 1 0 5 9 A4 4 0 1 0 5 1 Z",
-  tool: "M2 2 H8 V8 H2 Z",
-  woke: "M5 1 L9 9 L1 9 Z",
-  saved: "M5 0.5 L9.5 5 L5 9.5 L0.5 5 Z",
-  problem: "M1.5 1.5 L8.5 8.5 M8.5 1.5 L1.5 8.5",
-};
-
-function MarkIcon({ mark, tone = "dim", size = 12 }: { mark: Mark; tone?: "dim" | "amber" | "text" | "red"; size?: number }) {
-  const color = tone === "amber" ? "var(--amber)" : tone === "text" ? "var(--text)" : tone === "red" ? "var(--red-soft)" : "var(--dim)";
-  return (
-    <svg className="mark" width={size} height={size} viewBox="0 0 10 10" role="img" aria-label={mark}>
-      <path d={MARK_PATH[mark]} fill={mark === "problem" ? "none" : color} stroke={mark === "problem" ? "var(--red-soft)" : "none"} strokeWidth={1.5} />
-    </svg>
-  );
-}
-
-/** The state's own shape, so it reads without colour. */
-function StateMark({ state }: { state: MindStateName }) {
-  return <span className={`state-mark ${state}`} role="img" aria-label={STATE_LABEL[state].toLowerCase()} />;
-}
-
-function Bar({ fraction, tone = "amber", small = false }: { fraction: number; tone?: "amber" | "red"; small?: boolean }) {
-  return (
-    <span className={`bar ${small ? "small" : ""}`}>
-      <span className={tone} style={{ width: `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%` }} />
-    </span>
-  );
-}
-
-function goalMark(g: Goal): string {
-  if (g.status === "active") return "filled";
-  if (g.status === "review" || g.status === "waiting" || g.status === "proposed") return "half";
-  return "hollow";
-}
-const GOAL_WORD: Record<string, string> = {
-  inbox: "NEW", review: "PLAN", ready: "READY", active: "ACTIVE", waiting: "ASKS", proposed: "IDEA", done: "DONE", dropped: "DROPPED",
-};
 
 export function App() {
   const [link, setLink] = useState<Link>("connecting");
@@ -543,11 +487,7 @@ export function App() {
     );
   }
 
-  const budget = state?.budget;
   const pending = approvals[0];
-  const memUsed = meters.mem_used_kb !== undefined && meters.mem_total_kb ? meters.mem_used_kb / meters.mem_total_kb : undefined;
-  const diskUsed = meters.disk_free_pct !== undefined ? 1 - meters.disk_free_pct / 100 : undefined;
-  const failed = mind?.failed_units ?? [];
   const alertState = ALERT_STATES.includes(mindName);
   // Woody's energy sets how fast the lattice moves: quicker when fresh, slower when tired.
   const latticePace = state?.inner ? Number((1.4 - 0.8 * state.inner.energy.value).toFixed(1)) : 1;
@@ -600,227 +540,16 @@ export function App() {
   }, []);
 
   // ---- records whose data the frame holds ----
-  const needsBody = (
-    <div className="stack wide">
-      {needs === 0 && <p className="dim">Nothing needs you.</p>}
-      {approvals.map((a) => (
-        <div key={a.approval_id} className="entry static">
-          <MarkIcon mark="problem" />
-          <span className="entry-text">
-            <span className="one">approve or deny: {a.action}</span>
-            <span className="two">shown as a prompt</span>
-          </span>
-        </div>
-      ))}
-      {inbox.map((item) => (
-        <button key={item.goal.id} className="entry" onClick={() => openRecord({ kind: "goal", id: item.goal.id })}>
-          <MarkIcon mark={item.kind === "plan" ? "saved" : "said"} tone="red" />
-          <span className="entry-text">
-            <span className="one">
-              {String(item.goal.id).padStart(2, "0")} {item.goal.title}
-            </span>
-            <span className="two">
-              {item.kind === "plan" && item.goal.review
-                ? `plan to accept · ${money(item.goal.review.estimate_usd)} · ${item.goal.review.changes_system ? "changes the system" : "read-only"}`
-                : item.kind === "blocked"
-                  ? item.goal.waiting_reason
-                  : `Woody proposes · ${item.goal.reasoning}`}
-            </span>
-          </span>
-        </button>
-      ))}
-    </div>
-  );
-
-  const goalsBody = (
-    <div className="stack wide">
-      <div className="row-actions">
-        <button className="primary" onClick={() => openRecord({ kind: "new-goal" })}>
-          + new goal
-        </button>
-        <span className="dim small">Your order is the priority. A read-only plan under {money(smallLimit)} starts by itself.</span>
-      </div>
-      <h4>Goals</h4>
-      {open.length === 0 && <p className="dim">No goals yet. Give Woody something to work towards.</p>}
-      {open.map((g) => (
-        <button key={g.id} className="entry goal" onClick={() => openRecord({ kind: "goal", id: g.id })}>
-          <span className={`goal-mark ${goalMark(g)}`} role="img" aria-label={g.status} />
-          <span className="num">{String(g.id).padStart(2, "0")}</span>
-          <span className="entry-text">
-            <span className="one">{g.title}</span>
-            <Bar fraction={g.budget_usd > 0 ? g.spent_usd / g.budget_usd : 0} small />
-          </span>
-          <span className="side">
-            <span className={goalMark(g) === "half" ? "word alert" : g.status === "active" ? "word amber" : "word"}>{GOAL_WORD[g.status] ?? g.status}</span>
-            <span className="dim">
-              {g.budget_usd > 0 ? `${money(g.spent_usd)}/${g.budget_usd.toFixed(2)}` : g.review ? `est. ${money(g.review.estimate_usd)}` : ""}
-            </span>
-          </span>
-        </button>
-      ))}
-      <h4>Standing duties · next run · share of the week's budget used</h4>
-      {duties.map((d) => {
-        const s = d.standing!;
-        const due = d.last_worked + s.cadence_minutes * 60_000;
-        return (
-          <button key={d.id} className={`entry duty ${s.enabled ? "" : "off"}`} onClick={() => openRecord({ kind: "goal", id: d.id })}>
-            <span className="one">{d.title}</span>
-            <span className="when">{!s.enabled ? "off" : due <= now ? "due" : until(due, now).replace("in ", "")}</span>
-            <span className="when">{s.enabled && s.weekly_usd > 0 ? `${Math.round((s.week_spent_usd / s.weekly_usd) * 100)} %` : ""}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-
-  const activityBody = (
-    <div className="stack wide">
-      {activity.length === 0 && <p className="dim">Nothing yet.</p>}
-      {activity.map((a, i) => (
-        <div key={`${a.ts}-${i}`} className="act">
-          <span className="dim">{new Date(a.ts).toLocaleTimeString(undefined, { hourCycle: "h23" })}</span>
-          <MarkIcon mark={a.mark} tone={a.text.startsWith("you") ? "amber" : "dim"} size={10} />
-          <span className="one">{a.text}</span>
-        </div>
-      ))}
-    </div>
-  );
-
-  const machineBody = (
-    <div className="stack wide">
-      <h4>Woody</h4>
-      <div className="readouts">
-        <div className="readout">
-          <div className="label">STATE</div>
-          <div className={`value ${alertState ? "problem" : ""}`}>{STATE_LABEL[mindName]}</div>
-          <div className="note">{sub || trouble || (mind ? `since ${clock(mind.since)}` : "")}</div>
-        </div>
-        <div className="readout">
-          <div className="label">NEXT ALARM</div>
-          <div className="value">{mind?.next_alarm ? clock(mind.next_alarm.due) : "none"}</div>
-          <div className="note">{mind?.next_alarm ? `${until(mind.next_alarm.due, now)} · ${mind.next_alarm.reason}` : "nothing scheduled"}</div>
-        </div>
-        <div className="readout">
-          <div className="label">QUEUE</div>
-          <div className="value">{String((mind?.queue.operator ?? 0) + (mind?.queue.autonomous ?? 0)).padStart(2, "0")}</div>
-          <div className="note">
-            {mind?.queue.operator ?? 0} from you · {mind?.queue.autonomous ?? 0} its own
-          </div>
-        </div>
-        <div className="readout">
-          <div className="label">ALLOWANCE</div>
-          <div className="value">
-            {budget ? money(budget.autonomous_usd ?? 0) : "…"} <span className="unit">free today</span>
-          </div>
-          {budget && <Bar fraction={budget.cap_usd > 0 ? budget.spent_usd / budget.cap_usd : 0} tone={budget.spent_usd / budget.cap_usd > 0.85 ? "red" : "amber"} small />}
-          <div className="note">
-            {budget ? `${money(budget.spent_usd)} of $${budget.cap_usd} this month${budget.own ? ` · Woody's own: ${money(budget.own.spent_usd)} of ${money(budget.own.share_usd)}` : ""}` : ""}
-          </div>
-        </div>
-      </div>
-      <div className="readouts">
-        <div className="readout">
-          <div className="label">MODEL</div>
-          <div className="value">{state?.models.find((m) => m.id === state.model)?.label ?? "–"}</div>
-        </div>
-        <div className="readout">
-          <div className="label">STEP</div>
-          <div className="value">{busy ? `${String(session.steps).padStart(2, "0")}/40` : "–"}</div>
-        </div>
-        <div className="readout">
-          <div className="label">COST OF THIS SESSION</div>
-          <div className="value">{session.cost === null ? "–" : usd(session.cost)}</div>
-        </div>
-        <div className="readout">
-          <div className="label">MODE</div>
-          <div className="value">{mind?.tainted ? "notes only" : mind?.mode ?? "–"}</div>
-        </div>
-      </div>
-      {state?.inner && (
-        <>
-          <h4>How Woody is, and why</h4>
-          <div className="inner">
-            {INNER.map(([key, name]) => {
-              const f = state.inner![key];
-              return (
-                <div key={key} className="inner-row">
-                  <span className="dim">{name}</span>
-                  <Bar fraction={f.value} tone={key === "unease" && f.value > 0.66 ? "red" : "amber"} />
-                  <span>{f.word}</span>
-                  <span className="dim small">{f.causes.map((c) => c.text).join(" · ") || "nothing in particular"}</span>
-                </div>
-              );
-            })}
-          </div>
-          <p className="dim small">Computed from the record of what happened. Woody does not choose it, and can tell you these same causes if you ask.</p>
-        </>
-      )}
-      <h4>
-        The machine
-        {meters.generation ? ` · generation ${meters.generation}` : ""}
-        {meters.uptime_s ? ` · up ${meters.uptime_s > 172_800 ? `${Math.floor(meters.uptime_s / 86_400)} d` : `${Math.floor(meters.uptime_s / 3600)} h`}` : ""}
-      </h4>
-      <div className="meters">
-        <Meter label="CPU" fraction={meters.cpu_pct !== undefined ? meters.cpu_pct / 100 : undefined} value={meters.cpu_pct !== undefined ? `${meters.cpu_pct} %` : "–"} />
-        <Meter
-          label="MEM"
-          fraction={memUsed}
-          value={meters.mem_used_kb !== undefined ? `${(meters.mem_used_kb / 1_048_576).toFixed(1)} GB` : "–"}
-          alert={memUsed !== undefined && memUsed > 0.9}
-        />
-        <Meter
-          label="DISK"
-          fraction={diskUsed}
-          value={meters.disk_free_pct !== undefined ? `${meters.disk_free_pct.toFixed(0)} % free` : "–"}
-          alert={meters.disk_free_pct !== undefined && meters.disk_free_pct < 10}
-        />
-        <Meter label="NET" fraction={meters.net_kbps !== undefined ? Math.min(1, meters.net_kbps / 1024) : undefined} value={meters.net_kbps !== undefined ? `${meters.net_kbps} kB/s` : "–"} />
-      </div>
-      <p className={failed.length ? "problem" : "dim"}>
-        {failed.length ? `${failed.length} failed: ${failed.join(", ")}` : "No failed services."}
-      </p>
-      <h4>Services</h4>
-      <p className="links-row">
-        <span className={link === "open" ? "up" : "down"}>HUD gateway</span>
-        <span className={agentUp ? "up" : "down"}>agent</span>
-        <span className={executorUp ? "up" : "down"}>executor</span>
-      </p>
-    </div>
-  );
-
-  const talkBody = (
-    <>
-      <div
-        className="talk"
-        ref={scroller}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-        }}
-      >
-        {items.length === 0 && <div className="line dim empty">Nothing has been said yet. Type anywhere to write to Woody.</div>}
-        {items.map((it) => (
-          <TalkRow key={it.key} item={it} />
-        ))}
-        {busy && <div className="line dim working">{mindName === "working" ? "working on its own…" : "working…"}</div>}
-      </div>
-      <div className="legend">
-        <span><MarkIcon mark="said" size={9} /> said</span>
-        <span><MarkIcon mark="tool" size={9} /> tool</span>
-        <span><MarkIcon mark="woke" size={9} /> woke</span>
-        <span><MarkIcon mark="saved" size={9} /> saved</span>
-        <span><MarkIcon mark="problem" size={9} /> problem</span>
-      </div>
-    </>
-  );
 
   const onCanvas = canvas.things.filter((t) => !t.removed);
   const frameBody: Partial<Record<Panel["kind"], React.ReactNode>> = {
-    needs: needsBody,
-    goals: goalsBody,
-    activity: activityBody,
-    machine: machineBody,
-    talk: talkBody,
+    needs: <NeedsRecord approvals={approvals} inbox={inbox} openRecord={openRecord} />,
+    goals: <GoalsRecord open={open} duties={duties} smallLimit={smallLimit} now={now} openRecord={openRecord} />,
+    activity: <ActivityRecord activity={activity} />,
+    machine: (
+      <MachineRecord state={state} mindName={mindName} alertState={alertState} sub={sub} trouble={trouble} busy={busy} session={session} meters={meters} now={now} link={link} agentUp={agentUp} executorUp={executorUp} />
+    ),
+    talk: <TalkRecord items={items} busy={busy} mindName={mindName} scroller={scroller} stick={stick} />,
     things: <ThingsRecord canvas={canvas} tx={tx} result={canvasResult} pick={panel?.kind === "things" ? panel.id : undefined} />,
     changes: <ChangesRecord canvas={canvas} tx={tx} result={canvasResult} />,
     life: <LifeRecord tx={tx} incoming={mindResult} version={version} canvas={canvas} />,
@@ -829,7 +558,6 @@ export function App() {
     files: <FilesRecord tick={filesTick} dropped={dropped} />,
     studies: <StudiesRecord tx={tx} incoming={mindResult} version={version} openThing={(id) => openRecord({ kind: "things", id })} />,
   };
-  const count = (n: number, width = 2) => String(n).padStart(width, "0");
 
   return (
     <div className={`frame ${panel ? "with-record" : ""}`}>
@@ -884,96 +612,28 @@ export function App() {
         {needs > 0 && <span className="badge">{needs}</span>}
       </button>
       {menu && (
-        <>
-          <div className="menu-backdrop" onClick={() => setMenu(false)} />
-          <div className="menu" role="menu">
-            <div className={`menu-state ${alertState ? "alert" : ""}`}>
-              <div className="headline">{headline}</div>
-              <div className="sub">{trouble || sub || (mind?.next_alarm ? `next alarm ${until(mind.next_alarm.due, now)}` : "nothing scheduled")}</div>
-              {budget && (
-                <div className="sub dim">
-                  {money(budget.autonomous_usd ?? 0)} free today · {money(budget.spent_usd)} of ${budget.cap_usd} this month
-                </div>
-              )}
-            </div>
-            <div className="switches">
-              <button className={paused ? "on-alert" : ""} disabled={!executorUp} onClick={() => tx({ type: "pause", on: !paused })}>
-                {paused ? "RESUME" : "PAUSE"}
-              </button>
-              <button className="stop" disabled={!busy} onClick={() => tx({ type: "interrupt" })}>
-                STOP
-              </button>
-            </div>
-            <button className="undo" disabled={!canvas.undo} title="Take back the last change to the canvas" onClick={() => tx({ type: "canvas_op", op: "undo" })}>
-              {canvas.undo ? `UNDO · ${canvas.undo.by === "you" ? "you" : "Woody"} ${canvas.undo.text}` : "UNDO · nothing to undo"}
-            </button>
-            <nav className="menu-list" aria-label="Records">
-              <button className={needs ? "alert" : ""} onClick={() => openRecord({ kind: "needs" })}>
-                <span className="code">F1</span> NEEDS YOU <span className="n">{count(needs)}</span>
-              </button>
-              <button onClick={() => openRecord({ kind: "new-goal" })}>
-                <span className="code">F2</span> NEW GOAL
-              </button>
-              <button onClick={() => openRecord({ kind: "goals" })}>
-                <span className="code">F3</span> GOALS <span className="n">{count(open.length)}</span>
-              </button>
-              <button onClick={() => openRecord({ kind: "talk" })}>
-                <span className="code">F4</span> CONVERSATION
-              </button>
-              <button onClick={() => openRecord({ kind: "things" })}>
-                <span className="code" /> THINGS <span className="n">{count(onCanvas.length)}</span>
-              </button>
-              <button onClick={() => openRecord({ kind: "changes" })}>
-                <span className="code" /> CHANGES
-              </button>
-              <button onClick={() => openRecord({ kind: "life" })}>
-                <span className="code" /> ITS OWN LIFE <span className="n">{state?.life?.asleep ? "zz" : ""}</span>
-              </button>
-              <button onClick={() => openRecord({ kind: "studies" })}>
-                <span className="code" /> STUDIES <span className="n">{state?.mind?.studies_open ? count(state.mind.studies_open) : ""}</span>
-              </button>
-              <button onClick={() => openRecord({ kind: "files" })}>
-                <span className="code" /> FILES
-              </button>
-              <button onClick={() => openRecord({ kind: "methods" })}>
-                <span className="code" /> ITS METHODS
-              </button>
-              <button onClick={() => openRecord({ kind: "face" })}>
-                <span className="code" /> ITS FACE <span className="n">{Object.keys(designs).length ? count(Object.keys(designs).length) : ""}</span>
-              </button>
-              <button onClick={() => openRecord({ kind: "memory" })}>
-                <span className="code">F5</span> MEMORY <span className="n">{count(state?.mind?.memories ?? 0, 3)}</span>
-              </button>
-              <button onClick={() => openRecord({ kind: "journal" })}>
-                <span className="code">F6</span> JOURNAL <span className="n">{count(state?.mind?.journal ?? 0, 3)}</span>
-              </button>
-              <button onClick={() => openRecord({ kind: "identity" })}>
-                <span className="code">F7</span> IDENTITY <span className="n">{changedSelf > 0 ? "new · " : ""}v{count(identity?.current.version ?? state?.mind?.identity_version ?? 1)}</span>
-              </button>
-              <button onClick={() => openRecord({ kind: "machine" })}>
-                <span className="code">F9</span> MACHINE
-              </button>
-              <button onClick={() => openRecord({ kind: "activity" })}>
-                <span className="code">F10</span> ACTIVITY
-              </button>
-              <button onClick={() => openRecord({ kind: "logs" })}>
-                <span className="code" /> SYSTEM LOG
-              </button>
-              <button onClick={() => openRecord({ kind: "web" })}>
-                <span className="code" /> BLOCKED SITES
-              </button>
-              {door.terminal && (
-                <button onClick={() => openRecord({ kind: "terminal" })}>
-                  <span className="code" /> TERMINAL
-                </button>
-              )}
-              <button onClick={() => openRecord({ kind: "settings" })}>
-                <span className="code">F8</span> SETTINGS
-              </button>
-            </nav>
-            <div className="menu-foot">ESC lets go: the line, the record, this menu, then Woody's work</div>
-          </div>
-        </>
+        <Menu
+          headline={headline}
+          sub={sub}
+          trouble={trouble}
+          alertState={alertState}
+          state={state}
+          now={now}
+          paused={paused}
+          executorUp={executorUp}
+          busy={busy}
+          canvas={canvas}
+          needs={needs}
+          openGoals={open.length}
+          onCanvas={onCanvas.length}
+          designs={Object.keys(designs).length}
+          changedSelf={changedSelf}
+          identityVersion={identity?.current.version ?? state?.mind?.identity_version ?? 1}
+          terminal={door.terminal}
+          tx={tx}
+          openRecord={openRecord}
+          onClose={() => setMenu(false)}
+        />
       )}
 
       {/* ---- a record, below the lattice ---- */}
@@ -1067,82 +727,4 @@ export function App() {
       )}
     </div>
   );
-}
-
-function Meter({ label, fraction, value, alert = false }: { label: string; fraction: number | undefined; value: string; alert?: boolean }) {
-  return (
-    <div className={`meter ${alert ? "alert" : ""}`}>
-      <div className="column">
-        <span style={{ height: `${Math.round(Math.min(1, Math.max(0, fraction ?? 0)) * 100)}%` }} />
-      </div>
-      <div className="label">{label}</div>
-      <div className="value">{value}</div>
-    </div>
-  );
-}
-
-/** One line of the conversation: its time, its mark on the spine, and what was said or done. */
-function TalkRow({ item }: { item: Item }) {
-  const time = <span className="time">{clock(item.ts)}</span>;
-  switch (item.kind) {
-    case "user":
-      return (
-        <div className="talk-row you">
-          {time}
-          <MarkIcon mark="said" tone="amber" />
-          <div className="body">
-            <span className="who">YOU </span>
-            {item.text}
-          </div>
-        </div>
-      );
-    case "assistant":
-      return (
-        <div className="talk-row">
-          {time}
-          <MarkIcon mark="said" tone="text" />
-          <div className="body">
-            <span className="who">WOODY </span>
-            {item.text}
-            {item.streaming && <span className="caret">▍</span>}
-          </div>
-        </div>
-      );
-    case "tool": {
-      const name = item.name.startsWith(TOOL_PREFIX) ? item.name.slice(TOOL_PREFIX.length) : item.name;
-      const args = JSON.stringify(item.input);
-      return (
-        <details className={`talk-row tool ${item.isError ? "failed" : ""}`}>
-          <summary>
-            {time}
-            <MarkIcon mark={item.isError ? "problem" : "tool"} />
-            <span className="body small">
-              <span className="name">{name}</span> <span className="args">{args === "{}" ? "" : args}</span>
-              <span className="state">{item.result === undefined ? "running" : item.isError ? "failed" : "done"}</span>
-            </span>
-          </summary>
-          {item.result !== undefined && <pre>{item.result}</pre>}
-        </details>
-      );
-    }
-    case "meta": {
-      const woke = item.text.startsWith("woke up");
-      const cost = /^(nothing needed · )?\$[\d.]+ · /.test(item.text) || item.text.startsWith("stopped");
-      return (
-        <div className={`talk-row meta ${cost ? "cost" : ""}`}>
-          {time}
-          {cost ? <span className="mark" /> : <MarkIcon mark={woke ? "woke" : "saved"} tone={woke ? "amber" : "dim"} />}
-          <div className="body small">{item.text}</div>
-        </div>
-      );
-    }
-    case "error":
-      return (
-        <div className="talk-row problem">
-          {time}
-          <MarkIcon mark="problem" />
-          <div className="body">{item.text}</div>
-        </div>
-      );
-  }
 }
