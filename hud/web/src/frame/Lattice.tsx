@@ -156,6 +156,7 @@ export function Lattice({
   play,
   hold,
   expressions,
+  pace = 1,
 }: {
   state: MindStateName;
   overlay: Overlay;
@@ -165,6 +166,8 @@ export function Lattice({
   hold: "listening" | "asleep" | null;
   /** The operator can turn expressions off; moments still play. */
   expressions: boolean;
+  /** How fast the ongoing state moves: below 1 is quicker, above 1 slower. Set by Woody's energy. */
+  pace?: number;
 }) {
   const [current, setCurrent] = useState<{ name: Play; seq: number } | null>(null);
 
@@ -182,8 +185,11 @@ export function Lattice({
     if (!blocking && hold && expressions && state === (hold === "asleep" ? "resting" : state)) {
       return { key: `h-${hold}`, cells: playCells(hold, 0), label: hold };
     }
-    return { key: `s-${state}-${overlay ?? ""}`, cells: stateCells(state, overlay), label: overlay ?? state };
-  }, [blocking, current, hold, expressions, state, overlay]);
+    // Only the ongoing state follows the pace. A state that needs the operator never changes its look.
+    const cells = stateCells(state, overlay);
+    const paced = blocking || pace === 1 ? cells : cells.map((c) => (c.anim ? { ...c, anim: c.anim.replace(/(\d+(?:\.\d+)?)s\b/, (_, n: string) => `${(Number(n) * pace).toFixed(2)}s`) } : c));
+    return { key: `s-${state}-${overlay ?? ""}-${pace}`, cells: paced, label: overlay ?? state };
+  }, [blocking, current, hold, expressions, state, overlay, pace]);
 
   return (
     <div className="lattice" role="img" aria-label={`Woody: ${shown.label.replaceAll("_", " ")}`} key={shown.key}>

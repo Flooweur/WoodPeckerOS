@@ -558,6 +558,29 @@ export class Store {
     return rows.map((r) => ({ id: Number(r.id), ts: Number(r.ts), kind: String(r.kind), actor: String(r.actor), data: JSON.parse(String(r.data)) }));
   }
 
+  /** The events of the given kinds since a moment, oldest first (for the inner state). */
+  eventsSince(ts: number, kinds: string[], limit = 4000): Array<{ ts: number; kind: string; actor: string; data: Record<string, unknown> }> {
+    const rows = this.db
+      .prepare(`SELECT ts, kind, actor, data FROM events WHERE ts >= ? AND kind IN (${kinds.map(() => "?").join(",")}) ORDER BY id DESC LIMIT ?`)
+      .all(ts, ...kinds, limit) as Row[];
+    return rows.reverse().map((r) => {
+      let data: Record<string, unknown> = {};
+      try {
+        const parsed = JSON.parse(String(r.data));
+        if (parsed && typeof parsed === "object") data = parsed;
+      } catch {
+        /* keep empty */
+      }
+      return { ts: Number(r.ts), kind: String(r.kind), actor: String(r.actor), data };
+    });
+  }
+
+  /** How many memories were stored since a moment. */
+  memoriesSince(ts: number): number {
+    const row = this.db.prepare("SELECT count(*) AS n FROM memories WHERE created >= ?").get(ts) as Row;
+    return Number(row.n ?? 0);
+  }
+
   /** The latest events of the given kinds, newest first (for the HUD's activity stream). */
   recentEvents(kinds: string[], limit: number): Array<{ id: number; ts: number; kind: string; actor: string; data: Record<string, unknown> }> {
     const rows = this.db

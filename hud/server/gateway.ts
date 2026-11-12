@@ -164,6 +164,40 @@ function canvasSnapshot(): Record<string, unknown> {
 function pushCanvas(): void {
   const snapshot = canvasSnapshot();
   for (const ws of browsers) send(ws, snapshot);
+  tellWoody();
+}
+
+/** The last change Woody was told about. Set when the gateway starts, so old changes are not replayed. */
+let toldSeq = -1;
+
+/**
+ * Woody is told of every change to the canvas, its own and the operator's:
+ * that the operator kept, moved, pinned or removed something is part of what
+ * really happened. It is a record for Woody, never a reason to wake it.
+ */
+function tellWoody(): void {
+  const recent = canvas.history(60).reverse();
+  for (const c of recent) {
+    if (c.seq <= toldSeq) continue;
+    toldSeq = c.seq;
+    if (link?.readyState !== WebSocket.OPEN) continue;
+    let thing: Thing | undefined;
+    try {
+      thing = canvas.get(c.id);
+    } catch {
+      /* the thing is gone from the list */
+    }
+    const undid = c.op === "undo" && c.of !== undefined ? recent.find((x) => x.seq === c.of) : undefined;
+    link.send(
+      JSON.stringify({
+        type: "canvas_event",
+        change: {
+          seq: c.seq, by: c.by, op: c.op, id: c.id, title: c.title, why: c.why, refused: c.refused ?? null,
+          thing_by: thing?.by ?? "woody", undid_by: undid?.by ?? null, pinned: c.op === "pin" && thing?.pinned === true,
+        },
+      }),
+    );
+  }
 }
 
 /** One canvas request, from the operator's frame ("you") or made on Woody's behalf ("woody"). */
@@ -1163,6 +1197,7 @@ if (process.argv[2] === "canvas") {
 
 terminalFlag();
 canvas = new Canvas(path.join(STATE_DIR, "canvas"));
+toldSeq = canvas.last()?.seq ?? 0;
 serveCanvasSocket();
 connectCanvasLink();
 

@@ -31,7 +31,7 @@ Everything the three-column HUD showed is still there, one click or one key away
 | `F6` | Journal | One entry per wake-up |
 | `F7` | Identity | Who Woody is, and the earlier versions |
 | `F8` | Settings | The model, the daily brief, the small-goal limit, the expressions |
-| `F9` | Machine | Woody's state, next alarm, queue and allowance; the machine's meters (read by the gateway from `/proc` every two seconds), failed services, and which services answer |
+| `F9` | Machine | Woody's state, next alarm, queue and allowance; how Woody is (energy, ease, curiosity, attention to you, unease) and why; the machine's meters (read by the gateway from `/proc` every two seconds), failed services, and which services answer |
 | `F10` | Activity | The latest events |
 | | System log | The system journal, filtered by unit and severity |
 | | Web list | The sites Woody may read; you can add and remove them |
@@ -96,6 +96,8 @@ These requests are made the way Woody makes them: a pinned thing refuses them, P
 - A thing talks to the frame through the bridge (`window.woody`): `ready()`, `state.get()` and `state.set(value)` for its own saved state, `subscribe("meters", fn)` for the machine's readings, and `emit(name, data)` to tell Woody that something happened. The frame knows which thing is speaking from the window the message came from.
 
 ### The lattice
+
+The ongoing state moves quicker when Woody is fresh and slower when it is tired. A state that needs you never changes its look.
 
 | It shows | How |
 |---|---|

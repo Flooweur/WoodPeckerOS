@@ -38,6 +38,7 @@ let linkSocket = null;
 let linkSeq = 0;
 const linkWaiting = new Map();
 const thingEvents = [];
+const canvasEvents = [];
 fs.rmSync(AGENT_SOCK, { force: true });
 const agentHttp = http.createServer();
 new WebSocket.Server({ server: agentHttp }).on("connection", (ws) => {
@@ -46,6 +47,7 @@ new WebSocket.Server({ server: agentHttp }).on("connection", (ws) => {
     if (m.type === "canvas_link") linkSocket = ws;
     else if (m.type === "canvas_reply") { linkWaiting.get(m.rid)?.(m); linkWaiting.delete(m.rid); }
     else if (m.type === "thing_event") thingEvents.push(m);
+    else if (m.type === "canvas_event") canvasEvents.push(m.change);
   });
   ws.on("close", () => { if (linkSocket === ws) linkSocket = null; });
 });
@@ -305,6 +307,15 @@ function startGateway() {
   await inThing(kitIds.buttons, `(async () => { for (let i = 0; i < 9; i++) { try { await woody.emit("flood", { i }); } catch (e) {} } return "done"; })()`);
   await sleep(500);
   check("a thing cannot flood Woody: six events a minute at most", thingEvents.filter((e) => e.id === kitIds.buttons).length === 6, `${thingEvents.filter((e) => e.id === kitIds.buttons).length} got through`);
+
+  // ---- Woody is told what changes on the canvas, its own changes and the operator's ----
+  const told = (test) => canvasEvents.some(test);
+  check("Woody is told when the operator pins a thing it made", told((c) => c.by === "you" && c.op === "pin" && c.pinned === true && c.thing_by === "woody" && c.id === "t1"));
+  check("and when the operator takes a thing off the canvas", told((c) => c.by === "you" && c.op === "remove" && c.title === "Tomorrow on Mars"));
+  check("and when the operator undoes something", told((c) => c.by === "you" && c.op === "undo"));
+  check("its own refused attempts are part of that record", told((c) => c.by === "woody" && c.refused === "pinned by the operator"));
+  check("and so is a thing of its own that was taken back", told((c) => c.by === "woody" && c.op === "undo" && /did not start/.test(c.why)));
+  check("each change is told once, in order", new Set(canvasEvents.map((c) => c.seq)).size === canvasEvents.length && canvasEvents.every((c, i) => i === 0 || c.seq > canvasEvents[i - 1].seq), `${canvasEvents.length} events`);
 
   // ---- everything survives a restart of the gateway ----
   const before = (await things()).map((t) => [t.id, t.box.x, t.box.y, t.version, t.pinned, t.removed]);

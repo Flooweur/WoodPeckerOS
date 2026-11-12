@@ -61,6 +61,14 @@ const state = () => ({
   busy: stateName === "working" || stateName === "attending",
   budget: { month: "2026-11", spent_usd: 19.1, cap_usd: 50, remaining_usd: 30.9, exhausted: false, daily_usd: 1.67, autonomous_usd: 1.42 },
   has_credential: true,
+  inner: {
+    at: Date.now(),
+    energy: { value: 0.58, word: "steady", causes: [{ text: "7 work sessions in the last six hours", effect: -0.2 }, { text: "there is allowance to spare", effect: 0.12 }] },
+    ease: { value: 0.74, word: "at ease", causes: [{ text: 'you pinned "Backwards clock"', effect: 0.1 }, { text: "recent work went through without trouble", effect: 0.08 }] },
+    curiosity: { value: 0.52, word: "interested", causes: [{ text: "3 new things learned in the last two days", effect: 0.12 }] },
+    attention: { value: 0.93, word: "with you", causes: [{ text: "you are here", effect: 0.85 }] },
+    unease: { value: 0.25, word: "untroubled", causes: [{ text: "backup.service has failed", effect: 0.2 }] },
+  },
   mind: { memories: EMPTY ? 0 : 48, journal: EMPTY ? 0 : 212, identity_version: 3, goals_need_you: inbox.length, identity_pending: identity.pending.length },
   mind_state: {
     state: stateName,

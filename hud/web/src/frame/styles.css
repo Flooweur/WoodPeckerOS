@@ -111,6 +111,10 @@ input[type="checkbox"] { accent-color: var(--amber); }
 .typing-note { grid-column: 1 / -1; padding: 3px 12px; background: var(--bg); color: var(--dim); font-size: 11px; }
 
 .record-layer .meters { max-width: 640px; padding-left: 0; }
+.inner { display: grid; gap: 6px; }
+.inner-row { display: grid; grid-template-columns: 130px 160px 110px minmax(0, 1fr); gap: 12px; align-items: center; }
+.inner-row .bar { margin: 0; }
+@media (max-width: 900px) { .inner-row { grid-template-columns: 110px minmax(0, 1fr) 90px; } .inner-row > :last-child { grid-column: 1 / -1; } }
 .links-row { display: flex; gap: 18px; }
 .links-row .up { color: var(--dim); }
 .links-row .down { color: var(--red-soft); }

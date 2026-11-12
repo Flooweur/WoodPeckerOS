@@ -13,7 +13,7 @@ import { ChangesRecord, ThingsRecord } from "./CanvasRecords";
 import { Lattice, type MindStateName, type Overlay, type Play } from "./Lattice";
 import { PanelView, type Panel } from "./Panels";
 import type {
-  ActivityRow, AgentState, Approval, GatewayResult, Goal, Identity, InboxItem, Item, Mark, Meters, MindResult,
+  ActivityRow, AgentState, Approval, GatewayResult, Goal, Identity, Inner, InboxItem, Item, Mark, Meters, MindResult,
 } from "./types";
 import { TOOL_PREFIX, clock, money, until, usd } from "./types";
 
@@ -54,6 +54,9 @@ const STATE_LABEL: Record<MindStateName, string> = {
   no_credential: "NO API KEY",
   api_error: "MODEL REFUSED",
 };
+const INNER: Array<[keyof Omit<Inner, "at">, string]> = [
+  ["energy", "energy"], ["ease", "ease"], ["curiosity", "curiosity"], ["attention", "attention to you"], ["unease", "unease"],
+];
 const ALERT_STATES: MindStateName[] = ["waiting", "paused", "out_of_allowance", "no_credential", "api_error"];
 
 /** Tools whose use means something was written down. */
@@ -520,6 +523,8 @@ export function App() {
   const diskUsed = meters.disk_free_pct !== undefined ? 1 - meters.disk_free_pct / 100 : undefined;
   const failed = mind?.failed_units ?? [];
   const alertState = ALERT_STATES.includes(mindName);
+  // Woody's energy sets how fast the lattice moves: quicker when fresh, slower when tired.
+  const latticePace = state?.inner ? Number((1.4 - 0.8 * state.inner.energy.value).toFixed(1)) : 1;
   const headline = `${STATE_LABEL[mindName]}${mind?.focus && (mindName === "working" || mindName === "attending") ? ` · ${mind.focus.toUpperCase()}` : ""}`;
   const sub =
     mindName === "paused"
@@ -691,6 +696,25 @@ export function App() {
           <div className="value">{mind?.tainted ? "notes only" : mind?.mode ?? "–"}</div>
         </div>
       </div>
+      {state?.inner && (
+        <>
+          <h4>How Woody is, and why</h4>
+          <div className="inner">
+            {INNER.map(([key, name]) => {
+              const f = state.inner![key];
+              return (
+                <div key={key} className="inner-row">
+                  <span className="dim">{name}</span>
+                  <Bar fraction={f.value} tone={key === "unease" && f.value > 0.66 ? "red" : "amber"} />
+                  <span>{f.word}</span>
+                  <span className="dim small">{f.causes.map((c) => c.text).join(" · ") || "nothing in particular"}</span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="dim small">Computed from the record of what happened. Woody does not choose it, and can tell you these same causes if you ask.</p>
+        </>
+      )}
       <h4>
         The machine
         {meters.generation ? ` · generation ${meters.generation}` : ""}
@@ -806,7 +830,7 @@ export function App() {
         title="Woody. Click for Pause, Stop and the records."
         onClick={() => setMenu((m) => !m)}
       >
-        <Lattice state={mindName} overlay={overlay} play={play} hold={hold} expressions={expressions} />
+        <Lattice state={mindName} overlay={overlay} play={play} hold={hold} expressions={expressions} pace={latticePace} />
         {needs > 0 && <span className="badge">{needs}</span>}
       </button>
       {menu && (

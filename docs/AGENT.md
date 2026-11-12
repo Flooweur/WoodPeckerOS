@@ -15,6 +15,7 @@ The agent is a loop: it answers when you write, and it also wakes by itself on a
 - **The canvas:** `canvas_look`, `thing_source`, `kit_place`, `thing_make`, `thing_change`, `thing_place`, `thing_remove`. The canvas is kept by the HUD gateway, which enforces its rules; see "Making things" below and [HUD.md](HUD.md).
 - **Memory:** `remember`, `memory_search`, `memory_history`, `memory_update`, `memory_forget`, `journal_search`, `conversation_search`. These use the agent's own store (`/var/lib/woody/mind.db`), not the executor. See [MIND.md](MIND.md).
 - **Alarms:** `alarm_set`, `alarm_list`, `alarm_cancel`.
+- **Its own state:** `inner_state` returns how Woody is and the real events behind it. See "The inner state" in [MIND.md](MIND.md).
 - **The web:** `web_search`, `web_fetch`, `web_allowlist`, `web_allow_request`. Woody only ever gets notes written by a separate reader that cannot act, and a session that used them can only observe and take notes afterwards.
 - **Reflection and identity:** `memory_merge`, `identity_propose` (a proposal changes nothing until you approve it).
 - **Goals:** `goal_board`, `goal_get`, `goal_review`, `goal_checkpoint`, `goal_propose`. Woody cannot create a goal in your name, accept a plan or raise a budget.

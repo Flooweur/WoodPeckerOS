@@ -103,9 +103,17 @@ export function eventPreamble(
   ].join("\n");
 }
 
+/** What the loop adds to every context: Woody's inner state, computed from the record. */
+let extraContext: () => string[] = () => [];
+export function setExtraContext(fn: () => string[]): void {
+  extraContext = fn;
+}
+
 function contextBlock(store: Store, thread: number, userText: string, fresh: boolean, now: Date): string[] {
   const lines: string[] = [];
   lines.push(`Now: ${now.toISOString().slice(0, 16).replace("T", " ")} UTC (${now.toLocaleDateString("en-GB", { weekday: "long" })}).`);
+  const extra = extraContext();
+  if (extra.length) lines.push("", ...extra);
 
   if (fresh) {
     const t = store.thread(thread);

@@ -26,6 +26,11 @@ export type MindState = {
   waiting_on_operator: number;
 };
 
+/** One value of Woody's inner state, with the real events behind it. */
+export type Feeling = { value: number; word: string; causes: Array<{ text: string; effect: number }> };
+/** Woody's inner state, computed by the agent from the record (agent/src/mind/inner.ts). */
+export type Inner = { at: number; energy: Feeling; ease: Feeling; curiosity: Feeling; attention: Feeling; unease: Feeling };
+
 export type AgentState = {
   model: string;
   models: Model[];
@@ -33,6 +38,7 @@ export type AgentState = {
   budget: Budget;
   has_credential: boolean;
   mind_state?: MindState;
+  inner?: Inner;
   mind?: Record<string, number>;
 };
 

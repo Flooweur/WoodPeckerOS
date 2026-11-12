@@ -419,6 +419,26 @@ Limits to know:
 | Tainted session refuses to act | Rule in code; not exercised with a model | To do |
 | Search | Not exercised: it needs the API | To do |
 
+## The inner state (Phase 8a)
+
+Code: `agent/src/mind/inner.ts`, wired in `agent/src/server.ts`.
+
+Woody has five slow values between 0 and 1: energy, ease, curiosity, attention to you, and unease. They are computed by plain code from the record of what happened in the last two days. Woody does not choose them. Each value carries the events behind it, so "why are you like this today?" has an answer that matches the event log.
+
+| Value | Goes up with | Goes down with |
+|---|---|---|
+| Energy | allowance to spare, rest | work in the last six hours, a spent allowance, the night, the monthly cap |
+| Ease | thanks, a thing you pinned, work that went through | a session that stopped early, failed tool calls, a refusal, a thing that did not start, a thing you removed, a change you undid |
+| Curiosity | new memories, reading the web, your messages | wake-ups with nothing to do |
+| Attention to you | you being at the screen, recent conversation | time since you were last here |
+| Unease | failed services, the model API refusing, a system wake-up, things waiting for your decision | those going away |
+
+- Trouble and good news both fade: an event weighs half as much twelve hours later.
+- Your absence only lowers attention. It does not raise unease or lower ease, and Woody is told never to reproach you for being away.
+- Woody receives the state with its causes at the start of each session, and can read it with the `inner_state` tool.
+- The HUD shows it in the Machine record, and the lattice's pace follows the energy.
+- It is not a claim to human feeling. Woody is told to carry it, not perform it.
+
 ## What the redesign will change
 
 Decided on 2026-11-12 and specified in [VISION.md](VISION.md). None of it is built yet; the phases are in [PLAN.md](PLAN.md).
@@ -428,7 +448,7 @@ Decided on 2026-11-12 and specified in [VISION.md](VISION.md). None of it is bui
 | Woody's identity changes only when you approve a proposal | Woody rewrites it itself after reflection, in small steps; you are told, every version is kept, any can be restored | 8 |
 | Acting on its own, Woody is in observe-only mode and must propose a goal for any change | Woody changes the canvas and its own program freely, with undo; only the locked core needs approval | 7 (canvas), 10 (program) |
 | Woody proposes goals of its own and waits | A share of the budget is its own, for interests and projects it chooses | 8 |
-| No inner state beyond Working, Resting and so on | A few slow values with real causes (energy, ease, curiosity, attention, unease) that shape behaviour | 8 |
+| No inner state beyond Working, Resting and so on | A few slow values with real causes (energy, ease, curiosity, attention, unease) that shape behaviour | 8a: built, see "The inner state" below |
 | Web reading only from an allow-list you approve | Any public site through the quarantined reader; you keep a block list | 9 |
 | $50 a month | $100 a month assumed, about a quarter of it Woody's own | 8 |
 

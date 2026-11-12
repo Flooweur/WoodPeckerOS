@@ -39,7 +39,7 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 | 5 | The first full HUD | Built; awaits the VM test |
 | 6 | Change of goal: security material removed, documents rewritten | Done (2026-11-12); awaits the VM rebuild |
 | 7 | **The canvas**: the frame, things, the kit, making | Built (7a to 7d). 7d (making) awaits the VM test |
-| 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | Planned |
+| 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | 8a (inner state) built; awaits the VM test. 8b (a life of its own) is next |
 | 9 | **Learning and showing**: open reading, studies, explainers, web pictures | Planned |
 | 10 | **Reshaping itself**: free change of its own program | Planned |
 | 11 | **Sound and voice** | Planned |
@@ -217,6 +217,24 @@ Built and run in a container with the VM's own Chromium build (157), headless, t
   - the scripted browser check with the real gateway and the VM's Chromium, with the script playing Woody on the link: 61 checks. Every kit part starts on the screen; a thing that does not start is refused and the canvas is as before; a failed change returns to the earlier version; Pause refuses; a pinned thing refuses; a button and a typed line reach Woody; a flood of events is cut at six.
 - Not tested: anything with a real model. The first real thing Woody makes will be in the VM.
 
+## Phase 8a results (2026-11-12): inner state
+
+- **Five values** (`agent/src/mind/inner.ts`): energy, ease, curiosity, attention to the operator, unease. Each is a plain function of the record of the last two days (sessions, tool results, messages, wake-ups, canvas changes), the allowance, failed services and when someone was last at the screen. Each keeps the list of its causes. No model is involved and nothing is random.
+- **What moves them:**
+  - energy: the allowance left, work done in the last six hours, rest, the night;
+  - ease: sessions that stopped early, failed tool calls, refusals, a thing that did not start, things you removed or changes you undid (down); thanks, things you pinned, work that went through (up). Trouble fades by half every twelve hours;
+  - curiosity: what was learned and read (up), wake-ups with nothing to do (down);
+  - attention: how recently you were at the screen. Your absence moves this value only: it never makes Woody uneasy or rattled, which a test fixes;
+  - unease: failed services, the model API refusing, the system waking Woody for a problem, things waiting for your decision.
+- **Woody is told** its state at the start of every session, with the causes, and told how to carry it: it shapes tone and how much it takes on, it is not announced unprompted and never used to press you.
+- **The true "why":** a tool, `inner_state`, returns the values and causes. Asked how it is, Woody answers from it.
+- **You can see it:** the Machine record shows the five values and their causes. The lattice's ongoing state moves quicker when Woody is fresh and slower when it is tired; states that need you never change their look.
+- **Woody is told what changes on the canvas,** its own changes and yours (pinned, moved, removed, undone), as a record and never as a wake-up. This feeds ease now and noticing in 8b.
+- **Disagreement:** the negotiation rule is in Woody's instructions, with the rule that it never appears to comply while doing something else.
+- Not in 8a: the values do not yet change what Woody does on its own (there is no initiative before 8b), and the lattice only changes pace (its states become Woody's to redesign in 8c).
+- Tested: 7 tests of the inner state in the build (50 agent tests in all); the scripted browser check now also verifies that Woody is told of each canvas change once and in order (67 checks). The Machine record was looked at in a browser against the mock.
+- Not tested: how a real model carries the state in its tone. That is for the VM.
+
 ## Architecture
 
 Today:
@@ -307,6 +325,14 @@ The body. After this phase, "show me a clock that runs backwards" works.
 ### Phase 8: somebody home
 
 The inner life. After this phase, Woody does things nobody asked for and can say why.
+
+Built in three steps:
+
+- **8a. Inner state.** Built: see "Phase 8a results". The five values, what Woody is told, the true "why", the lattice's pace, the negotiation rule, and Woody being told what changes on the canvas.
+- **8b. A life of its own.** The interests list, the budget share (the cap goes to $100), time of its own, things left for you with a note, a daily limit, the rhythm of day and night, and noticing how you use the canvas.
+- **8c. Identity and face.** The identity that evolves with versions and restore, and the lattice's states and expressions as data Woody can redesign.
+
+The whole of it:
 
 - **Inner state:** energy, ease, curiosity, attention to you and unease, computed by code from real events; given to Woody as context; shown by the lattice; "why?" answers with the causes.
 - **The lattice as Woody's own:** its states, moments and expressions become data Woody can redesign, with the reserved signals drawn by the frame.
