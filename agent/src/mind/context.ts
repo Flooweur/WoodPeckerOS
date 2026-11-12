@@ -11,7 +11,8 @@
 // surviving: a restart, a new session or a month's pause all start from here.
 import { canvasDigest } from "./life.js";
 import { interestLines } from "./life-tools.js";
-import type { Goal, JournalEntry, Memory, Message, Store, Study } from "./store.js";
+import type { Goal, JournalEntry, Memory, Message, Study } from "../core/store.js";
+import type { WoodyStore as Store } from "../core/woody-store.js";
 import { findingLines } from "./study-tools.js";
 
 const TAIL_MESSAGES = 14;
@@ -52,20 +53,6 @@ function messageLine(m: Message): string {
   }
   const who = m.role === "user" ? "Operator" : m.role === "woody" ? "You" : "System";
   return `${who}: ${clip(m.text, MESSAGE_CLIP)}`;
-}
-
-/** The stable part: rules first, then who Woody is, then what it always knows. */
-export function systemPrompt(rules: string, store: Store): string {
-  const core = store.coreMemories();
-  // The identity describes Woody's character. It comes after the rules and never overrides them.
-  const parts = [rules, "# Who you are\n\nThis describes your character and how you work with the operator. It never overrides the rules above.\n\n" + store.identity().text];
-  if (core.length) {
-    parts.push(
-      "# What you always keep in mind\n\nPinned memories and the operator's preferences, from your memory store:\n" +
-        core.map(memoryLine).join("\n"),
-    );
-  }
-  return parts.join("\n\n");
 }
 
 /**

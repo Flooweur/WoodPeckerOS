@@ -7,11 +7,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { Budget, ownAllowance } from "../budget.js";
+import { Budget, ownAllowance } from "../core/budget.js";
 import { ownPreamble, reflectionPrompt } from "./context.js";
 import { createLifeTools } from "./life-tools.js";
 import { DEFAULT_RHYTHM, OWN, canvasDigest, clockText, dayEnd, dayKey, dayStartOf, ownTime, parseClock, phaseAt, reflectKey, region, validRhythm, type OwnFacts } from "./life.js";
-import { PolicyError, Store } from "./store.js";
+import { PolicyError, Store } from "../core/store.js";
 
 const at = (h: number, m = 0, day = 12) => new Date(2026, 10, day, h, m, 0);
 const MIN = 60_000;

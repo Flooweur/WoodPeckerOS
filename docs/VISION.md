@@ -233,6 +233,7 @@ Dropping the security toolkit did not drop the protections. They are what makes 
 - **Surprise fatigue.** Too many uninvited changes would become noise. Hence the daily limit, pinning and undo. The limit is enforced by the canvas, but whether a change was asked for is reported by Woody's program, which Woody cannot change today; this must be settled before Phase 10.
 - **Pipes that act.** An approved action pipe runs with nobody watching. It is bounded by what feeds it (the machine's own readings and your own things only), by fixed values, a daily cap and a switch. A reading that is wrong can still set it off.
 - **Triggers that stay silent.** A trigger on meaning can miss a change that mattered. The record of every check and the unsure cases in the daily brief are there to make a miss findable, not impossible.
+- **The wall inside the agent.** Woody's own code and its protections run in one process. What keeps them apart is a check on what is written, not a wall the machine enforces. It is backed by everything that stands outside that process.
 - **Attachment.** A machine that seems alive invites it. The design answers with honesty about what Woody is and with nothing built to increase dependence.
 
 ## Already there

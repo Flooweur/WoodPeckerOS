@@ -5,9 +5,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { briefPreamble, reflectionPrompt, systemPrompt } from "./context.js";
-import { innerState } from "./inner.js";
-import { createSelfTools } from "./self-tools.js";
+import { briefPreamble, memoryLine, reflectionPrompt } from "../mind/context.js";
+import { systemPrompt } from "./prompt.js";
+import { innerState } from "../mind/inner.js";
+import { createSelfTools } from "../mind/self-tools.js";
 import { BUILTIN, FACE, IDENTITY, RESERVED, changedShare, checkDesign, nameProblem, remainingShare, words } from "./self.js";
 import { INITIAL_IDENTITY, PolicyError, Store } from "./store.js";
 
@@ -66,7 +67,7 @@ test("identity: Woody changes it itself, by one small step a day, and the operat
   assert.equal(store.identity().text, step);
   assert.deepEqual(store.identityState().unseen, [2]);
   // The new text is what the next session is given, after the rules.
-  const system = systemPrompt("RULES FIRST", store);
+  const system = systemPrompt("RULES FIRST", store, memoryLine);
   assert.ok(system.indexOf("RULES FIRST") < system.indexOf("you keep answers short"));
 
   // One step a day.

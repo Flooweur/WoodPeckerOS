@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { test } from "node:test";
 import type { WebSocket } from "ws";
-import { CANVAS_CHANGING_TOOLS, CanvasLink, MAKER_MODELS, THING_RULES, createCanvasTools, fragment, makeThing, type Link } from "./canvas.js";
+import { CANVAS_CHANGING_TOOLS, MAKER_MODELS, THING_RULES, createCanvasTools, fragment, makeThing } from "./canvas.js";
+import { CanvasLink, type Link } from "./core/canvas-link.js";
 
 const GOOD = "<p>hi</p><script>woody.ready()</script>";
 const noLink: Link = { connected: () => true, request: async () => null };
@@ -102,7 +103,6 @@ test("the tools exist, and the ones that change the canvas are the ones a web-re
 test("a thing is given pictures by their id: the maker is told what each shows, the canvas which ones", async () => {
   const requests: Array<{ op: string; params: Record<string, unknown> }> = [];
   const prompts: string[] = [];
-  const made: string[] = [];
   const link: Link = {
     connected: () => true,
     request: async (op, params = {}) => {
@@ -112,7 +112,7 @@ test("a thing is given pictures by their id: the maker is told what each shows, 
       return null;
     },
   };
-  const tools = createCanvasTools({ link, write: async (_m, _s, prompt) => (prompts.push(prompt), GOOD), canSpend: () => null, made: (id) => made.push(id) });
+  const tools = createCanvasTools({ link, write: async (_m, _s, prompt) => (prompts.push(prompt), GOOD), canSpend: () => null });
   const call = async (name: string, args: Record<string, unknown>) => {
     const r = (await tools.find((t) => t.name === name)!.handler(args as never, {})) as { content: Array<{ text: string }>; isError?: boolean };
     return { text: r.content[0]!.text, error: Boolean(r.isError) };
@@ -124,7 +124,6 @@ test("a thing is given pictures by their id: the maker is told what each shows, 
   assert.match(THING_RULES, /woody\.picture\(id\)/);
   // The canvas is told which pictures the thing may load.
   assert.deepEqual(requests.find((r) => r.op === "make")!.params.pictures, ["p-0123456789abcdef"]);
-  assert.deepEqual(made, ["t4"]);
 
   // A picture that is not kept: nothing is written and nothing is made.
   prompts.length = 0;

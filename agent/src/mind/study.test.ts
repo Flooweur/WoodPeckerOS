@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { studyPreamble } from "./context.js";
-import { PolicyError, STUDY, Store } from "./store.js";
+import { PolicyError, STUDY, Store } from "../core/store.js";
 import { STUDY_SIZES, createStudyTools, type StudyToolsContext } from "./study-tools.js";
 
 function tempStore(): Store {

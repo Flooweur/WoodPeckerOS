@@ -46,7 +46,10 @@ in
       NIX_LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ];
     };
     serviceConfig = {
-      ExecStart = "${woody-agent}/bin/woody-agent";
+      # Node is started with run-time code generation switched off. The agent
+      # refuses to run without it (agent/src/core/lockdown.ts): it is part of
+      # what keeps Woody's own code within what the build has checked.
+      ExecStart = "${pkgs.nodejs_22}/bin/node --disallow-code-generation-from-strings ${woody-agent}/lib/node_modules/woody-agent/dist/core/server.js";
       User = "woody";
       Group = "woody";
       StateDirectory = "woody";

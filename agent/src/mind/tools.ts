@@ -3,7 +3,9 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { journalLine, memoryLine } from "./context.js";
-import { MEMORY_KINDS, PolicyError, type Memory, type Store } from "./store.js";
+import { MEMORY_KINDS, PolicyError } from "../core/api.js";
+import type { Memory } from "../core/store.js";
+import type { WoodyStore as Store } from "../core/woody-store.js";
 
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 

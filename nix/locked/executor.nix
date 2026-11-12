@@ -109,6 +109,17 @@ let
         "flake.lock"
         "nix/hosts/"
         "nix/modules/base.nix"
+        # How the agent is started and confined.
+        "nix/modules/agent.nix"
+        # The locked part of the agent: the protections, the check that
+        # Woody's own code stays within what it is given, and how the agent
+        # is built and tested (Phase 10; see docs/SELFMOD.md).
+        "agent/src/core/"
+        "agent/selfcheck.mjs"
+        "agent/package.json"
+        "agent/package-lock.json"
+        "agent/package.nix"
+        "agent/tsconfig.json"
         "nix/modules/secrets.nix"
         "nix/modules/snapshots.nix"
       ];

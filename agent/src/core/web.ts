@@ -7,7 +7,7 @@
 // The session that received them is then "tainted": for the rest of it Woody
 // may only observe and take notes (enforced in server.ts).
 import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { ask, type CostSink } from "./mind/reflect.js";
+import { ask, type CostSink } from "./model.js";
 
 const MAX_PAGE_CHARS = 80_000;
 

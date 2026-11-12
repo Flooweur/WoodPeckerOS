@@ -4,7 +4,9 @@
 // not by these tools: Woody writes the findings, never the list of sources.
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { PolicyError, STUDY, type Store, type Study } from "./store.js";
+import { PolicyError, STUDY } from "../core/api.js";
+import type { Study } from "../core/store.js";
+import type { WoodyStore as Store } from "../core/woody-store.js";
 
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 const ok = (text: string): ToolResult => ({ content: [{ type: "text", text }] });

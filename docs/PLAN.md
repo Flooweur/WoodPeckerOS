@@ -41,7 +41,7 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 | 7 | **The canvas**: the frame, things, the kit, making | Done (7a to 7d), tested in the VM |
 | 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | 8a (inner state) done, tested in the VM. 8b (a life of its own) and 8c (identity and face) built; they await the VM test |
 | 9 | **Learning and showing**: open reading, studies, explainers, web pictures | Built in three steps (9a open reading, 9b studies and explainers, 9c web pictures); awaits the VM test |
-| 10 | **Reshaping itself**: free change of its own program | Planned |
+| 10 | **Reshaping itself**: free change of its own program | 10a (the wall around the protections) built; awaits the VM test. Next: 10b methods as data, 10c unasked self-change, 10d its own tools |
 | 11 | **Sound and voice** | Planned |
 | 12 | **Programs on the canvas** | Planned |
 | 13 | **Universal pipes**: outputs of things wired to inputs of things, the machine, Woody and approved actions | Planned (decided 2026-11-12) |
@@ -331,6 +331,25 @@ Built in 9a (a change to the locked core, which you apply by rebuilding):
   - Pictures are for showing on your own screen. Nothing here judges whether a picture may be reused elsewhere.
 - **Also fixed:** the executor's tests now run one at a time in the build. Run in parallel, one of them failed now and then with "Text file busy".
 
+## Phase 10a results (2026-11-12): the wall
+
+What was found first: `agent/` had been Woody's to change since Phase 3, and most protections added since then lived in that same code. Phase 10 lets Woody change its program unasked, so the protections had to move before anything was opened.
+
+- **Two parts.** `agent/src/core/` is locked (a change needs the operator's approval); the rest of `agent/src/` is Woody's own. Thirteen files moved into the locked part, and four pieces were split out of files that stay Woody's: the model call, the link to the canvas, the web tools, and the building of the tool server.
+- **Gates.** Woody's code no longer holds the executor, the canvas or the store. It holds gated versions (`core/gate.ts`, `core/woody-store.ts`):
+  - the executor refuses anything but looking once the session has read the web, and refuses an unasked change that would not go to the operator;
+  - the canvas writes "asked for or not" and an explainer's sources itself;
+  - the store's view has no operation that is the operator's or the loop's, writes everything as Woody, and takes a study's sources and explainer from the session.
+- **The check.** `agent/selfcheck.mjs` runs with every build on the compiled files of Woody's code: only its own files, `core/api.js`, zod and one SDK function may be imported; nothing that reaches the system or outlives a session may be named; no code is loaded at run time; prototypes are not touched.
+- **No code from strings.** The agent is started with code generation switched off and refuses to start otherwise.
+- **Locked paths** now include `agent/src/core/`, the check, the agent's build files and `nix/modules/agent.nix`.
+- **Tests:** 91 agent tests (7 new) pass, and the Nix builds succeed. The built agent was started locally the way the system starts it: it refuses to start without the switch, starts with it, answers every record and the operator's own operations, and refuses a message cleanly without an API key (`agent/dev/smoke.cjs`). The tool server was tried with code generation off: tools list, run and validate.
+- **Not tested:** a real session through the gates. No tool call with a model has run on the restructured agent; only the VM can do that.
+- **Known limits:**
+  - It is a tripwire inside one process. The check reads what is written, and a name hidden in a computed string would pass. The real walls are outside: the executor, the approvals, Pause, the firewall, the canvas's rules in the HUD, a limit on the API key.
+  - The mind's data (memories, findings, the pages recorded for a study) is Woody's own. The wall protects how it is written, not that Woody means well.
+  - Until 10c nothing new is allowed: Woody still changes its program only when you ask or accept a plan.
+
 ## Architecture
 
 Today:
@@ -459,10 +478,25 @@ Built in three steps: 9a open reading (built: see "Phase 9a results"), 9b studie
 
 ### Phase 10: reshaping itself
 
-- **Methods and instructions as data:** how Woody works becomes versioned records it can revise without a rebuild.
-- **Free change of its own program:** on its own initiative, through the existing snapshot, build, trial, health check and rollback; a daily limit on rebuilds; never from a session that read the web.
-- **One-step undo** of any such change from the changes record.
-- **Its own tools:** Woody can add typed tools for itself through the same flow.
+Decided with the operator on 2026-11-12:
+
+| Question | Decision |
+|---|---|
+| The wall between Woody's own code and the protections | Locked files plus checks: a tripwire inside one process, backed by what stands outside it |
+| An update from GitHub and a change of Woody's touch the same file | The update wins. Woody's change is set aside, kept in the record, and Woody redoes it if it still makes sense |
+| Unasked rebuilds | At most three a day, only while nobody has been at the screen for 30 minutes and nothing of the operator's is in progress |
+| The limits Woody was given | Its rhythm (how often and when it takes time of its own) is Woody's to change. Money and identity limits are locked |
+| Being told of a self-change | A notice by the lattice with what changed, the reason and one button that puts the previous program back |
+| After an undo | Woody is told and does not make that change again; other changes may follow |
+| Changes to its methods | Kept in the record with before, after and undo, and said in the daily brief. No notice |
+| What a tool of Woody's own may do | Compute, and use a workspace folder of its own. No network, no system, no secrets, no access to its memory |
+
+Built in four steps:
+
+- **10a. The wall.** Built: see "Phase 10a results". The protections move into a locked part of the agent, and Woody's own code is handed only gated things.
+- **10b. Methods as data.** How Woody works, in words, becomes versioned text it rewrites at once, with no rebuild. Its safety instructions stay locked.
+- **10c. Unasked self-change.** Woody changes its own part of the program on its own initiative through the existing snapshot, build, trial, health check and rollback, within the limits above; the notice, the undo, and what happens when an update meets a change of Woody's.
+- **10d. Its own tools.** Small programs Woody writes for itself, run in a separate process with no rights.
 - **Done when:**
   - Woody improved something in its own program unasked, the change was tested, applied and recorded, and you undid it in one step;
   - a change that touches the locked core still waited for you;

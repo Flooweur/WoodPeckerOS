@@ -14,29 +14,36 @@
 // (mind/store.ts), and each turn's context is assembled from it
 // (mind/context.ts). The SDK's own session is only a short-lived working
 // context; continuity comes from the store.
+import "./lockdown.js"; // first: nothing else is loaded before it
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { query, tool, type HookCallback } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, query, tool, type HookCallback } from "@anthropic-ai/claude-agent-sdk";
 import { WebSocket, WebSocketServer } from "ws";
 import { Budget } from "./budget.js";
 import { ExecutorClient } from "./executor.js";
 import { Files } from "./files.js";
-import { briefPreamble, describeTurn, eventPreamble, goalPreamble, ownPreamble, preamble, reflectionPrompt, setExtraContext, systemPrompt, type GoalWork, type OwnMaterial, studyPreamble } from "./mind/context.js";
-import { createGoalTools, smallGoalLimit } from "./mind/goal-tools.js";
-import { DEFAULT_RHYTHM, clockText, dayEnd, dayKey, dayStartOf, ownTime, parseClock, phaseAt, reflectKey, validRhythm, type OwnDecision, type OwnMoment, type Rhythm } from "./mind/life.js";
-import { createLifeTools } from "./mind/life-tools.js";
+import { briefPreamble, describeTurn, eventPreamble, goalPreamble, memoryLine, ownPreamble, preamble, reflectionPrompt, setExtraContext, type GoalWork, type OwnMaterial, studyPreamble } from "../mind/context.js";
+import { CanvasLink } from "./canvas-link.js";
+import { gatedExec, gatedLink, gatedNotify, TAINTED, type Session } from "./gate.js";
+import { ask, type Aside } from "./model.js";
+import { systemPrompt } from "./prompt.js";
+import { createWebTools, type WebHooks } from "./web-tools.js";
+import { woodyStore, type StoreSession } from "./woody-store.js";
+import { createGoalTools, smallGoalLimit } from "../mind/goal-tools.js";
+import { DEFAULT_RHYTHM, clockText, dayEnd, dayKey, dayStartOf, ownTime, parseClock, phaseAt, reflectKey, validRhythm, type OwnDecision, type OwnMoment, type Rhythm } from "../mind/life.js";
+import { createLifeTools } from "../mind/life-tools.js";
 import { GivenLinks, scrubLinks } from "./links.js";
-import { createSelfTools } from "./mind/self-tools.js";
-import { STUDY_SIZES, createStudyTools } from "./mind/study-tools.js";
-import { checkSystem, systemChange, triage } from "./mind/pulse.js";
-import { rollThreadSummary, summariseTurn } from "./mind/reflect.js";
-import { MEMORY_KINDS, PolicyError, STUDY, Store, type Goal, type MemoryKind, type Message, type QueueItem, type Study } from "./mind/store.js";
-import { createMemoryTools } from "./mind/tools.js";
-import { CANVAS_CHANGING_TOOLS, CanvasLink, createCanvasTools } from "./canvas.js";
-import { innerLines, innerState, type Inner } from "./mind/inner.js";
-import { TOOL_SERVER_NAME, createToolServer } from "./tools.js";
+import { createSelfTools } from "../mind/self-tools.js";
+import { STUDY_SIZES, createStudyTools } from "../mind/study-tools.js";
+import { checkSystem, systemChange, triage } from "./pulse.js";
+import { rollThreadSummary, summariseTurn } from "../mind/reflect.js";
+import { MEMORY_KINDS, PolicyError, STUDY, Store, type Goal, type MemoryKind, type Message, type QueueItem, type Study } from "./store.js";
+import { createMemoryTools } from "../mind/tools.js";
+import { CANVAS_CHANGING_TOOLS, createCanvasTools } from "../canvas.js";
+import { innerLines, innerState, type Inner } from "../mind/inner.js";
+import { createSystemTools } from "../tools.js";
 
 // ---- configuration -------------------------------------------------------
 
@@ -57,6 +64,7 @@ const PER_TURN_CAP_USD = Number(process.env.WOODY_TURN_CAP_USD ?? "2");
 const OWN_SHARE = Number(process.env.WOODY_OWN_SHARE ?? "0.25");
 /** The most one moment of Woody's own may cost. */
 const OWN_SESSION_CAP_USD = Number(process.env.WOODY_OWN_SESSION_USD ?? "0.4");
+const TOOL_SERVER_NAME = "woody";
 const TOOL_PREFIX = `mcp__${TOOL_SERVER_NAME}__`;
 
 /** The model's working context is rebuilt from the store after this long a pause... */
@@ -515,6 +523,8 @@ const canvasLink = new CanvasLink();
 
 /** One model call that writes a thing's source. Stop interrupts it like the session it belongs to. */
 async function writeThing(model: string, system: string, prompt: string): Promise<string> {
+  // The maker is called by Woody's own code: the month's cap is checked here, not there.
+  if (budget.status().exhausted) throw new Error("the monthly spending cap is reached");
   let out = "";
   let stopped = "";
   for await (const message of query({
@@ -538,20 +548,71 @@ async function writeThing(model: string, system: string, prompt: string): Promis
 }
 
 const files = new Files(WORKSPACE);
-const toolServer = createToolServer(
-  exec,
-  broadcast,
-  files,
-  {
-    parkApproval: (approvalId, action, params) => {
-      store.addWatch("approval", approvalId, { action, params });
-      store.event("approval_parked", { approval_id: approvalId, action });
-    },
-    watchConfig: (candidate) => store.addWatch("config", candidate),
-    unwatchConfig: (candidate) => {
-      for (const w of store.activeWatches()) if (w.kind === "config" && w.ref === candidate) store.closeWatch(w.id);
-    },
-    mode: () => sessionMode,
+
+// ---- what Woody's own code is handed ---------------------------------------------
+//
+// Everything outside core/ is Woody's own program, which it may change by
+// itself (Phase 10). That code never gets the store, the executor or the
+// canvas as they are. It gets these: the same things behind checks that
+// depend on the session in progress, whose state stays on this side.
+
+// The locked classes keep their methods: Woody's code cannot swap one for its own.
+for (const c of [Store, Budget, GivenLinks, CanvasLink, ExecutorClient, Files]) Object.freeze(c.prototype);
+
+/** The session in progress, as the gates see it. */
+const session: Session & StoreSession = {
+  tainted: () => sessionTaint !== null,
+  mode: () => sessionMode,
+  // Whatever Woody does without the operator having asked (its own time, a wake-up, a duty) is uninvited.
+  uninvited: () => sessionMode === "observe" && !sessionInvited,
+  // The explainer of a study carries the pages that were read for it.
+  explains: () => {
+    const s = sessionStudy?.kind === "explain" ? store.study(sessionStudy.id) : null;
+    return s ? { id: s.id, subject: s.subject, sources: s.pages.map((p) => ({ url: p.url, title: p.title })) } : null;
+  },
+  made: (id) => {
+    sessionMade = sessionMade ?? id;
+  },
+  scrub,
+  starter: () => (sessionOperator ? "operator" : sessionOwn && !sessionStudy ? "woody" : null),
+  reflecting: () => sessionReflecting,
+  study: () => sessionStudy,
+  takeSources: () => sessionPages.splice(0),
+  madeThing: () => sessionMade,
+};
+/** The mind's store as Woody's code may use it (core/woody-store.ts). */
+const woody = woodyStore(store, session);
+const woodyExec = gatedExec(exec, session);
+const woodyLink = gatedLink(canvasLink, session);
+const woodyNotify = gatedNotify(broadcast);
+/** A small model call for Woody's code: the model and the cost record are fixed here, and it stops when the month's cap is reached. */
+const aside: Aside = async (system, prompt) => (budget.status().exhausted ? "" : ask(TRIAGE_MODEL, system, prompt, WORKSPACE, recordAsideCost));
+
+const toolServer = createSdkMcpServer({
+  name: TOOL_SERVER_NAME,
+  version: "0.5.0",
+  alwaysLoad: true,
+  tools: [
+    ...ownTools(),
+    ...createSystemTools(woodyExec, woodyNotify, files, {
+      parkApproval: (approvalId, action, params) => {
+        store.addWatch("approval", approvalId, { action, params });
+        store.event("approval_parked", { approval_id: approvalId, action });
+      },
+      watchConfig: (candidate) => store.addWatch("config", candidate),
+      unwatchConfig: (candidate) => {
+        for (const w of store.activeWatches()) if (w.kind === "config" && w.ref === candidate) store.closeWatch(w.id);
+      },
+      mode: () => sessionMode,
+      pause: (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.min(ms, 5000)))),
+    }),
+    ...createWebTools(woodyExec, webHooks()),
+  ],
+});
+
+/** What the web tools need from the loop. */
+function webHooks(): WebHooks {
+  return {
     taint: (source) => {
       if (!sessionTaint) store.event("session_tainted", { source });
       sessionTaint = sessionTaint ?? source;
@@ -574,10 +635,14 @@ const toolServer = createToolServer(
         sessionPages.push(url);
       }
     },
-  },
-  [
+  };
+}
+
+/** Woody's own tools. Their code is Woody's to change, so each is given the view of the store and the gated connections, never the real ones. */
+function ownTools() {
+  return [
     ...createCanvasTools({
-      link: canvasLink,
+      link: woodyLink,
       write: writeThing,
       canSpend: (effort) => {
         const b = budget.status();
@@ -589,25 +654,17 @@ const toolServer = createToolServer(
           ? `Your own share has $${b.own.available_usd.toFixed(2)} available right now, which is not enough for a maker of this size. Use a kit part or a smaller effort, or keep the idea for another moment (interest_note).`
           : null;
       },
-      // Whatever Woody does without the operator having asked (its own time, a wake-up, a duty) is uninvited.
-      uninvited: () => sessionMode === "observe" && !sessionInvited,
-      // The explainer of a study carries the pages that were read for it.
-      study: () => {
-        const s = sessionStudy?.kind === "explain" ? store.study(sessionStudy.id) : null;
-        return s ? { id: s.id, subject: s.subject, sources: s.pages.map((p) => ({ url: p.url, title: p.title })) } : null;
-      },
-      made: (id) => {
-        sessionMade = sessionMade ?? id;
-      },
+      uninvited: session.uninvited,
     }),
-    ...createLifeTools(store, () => sessionTaint !== null, scrub),
-    ...createSelfTools(store, { reflecting: () => sessionReflecting, express, faceChanged: () => broadcast(stateMessage()) }),
-    ...createStudyTools(store, {
+    ...createLifeTools(woody, session.tainted, scrub),
+    ...createSelfTools(woody, { reflecting: session.reflecting, express, faceChanged: () => broadcast(stateMessage()) }),
+    ...createStudyTools(woody, {
       scrub,
-      starter: () => (sessionOperator ? "operator" : sessionOwn && !sessionStudy ? "woody" : null),
-      current: () => sessionStudy,
-      takeSources: () => sessionPages.splice(0),
-      madeThing: () => sessionMade,
+      starter: session.starter,
+      current: session.study,
+      // The pages a finding rests on are taken from the session by the store's view, not handed in by the tool.
+      takeSources: () => [],
+      madeThing: session.madeThing,
       changed: () => broadcast({ type: "goals_changed" }),
     }),
     tool(
@@ -617,18 +674,18 @@ const toolServer = createToolServer(
       async () => ({ content: [{ type: "text" as const, text: JSON.stringify(currentInner(), null, 2) }] }),
       { annotations: { readOnlyHint: true } },
     ),
-    ...createMemoryTools(store, () => turnSources, () => sessionTaint !== null, scrub),
+    ...createMemoryTools(woody, () => turnSources, session.tainted, scrub),
     ...createGoalTools(
-      store,
+      woody,
       (goalId) => {
         touchedGoals.add(goalId);
         broadcast({ type: "goals_changed" });
       },
-      () => sessionTaint !== null,
+      session.tainted,
       scrub,
     ),
-  ],
-);
+  ];
+}
 
 // ---- the written record --------------------------------------------------
 
@@ -746,8 +803,8 @@ function recordAsideCost(model: string, cost: number): void {
 async function afterSession(journalId: number, asked: string, toolNames: string[], finalText: string, sessionThread: number): Promise<void> {
   if (!hasCredential() || budget.status().exhausted) return;
   try {
-    await summariseTurn(store, journalId, asked, toolNames, finalText, TRIAGE_MODEL, WORKSPACE, recordAsideCost);
-    await rollThreadSummary(store, sessionThread, TRIAGE_MODEL, WORKSPACE, recordAsideCost);
+    await summariseTurn(woody, journalId, asked, toolNames, finalText, aside);
+    await rollThreadSummary(woody, sessionThread, aside);
   } catch (err) {
     console.error("after-session reflection failed:", err instanceof Error ? err.message : err);
   }
@@ -879,16 +936,16 @@ async function runSession(item: QueueItem): Promise<void> {
   let startEvent: number;
   if (goal) {
     startEvent = operator ? Number(item.payload.event) : store.event("wake", { source: "goal", goal: goal.id, kind: goalWork }, { thread });
-    prompt = goalPreamble(store, goal, goalWork!, sessionMode, { operatorText: operator ? text : undefined, retry }) + keyLine;
+    prompt = goalPreamble(woody, goal, goalWork!, sessionMode, { operatorText: operator ? text : undefined, retry }) + keyLine;
   } else if (reflecting) {
     startEvent = store.event("wake", { source: "reflect" }, { thread });
-    prompt = reflectionPrompt(store, Number(item.payload.since));
+    prompt = reflectionPrompt(woody, Number(item.payload.since));
   } else if (study && studyKind) {
     startEvent = store.event("wake", { source: item.source, study: study.id, kind: studyKind, why: item.payload.why ?? "" }, { thread });
     const m = await ownMaterial("free");
     const cap = studyCap(study, studyKind);
     prompt =
-      studyPreamble(store, thread, study, studyKind, {
+      studyPreamble(woody, thread, study, studyKind, {
         own,
         canvas: m.canvas,
         additions: own ? m.additions : null,
@@ -896,13 +953,13 @@ async function runSession(item: QueueItem): Promise<void> {
       }) + (own ? "" : keyLine);
   } else if (own) {
     startEvent = store.event("wake", { source: "own", kind: item.kind, why: item.payload.why ?? "" }, { thread });
-    prompt = ownPreamble(store, thread, await ownMaterial(item.kind === "tidy" ? "tidy" : "free"));
+    prompt = ownPreamble(woody, thread, await ownMaterial(item.kind === "tidy" ? "tidy" : "free"));
   } else if (item.source === "brief") {
     startEvent = store.event("wake", { source: "brief", kind: item.payload.kind }, { thread });
     const b = budget.status();
     prompt =
       briefPreamble(
-        store,
+        woody,
         thread,
         item.payload.kind === "daily" ? "daily" : "catchup",
         Number(item.payload.since),
@@ -911,13 +968,13 @@ async function runSession(item: QueueItem): Promise<void> {
   } else if (operator) {
     startEvent = Number(item.payload.event);
     prompt =
-      preamble(store, thread, text, fresh) +
+      preamble(woody, thread, text, fresh) +
       (retry ? "\n\n(You were restarted while answering this message once already. Check your recent tool calls in the recap before repeating any action.)" : "") +
       keyLine;
   } else {
     startEvent = store.event("wake", { source: trigger!.source, kind: item.kind, headline: trigger!.headline }, { thread });
     note(`woke up: ${trigger!.headline}`);
-    prompt = eventPreamble(store, thread, { ...trigger!, retry }, fresh) + keyLine;
+    prompt = eventPreamble(woody, thread, { ...trigger!, retry }, fresh) + keyLine;
   }
   store.setMeta("open_turn", String(startEvent));
   turnSources = [startEvent];
@@ -964,7 +1021,8 @@ async function runSession(item: QueueItem): Promise<void> {
       prompt,
       options: {
         model,
-        systemPrompt: systemPrompt(RULES, store),
+        // The rules are put in front here, on the locked side, whatever Woody's own code adds after them.
+        systemPrompt: systemPrompt(RULES, store, memoryLine),
         // No built-in tools at all: no Bash, no file access, no web.
         tools: [],
         mcpServers: { [TOOL_SERVER_NAME]: toolServer },
@@ -973,8 +1031,7 @@ async function runSession(item: QueueItem): Promise<void> {
           if (sessionTaint !== null && TAINT_BLOCKED.has(toolName.slice(TOOL_PREFIX.length))) {
             return {
               behavior: "deny",
-              message:
-                "Refused: this session has read web content, so for the rest of it you may only observe and take notes. Write down what you learned and what you think should be done (in your reply, your workspace or the goal's checkpoint). Acting on it happens in a later session, when you or the operator decide to, from those notes.",
+              message: TAINTED,
             };
           }
           return { behavior: "allow", updatedInput: input };
@@ -1821,7 +1878,7 @@ function mindRequest(msg: Record<string, unknown>): unknown {
     case "activity":
       return activity(Math.min(60, Math.max(1, Number(msg.n) || 20)));
     case "goals":
-      return { goals: store.goals({ includeClosed: Boolean(msg.all) }), small_goal_usd: smallGoalLimit(store) };
+      return { goals: store.goals({ includeClosed: Boolean(msg.all) }), small_goal_usd: smallGoalLimit(woody) };
     case "goal":
       return goalDetail(needId());
     case "inbox":

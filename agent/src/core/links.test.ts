@@ -7,10 +7,10 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { GivenLinks, normalUrl, pageAnchors, pageImages, scrubLinks, textLinks } from "./links.js";
-import { createGoalTools } from "./mind/goal-tools.js";
-import { createLifeTools } from "./mind/life-tools.js";
-import { Store } from "./mind/store.js";
-import { createMemoryTools } from "./mind/tools.js";
+import { createGoalTools } from "../mind/goal-tools.js";
+import { createLifeTools } from "../mind/life-tools.js";
+import { Store } from "./store.js";
+import { createMemoryTools } from "../mind/tools.js";
 
 test("an address has one form, and only plain https ones count", () => {
   assert.equal(normalUrl("https://Example.org"), "https://example.org/");

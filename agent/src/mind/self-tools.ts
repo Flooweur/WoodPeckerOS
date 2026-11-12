@@ -3,8 +3,8 @@
 // keep every version, and the operator can restore any of them.
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { FACE, IDENTITY, PALETTE, RESERVED } from "./self.js";
-import { PolicyError, type Store } from "./store.js";
+import { FACE, IDENTITY, PALETTE, PolicyError, RESERVED } from "../core/api.js";
+import type { WoodyStore as Store } from "../core/woody-store.js";
 
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 const ok = (text: string): ToolResult => ({ content: [{ type: "text", text }] });

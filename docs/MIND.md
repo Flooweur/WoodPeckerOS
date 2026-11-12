@@ -271,7 +271,7 @@ These tests are the exit criteria for the memory work.
 
 ## What 4a built
 
-Code: `agent/src/mind/` (`store.ts`, `context.ts`, `reflect.ts`, `tools.ts`), wired in `agent/src/server.ts`.
+Code: `agent/src/core/store.ts`, `agent/src/mind/` (`context.ts`, `reflect.ts`, `tools.ts`), wired in `agent/src/core/server.ts`.
 
 - **The store** is `/var/lib/woody/mind.db` (SQLite, opened with Node's built-in driver; no new dependency). It holds the append-only event log, the conversation, the journal, memories and the identity text.
 - **Every turn is recorded as it happens:** your message, each tool call and its result, Woody's reply, and a journal entry. The journal entry is written by the program, not by the model, so it exists even if the turn fails or is stopped. If the agent is killed mid-turn, the next start notes it in the conversation and the journal.
@@ -298,7 +298,7 @@ Not in 4a: the event queue and pulse (4b), goals (4c), reflection that extracts 
 
 ## What 4b built
 
-Code: `agent/src/server.ts` (the loop), `agent/src/mind/pulse.ts`, `agent/src/budget.ts` (the pacer), the queue, alarms and watches in `agent/src/mind/store.ts`; Pause in `executor/src/server.rs`.
+Code: `agent/src/core/server.ts` (the loop), `agent/src/core/pulse.ts`, `agent/src/core/budget.ts` (the pacer), the queue, alarms and watches in `agent/src/core/store.ts`; Pause in `executor/src/server.rs`.
 
 - **One queue.** Your messages, alarms, system events, finished jobs and decided approvals all go into one queue in the store. Woody handles them one at a time: yours first, then by priority.
 - **The pulse** runs every minute as plain code. It fires due alarms, follows what Woody is waiting for, and every two minutes checks the system. A model is called only if the queue then holds something.
@@ -332,7 +332,7 @@ Limits to know:
 
 ## What 4c built
 
-Code: goals in `agent/src/mind/store.ts`, `agent/src/mind/goal-tools.ts`, the goal context in `agent/src/mind/context.ts`, scheduling in `agent/src/server.ts`, the views in `hud/web/src/Board.tsx`.
+Code: goals in `agent/src/core/store.ts`, `agent/src/mind/goal-tools.ts`, the goal context in `agent/src/mind/context.ts`, scheduling in `agent/src/core/server.ts`, the views in `hud/web/src/Board.tsx`.
 
 - **The board.** You add goals in the HUD (or with `/goal-add` in `woody-chat`). Each goal has its own thread, where Woody asks questions and reports, and where you can write to it.
 - **Review.** When Woody has nothing more urgent, it reviews the next goal in your inbox: it restates it, judges it (and may advise against it), plans it, and estimates cost and time, or asks the questions that stop it from planning.
@@ -366,7 +366,7 @@ Limits to know:
 
 ## What 4d built
 
-Code: `reflectionPrompt` and `briefPreamble` in `agent/src/mind/context.ts`, scheduling and presence in `agent/src/server.ts`, identity proposals and merging in `agent/src/mind/store.ts`.
+Code: `reflectionPrompt` and `briefPreamble` in `agent/src/mind/context.ts`, scheduling and presence in `agent/src/core/server.ts`, identity proposals and merging in `agent/src/core/store.ts`.
 
 - **Daily reflection.** Once a day, at the first quiet moment after 03:00, if you wrote to Woody or it did at least three things since the last one. Woody reads the period's record (its journal and what was said in every thread), stores what is durable, merges duplicates, corrects what is out of date, and may propose a change to its identity. It runs as its own session in its own thread, so nothing of it appears in the conversation; the journal records what it changed.
 - **What reflection does not read:** tool output. Only lines you wrote are marked as yours, and only those can establish a preference or a method.
@@ -392,7 +392,7 @@ Limits to know:
 
 ## What 4e built
 
-Code: `executor/src/web.rs` (the fetch), `agent/src/web.ts` (the quarantined reader), the web tools in `agent/src/tools.ts`, the taint rule in `agent/src/server.ts`.
+Code: `executor/src/web.rs` (the fetch), `agent/src/core/web.ts` (the quarantined reader), the web tools in `agent/src/core/web-tools.ts`, the taint rule in `agent/src/core/server.ts`.
 
 - **Fetch** is an executor action. It accepts only `https://` URLs on port 443 to hosts on the allow-list, a root-owned file (`/var/lib/woody-execd/web-allow.json`) seeded with NixOS, GitHub, Anthropic's documentation and two Linux news sources. The executor resolves the host itself, refuses any address that is not public (so never the VM or the host), and pins the connection to the address it checked. Redirects are not followed. The request is made by `curl` running as a user with no rights (`woody-web`).
 - **A refused fetch is recorded** in the audit log with its reason, before anything touches the network.
@@ -422,7 +422,7 @@ Limits to know:
 
 ## Open reading (Phase 9a)
 
-Code: `executor/src/web.rs` (block list, redirects, pacing), the firewall rule in `nix/locked/executor.nix`, `agent/src/links.ts` (the addresses a session was given), the web tools in `agent/src/tools.ts`.
+Code: `executor/src/web.rs` (block list, redirects, pacing), the firewall rule in `nix/locked/executor.nix`, `agent/src/core/links.ts` (the addresses a session was given), the web tools in `agent/src/core/web-tools.ts`.
 
 What 4e built stays whole: the quarantined reader, the tainted session, web-origin memory. What changed:
 
@@ -464,7 +464,7 @@ Limits to know:
 
 ## Studies and explainers (Phase 9b)
 
-Code: `agent/src/mind/study-tools.ts` (the tools), `studyPreamble` in `agent/src/mind/context.ts` (what a session is told), the stages in `agent/src/mind/store.ts`, the scheduling in `agent/src/server.ts`, the sources in `hud/server/canvas.ts` and the frame.
+Code: `agent/src/mind/study-tools.ts` (the tools), `studyPreamble` in `agent/src/mind/context.ts` (what a session is told), the stages in `agent/src/core/store.ts`, the scheduling in `agent/src/core/server.ts`, the sources in `hud/server/canvas.ts` and the frame.
 
 ### How a study goes
 
@@ -505,7 +505,7 @@ Code: `agent/src/mind/study-tools.ts` (the tools), `studyPreamble` in `agent/src
 
 ## Pictures from the web (Phase 9c)
 
-Code: `picture` in `executor/src/web.rs`, `web_picture` in `agent/src/tools.ts`, `pictureNotes` in `agent/src/web.ts`, the picture store in `hud/server/canvas.ts`, the bridge in the same file and in `hud/web/src/canvas/Canvas.tsx`.
+Code: `picture` in `executor/src/web.rs`, `web_picture` in `agent/src/core/web-tools.ts`, `pictureNotes` in `agent/src/core/web.ts`, the picture store in `hud/server/canvas.ts`, the bridge in the same file and in `hud/web/src/canvas/Canvas.tsx`.
 
 The path of one picture:
 
@@ -538,7 +538,7 @@ Limits to know:
 
 ## The inner state (Phase 8a)
 
-Code: `agent/src/mind/inner.ts`, wired in `agent/src/server.ts`.
+Code: `agent/src/mind/inner.ts`, wired in `agent/src/core/server.ts`.
 
 Woody has five slow values between 0 and 1: energy, ease, curiosity, attention to you, and unease. They are computed by plain code from the record of what happened in the last two days. Woody does not choose them. Each value carries the events behind it, so "why are you like this today?" has an answer that matches the event log.
 
@@ -558,7 +558,7 @@ Woody has five slow values between 0 and 1: energy, ease, curiosity, attention t
 
 ## A life of its own (Phase 8b)
 
-Code: `agent/src/mind/life.ts` (the rules), `agent/src/mind/life-tools.ts` (the interests), `agent/src/server.ts` (the loop), `hud/server/canvas.ts` (the daily limit and the note).
+Code: `agent/src/mind/life.ts` (the rules), `agent/src/mind/life-tools.ts` (the interests), `agent/src/core/server.ts` (the loop), `hud/server/canvas.ts` (the daily limit and the note).
 
 ### Time of its own
 
@@ -624,7 +624,7 @@ The gateway keeps the rule, because the gateway keeps the canvas:
 
 ## Identity and face (Phase 8c)
 
-Code: the limits in `agent/src/mind/self.ts`, the tools in `agent/src/mind/self-tools.ts`, the versions in `agent/src/mind/store.ts`, the frame's side in `hud/web/src/frame/faceData.ts` and `Lattice.tsx`.
+Code: the limits in `agent/src/core/self.ts`, the tools in `agent/src/mind/self-tools.ts`, the versions in `agent/src/core/store.ts`, the frame's side in `hud/web/src/frame/faceData.ts` and `Lattice.tsx`.
 
 ### An identity that evolves
 

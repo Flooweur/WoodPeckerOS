@@ -5,8 +5,8 @@
 // Only log errors, which are too varied for rules, go to a small model with
 // no tools that answers one word: IGNORE, NOTE or WAKE.
 import fs from "node:fs";
-import type { ExecReply, ExecutorClient } from "../executor.js";
-import { ask, type CostSink } from "./reflect.js";
+import type { ExecReply, ExecutorClient } from "./executor.js";
+import { ask, type CostSink } from "./model.js";
 import type { Store } from "./store.js";
 
 export type Finding = {

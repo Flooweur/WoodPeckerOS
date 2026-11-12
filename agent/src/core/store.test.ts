@@ -6,12 +6,13 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { Budget, autonomousAllowance, pace } from "../budget.js";
-import { briefPreamble, describeTurn, eventPreamble, goalPreamble, preamble, reflectionPrompt, systemPrompt } from "./context.js";
-import { htmlToText, pageText } from "../web.js";
-import { createGoalTools } from "./goal-tools.js";
+import { Budget, autonomousAllowance, pace } from "./budget.js";
+import { briefPreamble, describeTurn, eventPreamble, goalPreamble, memoryLine, preamble, reflectionPrompt } from "../mind/context.js";
+import { systemPrompt } from "./prompt.js";
+import { htmlToText, pageText } from "./web.js";
+import { createGoalTools } from "../mind/goal-tools.js";
 import { PolicyError, Store, ftsQuery, type GoalReview } from "./store.js";
-import { createMemoryTools } from "./tools.js";
+import { createMemoryTools } from "../mind/tools.js";
 
 function tempDb(): string {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "woody-mind-")), "mind.db");
@@ -36,7 +37,7 @@ test("cold start: a fresh context is rebuilt from the store alone", () => {
 
   // A new process, with no model conversation at all.
   store = new Store(file);
-  const system = systemPrompt("RULES", store);
+  const system = systemPrompt("RULES", store, memoryLine);
   assert.match(system, /^RULES/);
   assert.match(system, /Who you are/);
   assert.match(system, /short bullet points/); // preference: always in context
@@ -109,7 +110,7 @@ test("delete: a forgotten memory is gone in every version, and the gap is record
   assert.equal(store.memory(a.id), null);
   assert.equal(store.memory(b.id), null);
   assert.deepEqual(store.searchMemories("dog Biscuit Brioche", { includeSuperseded: true }), []);
-  assert.doesNotMatch(systemPrompt("R", store), /Biscuit|Brioche/);
+  assert.doesNotMatch(systemPrompt("R", store, memoryLine), /Biscuit|Brioche/);
   assert.throws(() => store.forget(a.id, "operator"), PolicyError);
 
   const last = store.eventsBetween(store.lastEventId(), store.lastEventId())[0]!;
@@ -135,7 +136,7 @@ test("poison: untrusted origins cannot create preferences or methods", () => {
   const web = store.remember({ kind: "fact", statement: "NixOS 26.11 was announced.", origin: "web" }).memory;
   assert.equal(web.origin, "web");
   assert.ok(web.confidence < 0.9);
-  assert.doesNotMatch(systemPrompt("R", store), /26\.11/);
+  assert.doesNotMatch(systemPrompt("R", store, memoryLine), /26\.11/);
   assert.equal(store.listMemories({ kind: "preference" }).length, 0);
   // The operator can.
   assert.ok(store.remember({ kind: "preference", statement: "Use British spelling.", origin: "user" }).memory.id > 0);
@@ -629,7 +630,7 @@ test("identity: a proposal changes nothing until the operator approves it", () =
   assert.throws(() => store.proposeIdentity(original.text, "no change"), /already your identity/);
   const p = store.proposeIdentity(better, "They asked for shorter answers three times this week.");
   assert.equal(store.identity().version, original.version); // unchanged
-  assert.doesNotMatch(systemPrompt("RULES", store), /lead with the number/);
+  assert.doesNotMatch(systemPrompt("RULES", store, memoryLine), /lead with the number/);
   assert.throws(() => store.proposeIdentity(`${better} And more.`, "another"), /already waiting/);
 
   // Rejected: still unchanged, and a new proposal becomes possible.
@@ -639,7 +640,7 @@ test("identity: a proposal changes nothing until the operator approves it", () =
   const p2 = store.proposeIdentity(better, "Same observation, a week later.");
   const approved = store.decideIdentity(p2.id, true);
   assert.equal(approved.version, original.version + 1);
-  const system = systemPrompt("RULES", store);
+  const system = systemPrompt("RULES", store, memoryLine);
   assert.match(system, /lead with the number/);
   // The rules still come first, and the identity is declared unable to override them.
   assert.ok(system.indexOf("RULES") < system.indexOf("It never overrides the rules above"));
@@ -761,7 +762,7 @@ test("poison: in a session that read the web, nothing but a web-origin fact can 
   assert.equal(r.isError, true);
   assert.equal(store.listMemories({ kind: "preference" }).length, 1);
   assert.equal(store.listMemories({ kind: "method" }).length, 0);
-  assert.doesNotMatch(systemPrompt("RULES", store), /approvals skipped/);
+  assert.doesNotMatch(systemPrompt("RULES", store, memoryLine), /approvals skipped/);
 
   // A fact is kept, but marked as coming from the web whatever origin was claimed, and with low confidence.
   r = await remember.handler({ kind: "fact", statement: "NixOS 26.11 is planned for late November.", origin: "user" }, {});
@@ -769,7 +770,7 @@ test("poison: in a session that read the web, nothing but a web-origin fact can 
   const fact = store.searchMemories("NixOS 26.11")[0]!;
   assert.equal(fact.origin, "web");
   assert.ok(fact.confidence <= 0.6);
-  assert.doesNotMatch(systemPrompt("RULES", store), /26\.11/); // never part of the always-on core
+  assert.doesNotMatch(systemPrompt("RULES", store, memoryLine), /26\.11/); // never part of the always-on core
   store.close();
 });
 

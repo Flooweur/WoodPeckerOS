@@ -3,7 +3,9 @@
 // suggest an interest and may remove one.
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { PolicyError, type Interest, type Store } from "./store.js";
+import { PolicyError } from "../core/api.js";
+import type { Interest } from "../core/store.js";
+import type { WoodyStore as Store } from "../core/woody-store.js";
 
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 const ok = (text: string): ToolResult => ({ content: [{ type: "text", text }] });
