@@ -1,9 +1,0 @@
-{
-  "name": "home-lab",
-  "authorization": "My own practice VMs on the VMware host-only network. I own every machine in this range.",
-  "expires_ms": 0,
-  "active": true,
-  "allow": [
-    "192.168.222.0/24"
-  ]
-}

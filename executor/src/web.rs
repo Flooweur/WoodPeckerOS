@@ -13,7 +13,7 @@
 //! working model directly (see agent/src/web.ts).
 
 use crate::config::{Config, Web};
-use crate::scope;
+use crate::net;
 use ipnet::IpNet;
 use nix::unistd::User;
 use serde_json::{json, Value};
@@ -236,8 +236,8 @@ pub fn fetch(cfg: &Config, url: &str) -> Result<Value, String> {
 
     // Resolve here, refuse anything that is not a public address, and pin the
     // connection to the address that was checked.
-    let deny = scope::parse_deny(&cfg.permanent_deny)?;
-    let addrs = scope::system_resolve(&host).map_err(|e| format!("could not resolve {host}: {e}"))?;
+    let deny = net::parse_deny(&cfg.permanent_deny)?;
+    let addrs = net::system_resolve(&host).map_err(|e| format!("could not resolve {host}: {e}"))?;
     if addrs.is_empty() {
         return Err(format!("could not resolve {host}"));
     }

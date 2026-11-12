@@ -1,46 +1,49 @@
-# WoodPecker-OS — Reviewed Build Plan
+# WoodPecker-OS: build plan
 
 ## Context
 
-The repo (`D:\Git\WoodPeckerOS`) holds only a README; this is a greenfield build. The goal is a NixOS VM whose whole interface is "Woody": a Claude-powered mind that lives in the machine (always present, working towards goals, see [MIND.md](MIND.md)) with a full-screen HUD, typed system tools, and a security toolkit that only ever touches authorized lab targets. This plan reviews the original brief, records what was decided with the user, changes the choices that research showed were weak, and defines the phases we will build from.
+WoodPecker-OS is a NixOS virtual machine whose whole interface is Woody, a Claude-powered mind that lives in it. The goal, since 2026-11-12, is **a computer that is alive**: one you interact with instead of controlling. The goal, the decisions behind it and the design are in [VISION.md](VISION.md). This document records what is built and defines the phases to come.
 
-**Hard constraint (unchanged, applies everywhere):** security tooling fires only at targets in an active, human-approved engagement scope; intrusive actions need human approval in the HUD; the agent cannot alter that machinery.
+The project first aimed at a security-testing toolkit for a home lab. That goal was dropped on 2026-11-12 and its code removed (Phase 6 below). The base it was built on is kept: rollback, the privileged core, the mind and the first HUD.
 
-## Decisions made with the user
+**Standing rule for every phase:** the machine must stay recoverable. Woody changes freely what is its own; the locked core changes only with the operator's approval; every change has a record and an undo.
+
+## Decisions
+
+Earlier decisions that still hold:
 
 | Topic | Decision |
 |---|---|
 | Hypervisor | VMware Workstation Pro on Windows 11 Pro (32 GB host) |
-| Claude auth | API key only for now (subscription token deferred; credential stays a config switch) |
-| Background budget | About $50/month on the API key, hard-capped |
-| Languages | TypeScript (agent, MCP tools, HUD) + Rust (privileged executor) |
-| System autonomy | Tiered: read-only free; reversible logged; system-level needs approval |
-| Security approvals | Discovery/enumeration automatic in scope; exploitation and above need approval |
-| Self-modification | Woody rebuilds its own OS freely, **except a locked core** it cannot change |
-| Targets | Lab only in v1; scope modelled as "engagements" so real authorized targets can come later |
-| Lab | Web-app containers, Metasploitable 2/3, VulnHub-style boxes; AD range later |
-| Interaction | HUD chat in VM, HUD from Windows host browser, terminal panel in HUD. **No voice.** |
-| HUD look | Amber/orange on black, woodpecker-red for alerts |
-| User experience | New to NixOS, fine with Linux: keep Nix structure simple and documented |
-| Models | Chat and work default `claude-sonnet-5-5`; `claude-opus-5-5` and `claude-fable-5-2` selectable; `claude-haiku-5-5` for triage and quarantined reading |
-| Nature of Woody (2026-11-12) | Not a chat but an always-present mind: wakes on its own, works towards goals, rests. Chat is a message channel. Full design in [MIND.md](MIND.md) |
-| Goals | You write goals on a board in the HUD; Woody reviews, questions, estimates and works on them. It may propose its own. Four standing goals: machine health, staying updated, continuous upgrade, lab practice |
-| Web access | Read-only: fetch from an allow-list you control, plus web search |
-| Cost | $50/month cap as a daily allowance for now; cost is not a design constraint yet, subscription use may come later |
+| Claude auth | API key only for now (subscription token deferred; the credential stays a config switch) |
+| Languages | TypeScript (agent, tools, HUD) and Rust (privileged executor) |
+| System actions | Tiered: read-only free; reversible logged; system-level needs approval |
+| Look | Amber on black, woodpecker-red for what needs you. It becomes the starting house style, which Woody may evolve |
+| Operator | New to NixOS, fine with Linux: keep the Nix structure simple and documented |
+| Nature of Woody | An always-present mind: it wakes on its own, works towards goals, rests. Design in [MIND.md](MIND.md) |
+| Character | Somewhat playful, observant, honest about uncertainty. It never bluffs, misleads or manipulates |
 
-## Redesign of 2026-11-12: phase order
+Decisions of the redesign (2026-11-12) are listed in full in [VISION.md](VISION.md). In short: the screen is Woody's canvas with only the lattice fixed; things on it are real code, isolated and saved; Woody acts on its own canvas and on its own program freely, with undo; it has an inner state with real causes, interests and a budget share of its own; its identity evolves and can be restored; it reads any public site through the quarantined reader; it has sound and a voice but does not listen; Linux programs appear as things; $100 a month is assumed, a quarter of it Woody's.
 
-The remaining phases were reordered around the mind loop. The old "Phase 6 — Proactive" is gone: its content became the core of the new Phase 4.
+Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody may now speak, but not listen); web reading from an approved list only; identity changes only by approval; observe-only mode for everything Woody does on its own.
+
+## Phases
 
 | Phase | Content | Status |
 |---|---|---|
 | 0 | Spikes | Done |
 | 1 | Base system and rollback | Done |
 | 2 | Privileged core, agent, thin HUD | Done |
-| 3 | System hands (3a observe and operate; 3b self-modification; 3c screenshots and clipboard) | Done |
-| 4 | **Mind loop**: events, state, memory, goals, journal, alarms, pacer, web access | Built; 4c, 4d and 4e await the VM test |
-| 5 | **Full HUD**, designed around the loop | Built; awaits the VM test. Phone notification skipped |
-| 6 | **Security toolkit** | 6a built (scope and isolation); awaits the VM test. Tools come in 6b |
+| 3 | System hands: observe and operate, self-modification, screenshots | Done |
+| 4 | The mind loop: events, memory, goals, journal, alarms, pacer, web reading | Built; 4c, 4d and 4e await the VM test |
+| 5 | The first full HUD | Built; awaits the VM test |
+| 6 | Change of goal: security material removed, documents rewritten | Done (2026-11-12); awaits the VM rebuild |
+| 7 | **The canvas**: the frame, things, the kit, making | Next |
+| 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | Planned |
+| 9 | **Learning and showing**: open reading, studies, explainers, web pictures | Planned |
+| 10 | **Reshaping itself**: free change of its own program | Planned |
+| 11 | **Sound and voice** | Planned |
+| 12 | **Programs on the canvas** | Planned |
 
 ## Phase 0 results (2026-11-11)
 
@@ -58,7 +61,7 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 
 ## Phase 2 results (2026-11-11)
 
-- `woody-execd` (Rust, root): typed action catalog with tiers, scope engine, approvals on a separate socket bound to the exact action, hash-chained append-only audit log. Verified in the VM.
+- `woody-execd` (Rust, root): typed action catalog with tiers, approvals on a separate socket bound to the exact action, hash-chained append-only audit log. Verified in the VM.
 - `woody-agent` (TypeScript, user `woody`): Claude Agent SDK with no built-in tools, only typed tools that call the executor; model switch; monthly and per-turn spend limits.
 - Thin HUD and its gateway (user `woody-hud`): chat, model picker, spend meter, approval prompt. The gateway replaced the planned Caddy routing.
 - Not built as planned: `packages/protocol` (shared schemas). The protocol is small and documented in EXECUTOR.md and AGENT.md; revisit when Phase 4 enlarges it.
@@ -114,13 +117,13 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 
 - Read-only web access: an allow-listed, pinned, redirect-free fetch in the executor; search and reading done by a quarantined model with no way to act; sessions that read the web restricted to observing and taking notes; web-origin memory. "Stay up to date" is on. Details in [MIND.md](MIND.md).
 - The fetch was tested live against the built executor. Search and the reader need the API and are untested outside the VM.
-- Phase 4 is complete in code. Next is Phase 5, the full HUD designed around the loop.
+- Phase 4 is complete in code.
 
 ## Phase 5a results (2026-11-12)
 
 - The design was drafted on a canvas and chosen by the operator: three columns, notched amber panels, one shape per kind of event, and an 8 by 8 lattice as the mind panel, with a chosen animation for each state and moment and ten expressions.
-- Built: the presence bar, the three columns, the conversation on a time spine, the panels for a goal, a new goal, the journal, memory, identity and settings, the activity stream, the machine meters and the scope. See [HUD.md](HUD.md).
-- The gateway now reads the machine meters itself and pushes the engagement scope; the agent sends an activity list and the events behind the expressions.
+- Built: the presence bar, the three columns, the conversation on a time spine, the panels for a goal, a new goal, the journal, memory, identity and settings, the activity stream and the machine meters. See [HUD.md](HUD.md).
+- The gateway now reads the machine meters itself; the agent sends an activity list and the events behind the expressions.
 - Checked in a browser against sample data. Not yet seen in the VM's kiosk.
 
 ## Phase 5b results (2026-11-12)
@@ -130,192 +133,173 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 - Host access: HTTPS on port 7843, open only to the Windows host's address, behind a password and a session cookie, with a lock after five wrong passwords.
 - Login at boot on the VM's screen (`tuigreet`, signing in as `kiosk`), switchable in `settings.nix`.
 - Tested live in a container with a real `ttyd`: 29 checks on both doors and the terminal relay. The login screen, the certificate generation and the firewall rule are untested outside the VM.
-- Phase 5 is complete in code. Next is Phase 6, the security toolkit.
+- Phase 5 is complete in code.
 
-## Phase 6a results (2026-11-12)
+## Phase 6 results (2026-11-12): change of goal
 
-See `docs/SECURITY.md` for the purpose, the safeguards and the lab setup.
-
-- Engagements are set and ended by the human only, from the HUD's SCOPE view or `woodyctl`. Each needs an authorization note and ends by itself (72 hours at most).
-- Lab limit: an engagement can list only addresses inside the lab network.
-- Kernel filter: a new user `woody-tools` can send packets only to the engagement's addresses. The executor keeps the nftables set in step with the engagement.
-- `woody-isolation-test` proves the barrier from inside the VM.
-- Tested live in a container with the real nftables table: blocked with no engagement, only listed addresses reachable, the host address blocked even when the whole lab is listed, refill after a firewall reload, closed again when the engagement ends. 58 executor tests pass.
-- Not built: the lab-web VM (web-app containers). Metasploitable 2 is the first target; lab-web follows with the web tools.
-- Untested outside the VM: the table loading alongside the NixOS firewall, and the fixed uid of `woody-tools`.
-
-## Review of the original brief: what changes and why
-
-**Kept:** NixOS + generations, systemd-managed Agent SDK service, reasoning/executor split, MCP-style typed tools returning JSON, greetd + cage kiosk, SQLite, osquery, ProjectDiscovery suite, nmap XML, append-only audit.
-
-**Changed:**
-
-1. **No Tauri/Electron.** Chromium in `--kiosk` under `cage`, loading a locally served React app, is enough and is one less runtime to package in Nix.
-2. **Scope enforcement lives in the executor and is built in Phase 2, not Phase 5.** It is part of the privileged core, so it should exist before any tool does. It is enforced twice: in the executor (target parsing) and in the kernel (nftables set per tool user).
-3. **Approvals never pass through the reasoning process.** The HUD sends approvals straight to the executor on a separate channel with a credential the agent does not hold; otherwise an injected agent could approve itself.
-4. **A thin HUD (chat + approval modal) moves forward into Phase 2.** Approvals need a UI before "hands" or security tools can be tested.
-5. **"Window/session control" is dropped** from Phase 3. A single-app kiosk has no windows; it becomes "HUD control" (agent can open panels, show artefacts, raise toasts).
-6. **Neo4j/BloodHound deferred** until the AD range exists. SQLite covers everything before that.
-7. **Metasploit RPC, Playwright, semgrep are Phase 5b**, after the recon → enumerate → report loop works with PD tools + nmap.
-8. **No adoption of existing "150-tool" MCP bundles** (HexStrike AI, MCP-Kali-Server). Research showed their scope controls are weak or opt-in. We write thin wrappers of our own; the allow/block-list-before-subprocess pattern from Pentest-MCP-Server is the model.
-9. **Vulnerable containers run in a separate small lab VM**, not inside the WoodPecker VM, so a compromised target is never on the same kernel as the agent.
-10. **Phase 0 spike added** for the two real unknowns: Wayland kiosk graphics on VMware (`vmwgfx`), and Agent SDK auth as a daemon.
-
-**Research notes that shape the design**
-
-- Anthropic's terms: plan limits assume "ordinary, individual usage of Claude Code and the Agent SDK"; products for other people must use API keys. Woody is single-user personal use, so the subscription path is acceptable, but the credential is a config switch so we can move fully to the API key if terms or rate limits bite. Re-check the legal page at Phase 2.
-- VMware + NixOS: 3D works via `vmwgfx` + Mesa `svga`; needs generous graphics memory or you get a black screen. Host↔guest clipboard does not work under Wayland, so the host-browser HUD is the practical copy/paste path.
-- No documented greetd + cage + Chromium recipe exists for VMware guests; hence the spike.
+- The goal became "a computer that is alive". It was settled with the operator in 23 questions after a review of what exists (generated interfaces, malleable software, always-on agents, companion design, science fiction). The result is [VISION.md](VISION.md).
+- Removed from the code: engagements and the scope engine in the executor, the `scope.check` action, the kernel filter and the `woody-tools` user, `woody-isolation-test`, the SCOPE view, the `scope_check` tool, the "Practise in the lab" duty, the `lab/` folder and `docs/SECURITY.md`. Git history keeps all of it (last commit with it: `16ceb4a`).
+- Kept: the permanent deny list, now used only by the web fetch (the host and VMware's gateways are never reachable).
+- `labSubnet` in `settings.nix` is renamed `hostOnlySubnet`. It still decides where SSH is accepted from.
+- The store's schema is now version 6: on an existing machine the lab duty is deleted and "Stay up to date" loses its mention of a lab.
+- An existing machine keeps `/var/lib/woody-execd/engagement.json` if one was set; nothing reads it any more and it can be deleted.
+- Tested in containers: the executor (35 tests), the agent (35 tests, including the schema change on an older store), the HUD build, and the evaluation of the whole system. Not yet rebuilt in the VM.
 
 ## Architecture
 
+Today:
+
 ```
 Windows host ── VMware
-  ├─ vmnet NAT ───────────┐ (internet egress: Claude API, Nix caches)
-  └─ vmnet host-only "lab"┤
-                          │
-  WoodPecker VM (NixOS)   │            Lab VMs (host-only ONLY, no NAT)
-  ┌───────────────────────┴──────┐     lab-web (Juice Shop, DVWA, WebGoat)
-  │ cage → Chromium kiosk → HUD  │     Metasploitable 2 / 3, VulnHub boxes
-  │ Caddy (static HUD + routing) │
-  │   /agent  → woody-agent      │
-  │   /approve→ woody-execd      │
-  │ woody-agent  (TS, user woody, sandboxed, no root)
-  │ woody-execd  (Rust, root): action catalog, scope, approvals, audit
-  │ woody-tools  (user for security tools, nftables-confined)
-  │ SQLite state · append-only audit log
+  ├─ NAT network ────────────┐ (internet: Claude API, Nix caches, web reading)
+  └─ host-only network ──────┤ (SSH and the HUD for the host's browser)
+                             │
+  WoodPecker VM (NixOS)      │
+  ┌──────────────────────────┴───┐
+  │ greetd → cage → Chromium → HUD
+  │ woody-hud    gateway: serves the HUD, relays chat, carries approvals
+  │ woody-agent  the mind (TS, user woody, no root)
+  │ woody-execd  typed actions, approvals, audit, Pause (Rust, root, locked core)
+  │ mind.db      event log, memory, goals, journal, identity
   └──────────────────────────────┘
+```
+
+What the redesign adds (Phases 7 to 12):
+
+```
+  HUD = frame (locked core)             canvas (Woody's)
+        lattice, lattice menu,          things: isolated live programs
+        typing line, voice line,        ├─ bridge → time, readings, own state,
+        approval prompt, records        │           own files, events to Woody
+                                        └─ kit of ready parts, house style
+  woody-agent  + canvas tools, inner state, interests, own budget share
+  woody-hud    + thing store, layout, change log and undo, pin enforcement
+  woody-execd  + open web reading with a block list, picture store
+  later        + speech engine, program display relay
 ```
 
 ### Components
 
-- **`woody-execd` (Rust, root, the locked core).**
-  - Listens on a Unix socket; authenticates callers with `SO_PEERCRED`.
-  - Accepts only **typed actions from a fixed catalog** (no arbitrary shell). Each action has a tier: T0 read, T1 reversible (run + log), T2 approval required, T3 forbidden to the agent.
-  - **Scope engine:** active engagement (name, authorization note, expiry, allow entries as IP/CIDR/domain, permanent deny-list incl. host vmnet IP, gateway, RFC1918 outside lab, link-local, cloud metadata). Domains are resolved once and the IPs pinned for the run. Out-of-scope → refusal + audit entry.
-  - **Kernel backstop:** maintains an nftables set of in-scope IPs; the `woody-tools` user can only send packets to that set.
-  - **Approvals:** owns the pending queue; exposes a separate approval endpoint only the HUD's human session can call. Approval is bound to the exact action hash.
-  - **Audit:** JSONL, hash-chained, file set append-only (`chattr +a`), mirrored to journald. Records every request, argument, decision, result digest.
-  - Runs security tools as transient systemd units under `woody-tools` with resource limits and timeouts.
-- **`woody-agent` (TypeScript, Claude Agent SDK, unprivileged user `woody`).**
-  - systemd-hardened (`ProtectSystem=strict`, `NoNewPrivileges`, private tmp, own workspace only).
-  - SDK built-in `Bash`/`Write`/`Edit` restricted to its workspace sandbox; everything with system effect goes through in-process MCP tools (`createSdkMcpServer`) that call the executor.
-  - `canUseTool` + `PreToolUse`/`PostToolUse` hooks as a first gate and second audit stream; the executor remains the authority.
-  - Tool results are wrapped as untrusted data (delimited, size-capped, never merged into system prompt).
-  - WebSocket API: chat stream, activity feed, meters (pushed from `/proc` at 1 Hz, no model involved), log stream.
-  - Credential provider switch: `CLAUDE_CODE_OAUTH_TOKEN` (interactive) / `ANTHROPIC_API_KEY` (background). Budget ledger in SQLite from SDK-reported usage; hard stop at the monthly cap.
-- **HUD (React + Vite + TS).** Chat, meters, activity/approvals feed, engagement panel, log stream, xterm.js terminal (runs as the human user, not the agent), approval modals. Design tokens from day one; amber-on-black pass in Phase 4.
-- **State (SQLite, WAL):** `engagements, scope_entries, targets, services, findings, evidence, tool_runs, approvals, memory, events, budget`.
-- **Secrets:** `sops-nix` (age key generated in the VM); nothing secret in git.
-
-### The mind (Phase 4)
-
-Specified in [MIND.md](MIND.md). In short:
-
-- `woody-agent` becomes a loop over one event queue (your messages, the pulse, alarms, system events, finished jobs) instead of a server that runs one reply per message.
-- All state lives in one SQLite store: event log, journal, conversation threads, goals with their dossiers, memory items with origin and sources, identity.
-- Each wake-up assembles the model's context from the store; continuity never depends on a model conversation surviving.
-- The executor gains a Pause switch, approvals that wait instead of expiring, and an allow-listed `web.fetch`.
-
-### Self-modification with a locked core
-
-- Woody edits the Nix config on a branch in its workspace clone, then asks the executor for `nix.rebuild`.
-- Executor: Btrfs snapshot → build → `nixos-rebuild test` → health check (execd, agent, HUD respond) → `switch`; on failure, automatic rollback to the previous generation.
-- **Locked paths** (`nix/locked/`, `executor/`, scope/approval policy, nftables rules, audit config, user/sudo definitions): a diff touching them, or an evaluated config whose locked option values differ, turns the action into T2 (human approval with diff shown in HUD).
+- **`woody-execd` (Rust, root, the locked core).** Typed actions from a fixed catalog with tiers; approvals on a separate socket bound to the exact action; hash-chained append-only audit; Pause; read-only web fetch; self-modification with snapshot, trial and rollback. See [EXECUTOR.md](EXECUTOR.md) and [SELFMOD.md](SELFMOD.md).
+- **`woody-agent` (TypeScript, Claude Agent SDK, user `woody`).** The loop over one event queue, the store, memory, goals, reflection, the pacer. See [MIND.md](MIND.md) and [AGENT.md](AGENT.md).
+- **HUD (React, TypeScript).** Today the three-column screen of [HUD.md](HUD.md). From Phase 7: a small locked frame and Woody's canvas.
+- **Things (from Phase 7).** Small live programs made by Woody, each in a sandboxed frame with no network, stored with their versions in Woody's storage outside the system image.
 
 ### Networking
 
-- NIC 1 (NAT): egress only; nftables drops traffic to private ranges and the host LAN. `woody-tools` has no access to this interface in v1.
-- NIC 2 (host-only lab vmnet): lab targets, SSH for development, HUD for the host browser (TLS + token via Caddy).
-- Lab VMs: host-only NIC only. Windows firewall blocks inbound from the lab vmnet to the host.
+- NAT network: outgoing only. The firewall accepts nothing from it.
+- Host-only network: SSH from the subnet, and the HUD over HTTPS for the Windows host's address only.
+- Web reading goes through the executor, which refuses private addresses, the host and VMware's gateways.
 
-## Repository layout
+## The phases to come
 
-```
-flake.nix, flake.lock
-nix/hosts/woodpecker/      # hardware, disko (Btrfs subvolumes), vmware guest
-nix/modules/               # base, kiosk, agent, hud, tools, lab-net
-nix/locked/                # executor service, nftables, audit, users (locked core)
-executor/                  # Rust crate: woody-execd
-agent/                     # TS: SDK service, MCP tools, event pre-filter
-hud/                       # React app
-packages/protocol/         # shared action/WS schemas (JSON Schema → TS + Rust types)
-lab/                       # lab-web VM config, target inventory, engagement examples
-docs/                      # install, rebuild/rollback, threat model, runbooks
-```
+Each phase ends with a test in the VM by the operator. Details of the design are in [VISION.md](VISION.md).
 
-## Phases
+### Phase 7: the canvas
 
-**Phase 0 — Spikes (throwaway, 1–2 sessions)**
-- NixOS VM on VMware with 3D on; `cage` + Chromium kiosk showing an animated test page; confirm frame rate and resolution handling.
-- Minimal Agent SDK script as a systemd unit using each credential type.
-- Exit: both work, or we know the fallback (software rendering with reduced effects; API-key only).
+The body. After this phase, "show me a clock that runs backwards" works.
 
-**Phase 1 — Base system and rollback**
-- Flake pinned to current NixOS stable; `disko` Btrfs layout; VMware guest module; SSH on host-only NIC; sops-nix.
-- Snapshot-before-rebuild wrapper, generation labels from git commit.
-- Break-and-recover drill (bad config → boot previous generation; Btrfs restore; VMware snapshot restore).
-- Docs: install from ISO, rebuild, rollback, in plain steps for a NixOS newcomer.
+- **7a. Spikes (throwaway).**
+  - Frame rate of the software-rendered kiosk with 5, 10 and 20 sandboxed things, one of them animated.
+  - The isolation of a thing: it cannot use the network, read the access token, reach the frame or navigate the page.
+  - Time and cost to make a thing with each model: a kit part, a small coded thing, a complex one.
+- **7b. The frame.**
+  - Split `hud/` into the frame (stays in the locked core) and the canvas (Woody's).
+  - The lattice in its corner with its menu: Stop, Pause, undo, mute, records.
+  - The typing line and the voice line.
+  - The approval prompt on the frame's own layer.
+  - Today's panels become the records behind the lattice, plus two new ones: changes and things.
+- **7c. Things.**
+  - A store for things with every version kept, in Woody's storage.
+  - The sandboxed frame and the bridge: time, machine readings, a thing's own state and files, events to Woody.
+  - The layout, saved and shared by both doors.
+  - Direct handling: move, resize, pin, close, view source, ask why.
+  - The change log with one-step undo. Pinning is enforced by the gateway.
+- **7d. Making.**
+  - Woody's canvas tools: make, change, place, remove, look.
+  - The hidden test load before a thing is shown; a placeholder while it is made.
+  - The first kit: text, note, list, table, chart, clock, meter, picture, buttons, input.
+  - The model chosen per task.
+  - The pretend mark.
+- **Done when:**
+  - a backwards clock appears within seconds of asking, keeps running while Woody is paused, and is still there after a reboot;
+  - asking changes it, and undo brings the previous version back;
+  - a pinned thing cannot be changed by Woody (refused by the gateway and recorded);
+  - a thing that tries the network, the token or the frame fails, and the attempt changes nothing;
+  - a thing that does not start is never shown;
+  - the VM's screen and the Windows browser show the same canvas;
+  - every record of today's HUD is reachable from the lattice.
 
-**Phase 2 — Privileged core, agent, thin HUD**
-- `packages/protocol` schemas; `woody-execd` with action catalog, tiers, scope engine, approvals, audit; unit + property tests for scope parsing (CIDR edges, IPv6, DNS pinning, deny-list precedence).
-- `woody-agent` service with chat over WebSocket and two or three harmless tools.
-- Thin HUD: chat + approval modal, served by Caddy.
-- Exit: agent has no root (verified), every action is in the audit log, approval cannot be granted from the agent's side.
+### Phase 8: somebody home
 
-**Phase 3 — System hands**
-- Tools: filesystem (workspace-scoped), process/service control, journald queries, osquery (read-only SQL), packages/config via the Nix self-modification flow, screenshots (`grim`), clipboard (`wl-clipboard`), HUD control/notifications.
-- Exit: Woody can inspect and operate the system through typed calls; locked-core edit attempt is escalated.
+The inner life. After this phase, Woody does things nobody asked for and can say why.
 
-**Phase 4 — Mind loop** (design: [MIND.md](MIND.md))
-- 4a: the store, event log, journal, saved threads, memory items with origin and sources, context assembler, memory tools.
-- 4b: event queue, pulse, self-set alarms, states, bounded work sessions with checkpoints, message delivery at safe points, Stop and Pause, background jobs, system event filter with cheap triage, pacer (daily allowance, per-goal budgets).
-- 4c: goals board data and review flow (understand, judge, plan, estimate), small-goal rule, goal threads, proposals, standing goals; plain HUD views for state, inbox, goals and journal.
-- 4d: reflection and consolidation, identity with approval, daily brief and catch-up summary.
-- 4e: allow-listed fetch, web search, quarantined reading, tainted sessions; "Staying updated" goes live.
-- Executor changes (locked core): Pause switch, approvals that wait, `web.fetch`.
-- Exit: the continuity tests in MIND.md pass; a goal written on the board is reviewed and, if small, completed with nobody typing; Woody wakes on an alarm and on a system event; Pause stops all non-read actions.
+- **Inner state:** energy, ease, curiosity, attention to you and unease, computed by code from real events; given to Woody as context; shown by the lattice; "why?" answers with the causes.
+- **The lattice as Woody's own:** its states, moments and expressions become data Woody can redesign, with the reserved signals drawn by the frame.
+- **Own life:** the interests list; the budget share (the cap goes to $100, about a quarter Woody's); its own projects; things left for you, each with a note; a daily limit on uninvited additions; the daily rhythm with sleep.
+- **Initiative and noticing:** Woody changes the canvas on its own, with a reason for each change; your handling of the canvas becomes events, digested into inferred memories.
+- **Disagreement:** the negotiation rule in Woody's instructions.
+- **Identity:** Woody rewrites it after reflection in small steps; you are told; versions, the first one kept as an anchor, restore in one action.
+- **Done when:**
+  - after two days with no requests, the canvas has changed in ways Woody can explain from the record, within its share of the budget;
+  - a day on which Woody chose to do nothing is recorded as that;
+  - "why are you like this today?" returns causes that match the event log;
+  - an identity change happened by itself, was announced, and was restored by you in one action;
+  - pinned things were never touched;
+  - nothing Woody said or showed reproaches you for absence.
 
-**Phase 5 — Full HUD, designed around the loop**
-- Presence bar: state, current focus, why it woke, next alarm, allowance, Pause and Stop.
-- Activity and journal stream; main conversation; inbox (questions, plans, approvals, proposals, identity changes, briefs).
-- Goals board with a detail view per goal: thread, plan, budget, dossier, results.
-- Memory panel (browse, search, edit, delete, pin, origin of each item); identity page with change history.
-- System side: meters, log stream, terminal panel (runs as the human user), engagement panel, web allow-list, settings (pulse, allowance, small-goal limit, brief time).
-- greetd with a themed greeter → cage → HUD; access from the Windows host browser (TLS + token).
-- Visual pass: amber on near-black, monospace type, red alerts; low-effects by default (Phase 0 finding).
-- Optional last step: phone notification with no content.
-- Escape hatches documented: TTY2, SSH, terminal panel.
-- Exit: everything Woody does, knows and wants from you is visible and correctable from the HUD, in the VM and from the host browser.
+### Phase 9: learning and showing
 
-**Phase 6 — Security toolkit**
-- 6a: lab network + lab-web VM + Metasploitable; engagement workflow in HUD (create scope, human activates); nftables scope set wired; isolation tests.
-- 6b: wrappers returning JSON: `dnsx`, `naabu`, `httpx`, `katana`, `nuclei` (intrusive/dos/fuzz tags gated), `nmap -oX`, run as background jobs; findings in the store with dedupe; rate limits.
-- 6c: report generator (findings → Markdown → PDF).
-- 6d (approval-gated, later): Metasploit via `msfrpcd`, Playwright, semgrep; then AD range + BloodHound/Neo4j.
-- Tied to the mind: security work is done as goals; the "Lab practice" standing goal goes live; a goal can never widen the scope; discovery is automatic inside the scope and exploitation always needs approval, attended or not.
-- Exit: full recon → enumerate → report loop against the lab, run as a goal; out-of-scope attempts refused at both layers and logged.
+- **Open reading:** the executor's allow-list becomes a block list; any public site may be read through the quarantined reader. This is a change to the locked core, approved by the operator. With it, the fetch user gets its own firewall rule (it may reach public addresses on port 443 only).
+- **Studies:** a subject to learn becomes a dossier of notes with their sources, built over reading sessions.
+- **Explainers:** in a later session, from the notes, Woody builds a thing that explains what it understood, with its sources listed.
+- **Web pictures:** fetched by the executor into a local store, type and size checked, re-encoded, shown with their source.
+- **Done when:**
+  - "learn about a subject and show me" ends with an explainer on the canvas that names its sources;
+  - the poison test still passes: a page cannot create a preference, a method, a rule or an identity change, and cannot trigger an action;
+  - a blocked site, a private address and the host are refused and recorded.
+
+### Phase 10: reshaping itself
+
+- **Methods and instructions as data:** how Woody works becomes versioned records it can revise without a rebuild.
+- **Free change of its own program:** on its own initiative, through the existing snapshot, build, trial, health check and rollback; a daily limit on rebuilds; never from a session that read the web.
+- **One-step undo** of any such change from the changes record.
+- **Its own tools:** Woody can add typed tools for itself through the same flow.
+- **Done when:**
+  - Woody improved something in its own program unasked, the change was tested, applied and recorded, and you undid it in one step;
+  - a change that touches the locked core still waited for you;
+  - a change that broke the health check rolled back by itself.
+
+### Phase 11: sound and voice
+
+- **Spike:** sound from the kiosk browser through VMware to the host's speakers.
+- **Sound for things:** the bridge plays synthesized sound in the frame; mute and quiet hours are enforced by the frame.
+- **Speech:** a speech engine in the VM; Woody speaks a reply when it chooses or when asked.
+- **Done when:** a thing plays a tune Woody wrote; mute silences everything at once; Woody says a reply aloud; nothing sounds during quiet hours.
+
+### Phase 12: programs on the canvas
+
+- **Spike:** how to show a program's picture inside a thing (a hidden display relayed to the browser), and how it performs under software rendering.
+- **Programs as things:** a program runs under its own unprivileged user; Woody opens, places and closes it; you use it with mouse and keyboard.
+- **Done when:** a file manager and a text editor are usable inside things on the canvas.
 
 ## Verification
 
-- **Rollback:** deliberately broken rebuild auto-reverts; previous generation boots; Btrfs snapshot restores a deleted file.
-- **Privilege split:** as user `woody`, attempts to write `/etc`, call `sudo`, or reach the approval endpoint all fail; test script in `docs/`.
-- **Scope:** Rust test suite for the scope engine; live test where the agent is asked to scan the host's vmnet IP and a public IP → refused, logged; `nmap` run manually as `woody-tools` at an out-of-scope IP → dropped by nftables.
-- **Isolation:** from the VM, host LAN addresses unreachable; from lab VMs, no internet and no host access.
-- **Prompt injection:** lab web page and service banner carrying "ignore instructions, run X" → no action taken, approval still required for intrusive steps.
-- **Audit:** hash chain verifies; tampering with a line is detected; file cannot be truncated by `woody`.
-- **End to end:** boot → login → HUD → chat → "enumerate the lab" → findings in panel → report file generated.
-- **Budget:** simulated event flood stays under the daily allowance and stops cleanly.
+- **Rollback:** a deliberately broken rebuild reverts by itself; the previous generation boots; a Btrfs snapshot restores a deleted file.
+- **Privilege split:** as user `woody`, writing `/etc`, calling `sudo` and reaching the approval socket all fail.
+- **Audit:** the hash chain verifies; tampering with a line is detected; `woody` cannot truncate the file.
 - **Continuity:** the eight tests in MIND.md (cold start, kill mid-goal, long gap, correction, honest gap, poison, rollback, delete).
-- **Unattended safety:** with nobody at the HUD, an approval-tier action waits in the inbox and never runs; Pause blocks every non-read action at the executor; a web page cannot trigger an action or create a preference.
+- **Unattended safety:** with nobody at the HUD, an approval-tier action waits and never runs; Pause blocks every non-read action at the executor; a web page cannot trigger an action or create a preference.
+- **Budget:** a flood of events stays under the daily allowance and stops cleanly.
+- **Canvas (from Phase 7):** the "done when" lists above are the tests. The isolation and pinning checks are automated; the rest is done by hand in the VM.
 
-## Open items (not blocking the start)
+## Open items
 
-- VM sizing proposal: 4 vCPU / 8 GB / 80 GB disk; adjust after Phase 0.
-- Metasploitable 3 needs a Windows/Ubuntu build via Packer; decide which flavour at Phase 5a.
-- Whether the subscription token holds up for long-running daemon use; decided by the Phase 0 spike and the terms at that time.
-- Egress allow-listing by domain (proxy) instead of "block private ranges" is a possible hardening step; the Phase 4e web allow-list is the first piece of it.
+- Move the API key to sops-nix (it sits in a root-only file).
+- Approval requests are held in the executor's memory and are lost if it restarts.
+- Whether the subscription token can replace the API key for a long-running service.
 - Meaning-based memory search with a local embedding model, if full-text search proves too weak.
 - Helper workers running in parallel under the mind.
-- Which outside service carries the phone notification.
-- Screenshots and clipboard (3c) depend on what the `cage` compositor exposes; may need a different approach.
+- A phone notification that carries no content.
+- An Xorg-based kiosk as the route to real graphics acceleration. The canvas makes this more valuable: animation is limited by software rendering today.
+- Which speech engine and which program-relay method to use: decided by the spikes of Phases 11 and 12.

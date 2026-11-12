@@ -8,7 +8,6 @@ The only root component Woody can talk to. Source in `executor/`, NixOS module i
 - **Tiers.** Read-only and reversible actions run at once; approval-tier actions wait for a human; forbidden ones are refused.
 - **Approvals are out of the agent's reach.** They arrive on a second socket that only the HUD gateway user and root can open. An approval covers one exact action and parameter set, and waits a week for your decision.
 - **Pause.** One switch, on the same human-only socket, stops everything that is not read-only, and approving as well, until you resume. It is a file (`/var/lib/woody-execd/paused`), so it survives a restart.
-- **Scope.** A target is refused unless an active, unexpired engagement allows it. Loopback, link-local and the permanent deny list (the Windows host and VMware gateways) are refused whatever the engagement says.
 - **Audit.** Every request, decision and result goes to `/var/log/woody/audit.jsonl`. Records are hash-chained and the file is append-only; if the log cannot be written, the executor stops.
 
 ## Actions
@@ -22,7 +21,6 @@ The only root component Woody can talk to. Source in `executor/`, NixOS module i
 | `journal.tail` | read | `unit`, `lines` (1–200) |
 | `journal.query` | read | `unit`, `priority` (0–7), `since` (-15m, -2h, -1d), `grep` (plain phrase), `lines` |
 | `osquery.query` | read | `sql`: one SELECT over an allow-listed set of tables |
-| `scope.check` | read | `target` |
 | `screen.capture` | read | `scale` (0.25–1, default 0.5) |
 | `web.fetch` | read | `url` (https, port 443, a host on the allow-list) |
 | `web.allowlist` | read | none |
@@ -36,9 +34,7 @@ The only root component Woody can talk to. Source in `executor/`, NixOS module i
 
 **osquery.** The query must be a single SELECT. Which tables it can read is enforced by osquery itself (`--enable_tables`), set in `nix/locked/executor.nix`. Tables that expose secrets or reach the network (`shadow`, `process_envs`, `curl`, `file`, `shell_history`, `augeas` and others) are not in the list, so they do not exist for a query. Queries are stopped after 20 seconds and results capped at 500 rows.
 
-**Web.** `web.fetch` reads one page from an allow-listed host: it resolves the name itself, refuses non-public addresses, pins the connection, does not follow redirects, and runs `curl` as the unprivileged user `woody-web`. The allow-list is `/var/lib/woody-execd/web-allow.json`, root-owned; edit it as root, or approve Woody's requests. See MIND.md for how the agent handles what comes back.
-
-**Engagements.** `sudo woodyctl engagement-set <name> <hours> "<authorization>" <target>...` and `engagement-end` set and end the scope; the HUD's SCOPE view does the same. Only the approval socket accepts them. The executor loads the engagement's addresses into the nftables sets that confine the `woody-tools` user, every 15 seconds and on each change. See `docs/SECURITY.md`.
+**Web.** `web.fetch` reads one page from an allow-listed host: it resolves the name itself, refuses non-public addresses and the permanent deny list (the Windows host and VMware's gateways, `permanentDeny` in `settings.nix`), pins the connection, does not follow redirects, and runs `curl` as the unprivileged user `woody-web`. The allow-list is `/var/lib/woody-execd/web-allow.json`, root-owned; edit it as root, or approve Woody's requests. See MIND.md for how the agent handles what comes back.
 
 **Web list by hand.** `sudo woodyctl web-list`, `web-add <domain>` and `web-remove <domain>` read and edit the allow-list; the HUD's WEB LIST view does the same. Each change is audited.
 
@@ -68,30 +64,9 @@ Replies have `status`: `ok` (with `result`), `error`, `denied` (with `reason`) o
 {"op": "pending"}
 {"op": "decide", "approval_id": "…", "decision": "approve", "action_hash": "…"}
 {"op": "audit_tail", "n": 50}
-{"op": "scope"}
 {"op": "pause", "on": true}
 {"op": "status"}
 ```
-
-## Setting the engagement
-
-The scope in force is a root-owned file. Only a human creates or edits it.
-
-```bash
-sudo install -m 644 ~/WoodPeckerOS/lab/engagement.example.json /var/lib/woody-execd/engagement.json
-```
-
-Set an expiry 30 days out (prints the number to put in `expires_ms`):
-
-```bash
-date -d "+30 days" +%s000
-```
-
-```bash
-sudo nano /var/lib/woody-execd/engagement.json
-```
-
-With no file, or an expired or inactive one, every target is refused.
 
 ## Checking it by hand
 
@@ -99,10 +74,6 @@ As the agent:
 
 ```bash
 sudo -u woody woodyctl request system.info
-```
-
-```bash
-sudo -u woody woodyctl request scope.check '{"target":"192.168.222.130"}'
 ```
 
 ```bash
@@ -137,4 +108,4 @@ sudo woodyctl audit-verify
 
 ## Tests
 
-`cargo test` runs in the Nix build (55 tests: scope rules, audit chain, parameter validation, configuration changes). The build fails if any test fails.
+`cargo test` runs in the Nix build (35 tests: audit chain, parameter validation, web fetch rules, configuration changes). The build fails if any test fails.

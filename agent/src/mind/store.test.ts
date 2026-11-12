@@ -525,7 +525,7 @@ test("standing goals: seeded, run when due, bounded by a weekly budget, and neve
   let t = Date.UTC(2026, 10, 12, 8);
   store.now = () => t;
   const standing = store.goals().filter((g) => g.standing);
-  assert.equal(standing.length, 4);
+  assert.equal(standing.length, 3);
   assert.deepEqual(standing.filter((g) => g.standing!.enabled).map((g) => g.title), ["Keep this machine healthy", "Keep improving yourself", "Stay up to date"]);
   const health = standing[0]!;
   for (const other of standing.slice(1)) store.setStanding(other.id, { enabled: false }); // keep this test about one duty
@@ -805,6 +805,27 @@ test("web access turns the 'Stay up to date' duty on", () => {
   assert.equal(duty.standing!.enabled, true);
   assert.match(duty.description, /web_search and web_fetch/);
   assert.match(duty.description, /untrusted/);
+  store.close();
+});
+
+test("an older store loses the lab duty and keeps the others", () => {
+  const file = tempDb();
+  new Store(file).close();
+  // Put the store back as version 5 left it: four duties, one of them the lab.
+  const db = new DatabaseSync(file);
+  db.exec(
+    `INSERT INTO goals (title, description, owner, status, position, created, updated, standing)
+       SELECT 'Practise in the lab', 'old', owner, status, position + 1, created, updated, standing FROM goals WHERE title = 'Stay up to date';
+     UPDATE goals SET description = 'security news relevant to this machine and the lab' WHERE title = 'Stay up to date';
+     UPDATE meta SET value = '5' WHERE key = 'schema_version';`,
+  );
+  db.close();
+
+  const store = new Store(file);
+  const standing = store.goals().filter((g) => g.standing);
+  assert.deepEqual(standing.map((g) => g.title), ["Keep this machine healthy", "Keep improving yourself", "Stay up to date"]);
+  assert.doesNotMatch(standing[2]!.description, /\blab\b/);
+  assert.equal(store.getMeta("schema_version"), "6");
   store.close();
 });
 

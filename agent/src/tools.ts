@@ -222,13 +222,6 @@ export function createToolServer(exec: ExecutorClient, notify: Notify, files: Fi
         async (args) => run("osquery.query", { sql: args.sql }),
         READ_ONLY,
       ),
-      tool(
-        "scope_check",
-        "Check whether a host, IP, network or URL is inside the active security engagement scope. Always call this before proposing any security testing of a target.",
-        { target: z.string().describe("IP, CIDR network, hostname or URL") },
-        async (args) => run("scope.check", { target: args.target }),
-        READ_ONLY,
-      ),
 
       tool(
         "screenshot",

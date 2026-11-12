@@ -10,22 +10,10 @@ pub struct Config {
     pub exec_socket: String,
     pub approve_socket: String,
     pub audit_path: String,
-    /// Root-owned JSON file describing the active engagement. May be absent.
-    pub engagement_path: String,
-    /// Addresses that are never a valid target, whatever the engagement says.
+    /// Addresses a web fetch may never reach, whatever a name resolves to
+    /// (the host machine, the hypervisor's gateways).
     #[serde(default)]
     pub permanent_deny: Vec<String>,
-    /// The outer limit on engagements set through the approval socket: the
-    /// lab networks. Empty means no outer limit.
-    #[serde(default)]
-    pub engagement_limit: Vec<String>,
-    /// Longest an engagement may run before it must be renewed by the human.
-    #[serde(default = "default_engagement_hours")]
-    pub max_engagement_hours: u64,
-    /// The kernel filter for the security-tools user. When unset, only the
-    /// executor's own scope check applies.
-    #[serde(default)]
-    pub scope_set: Option<ScopeSet>,
     pub systemctl: String,
     pub journalctl: String,
     /// Units the agent may never start, stop or restart (the locked core).
@@ -57,19 +45,6 @@ pub struct Config {
     /// are refused when unset.
     #[serde(default)]
     pub selfmod: Option<SelfMod>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ScopeSet {
-    pub nft: String,
-    /// The nftables table (family inet) holding the sets below.
-    pub table: String,
-    pub set4: String,
-    pub set6: String,
-}
-
-fn default_engagement_hours() -> u64 {
-    72
 }
 
 #[derive(Debug, Clone, Deserialize)]

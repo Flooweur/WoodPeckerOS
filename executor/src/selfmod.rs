@@ -581,7 +581,7 @@ else echo '{"units":{"a.service":"1"},"users":{"woody":"1"}}'; fi"#
         let systemd_run = script(&bin.join("systemd-run"), "exit 0");
         let cfg: Config = serde_json::from_value(json!({
             "agent_user": "woody", "hud_user": "woody-hud",
-            "exec_socket": "/x", "approve_socket": "/y", "audit_path": "/z", "engagement_path": "/e",
+            "exec_socket": "/x", "approve_socket": "/y", "audit_path": "/z",
             "systemctl": "/bin/false", "journalctl": "/bin/false",
             "selfmod": {
                 "source": src.display().to_string(),

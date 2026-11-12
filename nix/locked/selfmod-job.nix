@@ -131,7 +131,7 @@ pkgs.writeShellApplication {
           ok=0; echo "health: a core service restarted"
         fi
         last_restarts="$restarts"
-        if ! /run/current-system/sw/bin/woodyctl scope >/dev/null 2>&1; then ok=0; echo "health: the executor does not answer"; fi
+        if ! /run/current-system/sw/bin/woodyctl status >/dev/null 2>&1; then ok=0; echo "health: the executor does not answer"; fi
         code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' http://127.0.0.1:7800/ || true)"
         if [ -z "$code" ] || [ "$code" = "000" ]; then ok=0; echo "health: the HUD does not answer"; fi
         if [ -n "$(comm -13 <(echo "$failed_before") <(failed_units))" ]; then

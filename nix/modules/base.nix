@@ -43,9 +43,9 @@ in
   networking.nftables.enable = true;
   networking.firewall = {
     enable = true;
-    # Nothing is open to the NAT side. SSH only from the host-only lab network.
+    # Nothing is open to the NAT side. SSH only from the host-only network.
     extraInputRules = ''
-      ip saddr ${settings.labSubnet} tcp dport 22 accept
+      ip saddr ${settings.hostOnlySubnet} tcp dport 22 accept
     '';
   };
 

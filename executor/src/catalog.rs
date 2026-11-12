@@ -3,7 +3,6 @@
 //! and a tier that decides whether it runs, waits for approval, or is refused.
 
 use crate::config::Config;
-use crate::scope::Decision;
 use crate::selfmod;
 use crate::web;
 use nix::unistd::{Uid, User};
@@ -76,12 +75,6 @@ pub const ACTIONS: &[ActionDef] = &[
         tier: Tier::Read,
         description: "One read-only SQL SELECT over an allow-listed set of osquery tables.",
         params: "{sql: string}",
-    },
-    ActionDef {
-        name: "scope.check",
-        tier: Tier::Read,
-        description: "Whether a target is inside the active engagement scope.",
-        params: "{target: string}",
     },
     ActionDef {
         name: "screen.capture",
@@ -294,13 +287,6 @@ pub fn classify(action: &str, params: &Value, cfg: &Config) -> Result<Tier, Stri
             valid_sql(sql)?;
             if cfg.osqueryi.is_none() || cfg.timeout_bin.is_none() || cfg.osquery_tables.is_empty() {
                 return Err("osquery is not configured on this system".into());
-            }
-        }
-        "scope.check" => {
-            only_keys(map, &["target"])?;
-            let t = map.get("target").and_then(Value::as_str).ok_or("missing parameter: target")?;
-            if t.len() > 2048 {
-                return Err("target too long".into());
             }
         }
         "web.fetch" => {
@@ -559,12 +545,7 @@ fn process_list(sort: &str, limit: usize) -> Value {
 }
 
 /// Runs an action that `classify` has already accepted.
-pub fn run(
-    action: &str,
-    params: &Value,
-    cfg: &Config,
-    scope_check: &dyn Fn(&str) -> Decision,
-) -> Result<Value, String> {
+pub fn run(action: &str, params: &Value, cfg: &Config) -> Result<Value, String> {
     let map = obj(params)?;
     match action {
         "system.info" => {
@@ -685,10 +666,6 @@ pub fn run(
             let rows: Vec<Value> = rows.into_iter().take(MAX_ROWS).collect();
             Ok(json!({ "row_count": total, "truncated": total > MAX_ROWS, "untrusted": true, "rows": rows }))
         }
-        "scope.check" => {
-            let target = map.get("target").and_then(Value::as_str).ok_or("missing parameter: target")?;
-            serde_json::to_value(scope_check(target)).map_err(|e| e.to_string())
-        }
         "web.fetch" => web::fetch(cfg, map.get("url").and_then(Value::as_str).ok_or("missing parameter: url")?),
         "web.allowlist" => web::allowlist(cfg),
         "web.allow_add" => web::allow_add(cfg, map.get("domain").and_then(Value::as_str).ok_or("missing parameter: domain")?),
@@ -714,7 +691,7 @@ mod tests {
         serde_json::from_value(json!({
             "agent_user": "woody", "hud_user": "woody-hud",
             "exec_socket": "/x", "approve_socket": "/y",
-            "audit_path": "/z", "engagement_path": "/e",
+            "audit_path": "/z",
             "systemctl": "/bin/false", "journalctl": "/bin/false",
             "forbidden_units": ["woody-execd.service"],
             "osqueryi": "/bin/false", "timeout_bin": "/bin/false",

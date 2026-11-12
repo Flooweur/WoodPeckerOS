@@ -128,23 +128,12 @@ export type Meters = {
   uptime_s?: number;
   generation?: number;
 };
-export type Scope = {
-  engagement: { name?: string; authorization?: string; active?: boolean; expires_ms?: number; allow?: string[] } | null;
-  valid: boolean;
-  permanent_deny: string[];
-  /** The lab networks an engagement must stay inside. */
-  limit?: string[];
-  max_hours?: number;
-  /** The kernel filter confining the security-tools user. */
-  kernel?: { enabled: boolean; networks: string[]; error: string | null };
-};
 
 export type LogEntry = { ts: number; unit: string; priority: number; message: string };
 /** Answers from the gateway itself (not the agent): the journal and the web allow-list. */
 export type GatewayResult =
   | { seq: number; type: "logs"; ok: boolean; entries: LogEntry[]; error?: string }
-  | { seq: number; type: "web_list"; ok: boolean; domains: string[] | null; error?: string | null }
-  | { seq: number; type: "engagement"; ok: boolean; error?: string | null };
+  | { seq: number; type: "web_list"; ok: boolean; domains: string[] | null; error?: string | null };
 
 export type MindResult = { seq: number; op: string; ok: boolean; result?: any; error?: string };
 export type Send = (message: Record<string, unknown>) => void;

@@ -2,7 +2,7 @@
 name = "woody-execd"
 version = "0.1.0"
 edition = "2021"
-description = "WoodPecker-OS privileged executor: typed actions, scope enforcement, approvals, audit"
+description = "WoodPecker-OS privileged executor: typed actions, approvals, audit"
 license = "MIT"
 
 [lib]

@@ -1,7 +1,7 @@
 // The views that open over the conversation: one goal, a new goal, the
 // journal, memory, who Woody is, and the settings.
 import { useEffect, useState } from "react";
-import type { AgentState, GatewayResult, Goal, Identity, JournalEntry, LogEntry, Memory, MindResult, Scope, Send } from "./types";
+import type { AgentState, GatewayResult, Goal, Identity, JournalEntry, LogEntry, Memory, MindResult, Send } from "./types";
 import { TOOL_PREFIX, day, money, until } from "./types";
 
 export type Panel =
@@ -13,7 +13,6 @@ export type Panel =
   | { kind: "settings" }
   | { kind: "logs" }
   | { kind: "web" }
-  | { kind: "scope" }
   | { kind: "terminal" };
 
 const STATUS: Record<string, string> = {
@@ -38,7 +37,6 @@ export function PanelView({
   incoming,
   gateway,
   door,
-  scope,
   version,
   state,
   identity,
@@ -46,7 +44,6 @@ export function PanelView({
   expressions,
   setExpressions,
 }: {
-  scope: Scope | null;
   panel: Panel;
   setPanel: (p: Panel | null) => void;
   tx: Send;
@@ -76,7 +73,6 @@ export function PanelView({
     : panel.kind === "identity" ? "WHO WOODY IS"
     : panel.kind === "logs" ? "SYSTEM LOG"
     : panel.kind === "web" ? "WEB ALLOW-LIST"
-    : panel.kind === "scope" ? "SCOPE · WHAT MAY BE TESTED"
     : panel.kind === "terminal" ? "TERMINAL"
     : "SETTINGS";
 
@@ -94,7 +90,6 @@ export function PanelView({
       <div className="overlay-body" hidden={panel.kind === "terminal"}>
         {panel.kind === "logs" && <Logs tx={tx} gateway={gateway} />}
         {panel.kind === "web" && <WebList tx={tx} gateway={gateway} />}
-        {panel.kind === "scope" && <ScopeView tx={tx} gateway={gateway} scope={scope} />}
         {panel.kind === "goal" && <GoalDetail id={panel.id} mind={mind} incoming={incoming} version={version} />}
         {panel.kind === "new-goal" && <NewGoal mind={mind} incoming={incoming} smallLimit={smallLimit} onDone={(id) => setPanel({ kind: "goal", id })} />}
         {panel.kind === "journal" && <Journal mind={mind} incoming={incoming} version={version} />}
@@ -199,98 +194,6 @@ function WebList({ tx, gateway }: { tx: Send; gateway: GatewayResult | null }) {
           <button className="ghost mini" onClick={() => tx({ type: "web_remove", domain: d })}>remove</button>
         </div>
       ))}
-    </div>
-  );
-}
-
-/**
- * The engagement: which machines the security tools may touch, on whose
- * authority, and until when. Only you can set it; Woody cannot.
- */
-function ScopeView({ tx, gateway, scope }: { tx: Send; gateway: GatewayResult | null; scope: Scope | null }) {
-  const [name, setName] = useState("home-lab");
-  const [authorization, setAuthorization] = useState("");
-  const [targets, setTargets] = useState("");
-  const [hours, setHours] = useState("8");
-  const [owned, setOwned] = useState(false);
-  const [error, setError] = useState("");
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(id);
-  }, []);
-  useEffect(() => {
-    if (gateway?.type !== "engagement") return;
-    setError(gateway.ok ? "" : gateway.error ?? "The engagement could not be changed.");
-    if (gateway.ok) setOwned(false);
-  }, [gateway]);
-  if (!scope) return <p className="dim">Loading…</p>;
-
-  const e = scope.engagement;
-  const inForce = Boolean(e && scope.valid && e.active !== false && (e.expires_ms ?? 0) > now);
-  const list = targets.split(/[\s,]+/).filter(Boolean);
-  const maxHours = scope.max_hours ?? 72;
-  const ready = name.trim() && authorization.trim().length >= 10 && list.length > 0 && Number(hours) >= 1 && Number(hours) <= maxHours && owned;
-
-  return (
-    <div className="stack">
-      <p className="dim small">
-        Security tools only work against the machines listed in an engagement that you set here. Without one, every target is refused, and the
-        kernel lets the tools reach nothing. Discovery inside the engagement runs by itself; anything intrusive still asks you first.
-      </p>
-
-      <h4>In force now</h4>
-      {!scope.valid ? (
-        <p className="problem">The engagement file is invalid: every target is refused.</p>
-      ) : inForce && e ? (
-        <>
-          <p className="pre">
-            {e.name} · ends {until(e.expires_ms ?? 0, now)}
-          </p>
-          <p className="small">Targets: {(e.allow ?? []).join(", ")}</p>
-          <p className="dim small">Authorization: {e.authorization}</p>
-          <div className="row-actions">
-            <button className="danger" onClick={() => tx({ type: "engagement_end" })}>end it now</button>
-          </div>
-        </>
-      ) : (
-        <p className="dim">{e ? `Nothing: "${e.name}" has ended or expired.` : "Nothing: no engagement has been set."}</p>
-      )}
-      {scope.kernel?.enabled && (
-        <p className={`small ${scope.kernel.error ? "problem" : "dim"}`}>
-          {scope.kernel.error
-            ? `The kernel filter could not be updated: ${scope.kernel.error}`
-            : `Kernel filter: the tools can reach ${scope.kernel.networks.length ? scope.kernel.networks.join(", ") : "nothing"}.`}
-        </p>
-      )}
-      <p className="dim small">
-        Never a target, whatever is listed: {scope.permanent_deny.join(", ")}.
-        {scope.limit?.length ? ` Targets must be inside ${scope.limit.join(", ")} (the lab network).` : ""}
-      </p>
-
-      <h4>{inForce ? "Replace it" : "Set an engagement"}</h4>
-      <form
-        className="form"
-        onSubmit={(ev) => {
-          ev.preventDefault();
-          if (ready) tx({ type: "engagement_set", name: name.trim(), authorization: authorization.trim(), allow: list, hours: Number(hours) });
-        }}
-      >
-        <label className="small dim" htmlFor="eng-name">Name</label>
-        <input id="eng-name" value={name} maxLength={64} onChange={(ev) => setName(ev.target.value)} />
-        <label className="small dim" htmlFor="eng-targets">Targets: addresses or networks, separated by spaces (for example 192.168.222.130)</label>
-        <textarea id="eng-targets" value={targets} rows={2} onChange={(ev) => setTargets(ev.target.value)} />
-        <label className="small dim" htmlFor="eng-auth">Authorization: whose machines these are, and why you may test them</label>
-        <textarea id="eng-auth" value={authorization} rows={2} maxLength={500} onChange={(ev) => setAuthorization(ev.target.value)} />
-        <label className="small dim" htmlFor="eng-hours">Duration in hours (1 to {maxHours}); it ends by itself</label>
-        <input id="eng-hours" type="number" min={1} max={maxHours} value={hours} onChange={(ev) => setHours(ev.target.value)} />
-        <label className="small">
-          <input type="checkbox" checked={owned} onChange={(ev) => setOwned(ev.target.checked)} /> I own these machines, or I hold written authorization
-          to test them.
-        </label>
-        {error && <p className="problem">{error}</p>}
-        <button className="primary" disabled={!ready}>{inForce ? "replace the engagement" : "start the engagement"}</button>
-      </form>
     </div>
   );
 }

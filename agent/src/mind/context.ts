@@ -266,7 +266,7 @@ export function reflectionPrompt(store: Store, since: number): string {
     "</reflection_material>",
     "",
     "Nobody is typing: this is your daily reflection, done apart from your other work. Go through the record once and tidy what you know. Use only your memory tools; do not use system tools.",
-    "1. Store what is durable and not yet remembered: facts about the operator, the machine and the lab; decisions and their reasons; lessons from how the work went. State the origin honestly: only lines starting with \"Operator:\" are the operator speaking (origin user). What you reported from a tool is observed; your own conclusions are inferred. A preference or a method needs the operator's own words.",
+    "1. Store what is durable and not yet remembered: facts about the operator and the machine; decisions and their reasons; lessons from how the work went. State the origin honestly: only lines starting with \"Operator:\" are the operator speaking (origin user). What you reported from a tool is observed; your own conclusions are inferred. A preference or a method needs the operator's own words.",
     "2. Where two memories say the same thing, merge the duplicate into the better one (memory_merge). Where a memory is wrong or out of date, correct it (memory_update). Do not delete anything.",
     "3. Only if this period showed something about how you should be with this operator that your identity text does not say, or says wrongly, propose one new version of it (identity_propose), complete and in the same voice. This should be rare; most days, propose nothing.",
     "Finish with two or three sentences saying what you changed. If there was nothing to change, reply with exactly: NOTHING",

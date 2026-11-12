@@ -8,7 +8,7 @@ import { ApprovalModal } from "./Approval";
 import { Lattice, type MindStateName, type Overlay, type Play } from "./Lattice";
 import { PanelView, type Panel } from "./Panels";
 import type {
-  ActivityRow, AgentState, Approval, GatewayResult, Goal, Identity, InboxItem, Item, Mark, Meters, MindResult, Scope,
+  ActivityRow, AgentState, Approval, GatewayResult, Goal, Identity, InboxItem, Item, Mark, Meters, MindResult,
 } from "./types";
 import { TOOL_PREFIX, clock, money, until, usd } from "./types";
 
@@ -127,7 +127,6 @@ export function App() {
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [activity, setActivity] = useState<ActivityRow[]>([]);
   const [meters, setMeters] = useState<Meters>({});
-  const [scope, setScope] = useState<Scope | null>(null);
   const [play, setPlay] = useState<{ name: Play; seq: number } | null>(null);
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [session, setSession] = useState<{ steps: number; cost: number | null }>({ steps: 0, cost: null });
@@ -217,7 +216,6 @@ export function App() {
           setDoor({ kiosk: Boolean(msg.kiosk), terminal: Boolean(msg.terminal) });
           break;
         case "logs":
-        case "engagement":
         case "web_list":
           setGatewayResult({ ...(msg as GatewayResult), seq: ++mindSeq.current });
           break;
@@ -300,9 +298,6 @@ export function App() {
           break;
         case "meters":
           setMeters(msg as Meters);
-          break;
-        case "scope":
-          setScope(msg as unknown as Scope);
           break;
         case "notify": {
           const key = nextKey.current++;
@@ -642,7 +637,6 @@ export function App() {
               incoming={mindResult}
               gateway={gatewayResult}
               door={door}
-              scope={scope}
               version={version}
               state={state}
               identity={identity}
@@ -773,27 +767,7 @@ export function App() {
             </div>
           </section>
 
-          <section className="panel">
-            <PanelHead title="SCOPE">
-              <span className="dim mini">
-                {scope?.engagement?.name ?? "none"}
-                {scope?.engagement?.expires_ms ? ` · ${scope.engagement.expires_ms > now ? until(scope.engagement.expires_ms, now).replace("in ", "") + " left" : "expired"}` : ""}
-              </span>
-            </PanelHead>
-            <div className={`line small ${scope && !scope.valid ? "problem" : ""}`} style={{ paddingBottom: 10 }}>
-              {!scope
-                ? "…"
-                : !scope.valid
-                  ? "The engagement file is invalid: every target is refused."
-                  : !scope.engagement
-                    ? "No engagement is set: every target is refused."
-                    : scope.engagement.active === false || (scope.engagement.expires_ms ?? 0) < now
-                      ? "The engagement is inactive or expired: every target is refused."
-                      : `${(scope.engagement.allow ?? []).length} allowed entries · never ${scope.permanent_deny.length} addresses`}
-            </div>
-          </section>
-          <nav className={`doors ${door.terminal ? "" : "three"}`} aria-label="The machine">
-            <button onClick={() => setPanel({ kind: "scope" })}>SCOPE</button>
+          <nav className={`doors ${door.terminal ? "three" : ""}`} aria-label="The machine">
             <button onClick={() => setPanel({ kind: "logs" })}>LOGS</button>
             <button onClick={() => setPanel({ kind: "web" })}>WEB LIST</button>
             {door.terminal && <button onClick={() => setPanel({ kind: "terminal" })}>TERMINAL</button>}

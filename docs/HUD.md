@@ -1,6 +1,8 @@
 # The HUD
 
-What you see when the VM boots: a full-screen page for talking to Woody and approving what it asks to do. Source in `hud/`, NixOS module in `nix/locked/hud.nix`.
+What you see when the VM boots today: a full-screen page for talking to Woody and approving what it asks to do. Source in `hud/`, NixOS module in `nix/locked/hud.nix`.
+
+This screen is due to be replaced. The redesign of 2026-11-12 ([VISION.md](VISION.md)) keeps only the lattice fixed, gives the rest of the screen to Woody as its canvas, and moves the views described here behind the lattice as records. Until that is built (Phase 7 in [PLAN.md](PLAN.md)), this document describes what runs.
 
 The design was drafted and chosen on a canvas (proposal B, with the lattice mind panel). The HUD can be used from two places: the VM's own screen, and your browser on the Windows host.
 
@@ -9,9 +11,9 @@ The design was drafted and chosen on a canvas (proposal B, with the lattice mind
 - **Top bar.** One sentence saying what Woody is doing, with a mark whose shape is different for each state. Then four readouts: the next alarm, the queue, the allowance, and the **Pause** and **Stop** switches.
 - **Left: Woody's mind in records.** "Needs you" (approvals, plans to accept, questions, proposals, identity changes), the goals in your order, the standing duties with their next run and weekly spend, and four doors: memory, journal, identity, settings.
 - **Centre: the conversation,** on a time spine. Each line carries the mark of its kind: circle for something said, square for a tool, triangle for a wake-up, diamond for a save, cross for a problem. Opening a goal or one of the four doors replaces the conversation until you close it.
-- **Right: the mind and the machine.** The lattice shows Woody's state, plays a short moment for each event, and has a few expressions. Under it: the activity stream, the machine's meters (read by the gateway from `/proc` every two seconds), failed services, and the engagement scope.
+- **Right: the mind and the machine.** The lattice shows Woody's state, plays a short moment for each event, and has a few expressions. Under it: the activity stream, the machine's meters (read by the gateway from `/proc` every two seconds) and failed services.
 
-Under the right column are three more views: **LOGS** (the system journal, filtered by unit and severity), **WEB LIST** (the sites Woody may read; you can add and remove them) and, on the VM's own screen only, **TERMINAL**.
+Under the right column are the machine's views: **LOGS** (the system journal, filtered by unit and severity), **WEB LIST** (the sites Woody may read; you can add and remove them) and, on the VM's own screen only, **TERMINAL**.
 
 Keys: `F2` new goal, `F5` memory, `F6` journal, `F7` identity, `F8` settings, `Esc` closes a panel or, with none open, stops Woody.
 
@@ -67,7 +69,7 @@ sudo openssl x509 -in /var/lib/woody-hud/tls/cert.pem -noout -fingerprint -sha25
   If `openssl` is not installed, use `nix-shell -p openssl` first. Compare the fingerprint with the one the browser shows for the certificate.
 - Sign in with the password you set. A session lasts 12 hours, or until the HUD service restarts.
 - Five wrong passwords in ten minutes close the door for ten minutes.
-- The port is open only to the Windows host's address (`hostAddress` in `settings.nix`), not to the lab's target machines, which share that network.
+- The port is open only to the Windows host's address (`hostAddress` in `settings.nix`), not to any other machine on that network.
 - Everything works there except the terminal.
 
 ## The terminal

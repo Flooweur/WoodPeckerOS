@@ -6,7 +6,6 @@
 #   /run/woody/exec.sock     action requests   (group woody, agent uid only)
 #   /run/woody/approve.sock  human approvals   (group woody-hud, HUD gateway uid or root)
 #   /var/log/woody/audit.jsonl                 hash-chained, append-only
-#   /var/lib/woody-execd/engagement.json       the scope in force (root-owned, written by a human)
 { config, lib, pkgs, settings, self, ... }:
 let
   selfmodJob = import ./selfmod-job.nix { inherit pkgs config settings; };
@@ -27,19 +26,8 @@ let
     exec_socket = "/run/woody/exec.sock";
     approve_socket = "/run/woody/approve.sock";
     audit_path = auditPath;
-    engagement_path = "/var/lib/woody-execd/engagement.json";
+    # Addresses a web fetch may never reach, whatever a name resolves to.
     permanent_deny = settings.permanentDeny;
-    # Lab only: an engagement can list nothing outside the lab network. To
-    # test anything else, a human must change this locked file first.
-    engagement_limit = [ settings.labSubnet ];
-    max_engagement_hours = 72;
-    # The kernel filter for the tools user (./scope-net.nix).
-    scope_set = {
-      nft = "${pkgs.nftables}/bin/nft";
-      table = "woody_scope";
-      set4 = "targets4";
-      set6 = "targets6";
-    };
     systemctl = "${config.systemd.package}/bin/systemctl";
     journalctl = "${config.systemd.package}/bin/journalctl";
     # Units the agent may never start, stop or restart, approval or not.
@@ -114,7 +102,6 @@ let
         "nix/modules/base.nix"
         "nix/modules/secrets.nix"
         "nix/modules/snapshots.nix"
-        "lab/"
       ];
     };
   });
@@ -125,7 +112,6 @@ let
       "nixos.org" "*.nixos.org"
       "github.com" "api.github.com" "raw.githubusercontent.com"
       "docs.anthropic.com" "www.anthropic.com" "docs.claude.com" "platform.claude.com" "code.claude.com"
-      "nvd.nist.gov" "www.cisa.gov" "cve.mitre.org" "www.cve.org"
       "www.kernel.org" "lwn.net"
     ];
   });

@@ -30,10 +30,9 @@ A change needs approval if **either** test says so.
 | `nix/locked/`, `executor/` | The executor, its rules, the audit log, this mechanism |
 | `hud/` | The HUD carries your approvals |
 | `flake.nix`, `flake.lock` | What the system is built from |
-| `nix/hosts/` | Machine settings: lab subnet, permanent deny list, spending caps, which modules are loaded |
+| `nix/hosts/` | Machine settings: host-only subnet, permanent deny list, spending caps, which modules are loaded |
 | `nix/modules/base.nix` | Firewall, SSH, your user account |
 | `nix/modules/secrets.nix`, `nix/modules/snapshots.nix` | Secrets and the rollback tool |
-| `lab/` | Engagement examples |
 
 **2. It changes the privilege fingerprint.** The executor evaluates a fingerprint of the running system and of the proposed one, and compares them. This catches a change made indirectly, for example a harmless-looking file that overrides the firewall. The fingerprint covers:
 

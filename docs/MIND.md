@@ -1,10 +1,12 @@
 # The mind (design)
 
-Status: **Phase 4 (4a to 4e) is built** (the store, journal, memory and context assembly; then the loop, alarms, system events, Pause and the pacer; then the goals board; see the "What 4x built" sections at the end). The rest is design. This is the specification for Phase 4 (the mind loop) and the base that Phase 5 (HUD) and Phase 6 (security toolkit) build on.
+Status: **Phase 4 (4a to 4e) is built** (the store, journal, memory and context assembly; then the loop, alarms, system events, Pause and the pacer; then the goals board; see the "What 4x built" sections at the end). This is the specification for Phase 4 (the mind loop) and the base that the HUD and the redesign build on.
+
+**Redesign of 2026-11-12.** The security toolkit is dropped and the goal is now a computer that is alive: see [VISION.md](VISION.md). This document describes the mind as it is built today. The section "What the redesign will change" at the end lists the rules below that later phases replace.
 
 Woody stops being a chat that runs when you type. It becomes a process that is always present: it wakes on its own, works towards goals, rests, and treats your messages as one kind of event among others.
 
-The safety rules do not change: tiers, human approval for intrusive or system-level actions, the engagement scope, the locked core, and the audit log. An autonomous Woody makes them more important, not less.
+The safety rules do not change: tiers, human approval for system-level actions, the locked core, and the audit log. An autonomous Woody makes them more important, not less.
 
 ## Decisions made with the user (2026-11-12)
 
@@ -16,7 +18,7 @@ The safety rules do not change: tiers, human approval for intrusive or system-le
 | Conversation | One ongoing thread with Woody, plus one discussion thread per goal |
 | Starting a goal | Woody reviews every goal. It starts alone only if the plan is read-only (observe, research, write in its workspace) and under a cost limit you set. Everything else waits for you to accept the plan |
 | Woody's own goals | It may propose goals; they wait in "Proposed" until you accept, edit or reject |
-| Standing goals | Continuous upgrade, Staying updated, Machine health, Lab practice (once the toolkit exists) |
+| Standing goals | Continuous upgrade, Staying updated, Machine health |
 | Web access | Read-only fetch from an allow-list you control, plus read-only web search |
 | Memory access | You can read, edit, delete and pin; every memory records where it came from |
 | Identity | A short "who I am" document that Woody may propose changes to; you approve. Safety rules are separate and not editable by it |
@@ -126,7 +128,7 @@ Your order on the board is the priority.
 Rules that hold whatever the board says:
 
 - Approval-tier actions inside a goal still ask you one by one.
-- A goal can never widen the engagement scope or change the locked core.
+- A goal can never change the locked core without your approval, or grant a permission.
 - If a goal overruns its budget, Woody stops and asks; it does not quietly spend more.
 
 ### Standing goals
@@ -134,9 +136,8 @@ Rules that hold whatever the board says:
 | Goal | What it means | How it acts |
 |---|---|---|
 | Machine health | Failed services, disk, snapshots, logs worth your attention | Observes freely; fixes that change the system are proposed |
-| Staying updated | NixOS, its own dependencies, Claude and SDK changes, security news | Reads the followed sources, reports what matters in the brief, proposes upgrades |
+| Staying updated | NixOS, its own dependencies, Claude and SDK changes, security fixes | Reads the followed sources, reports what matters in the brief, proposes upgrades |
 | Continuous upgrade | Improve its own tools, HUD, configuration and working methods | Each upgrade is a proposed goal with a plan and a diff. Applied through the snapshot, test and rollback flow; locked-core changes need your approval |
-| Lab practice | Practise on lab targets and write up what it learned | Only once Phase 6 exists. Discovery is automatic inside the scope; exploitation needs approval |
 
 Each standing goal gets a share of the allowance so that none starves the others or your own goals.
 
@@ -153,7 +154,7 @@ This is the centre of the design. The aim: Woody should never seem to "start ove
 | **Goal dossier** | Per goal: brief, plan, status, decisions with reasons, open questions, exact next step, budget spent, links to results | When working on or discussing that goal |
 | **Threads** | The main conversation and each goal's thread, stored in full | The recent part word for word, plus a running summary of the older part |
 | **Journal** | One short entry per wake-up: why it woke, what it did, what it decided, what comes next | The latest entries; older ones on demand |
-| **Knowledge** | Individual facts about you, the machine, the lab and the world | Retrieved when relevant |
+| **Knowledge** | Individual facts about you, the machine and the world | Retrieved when relevant |
 | **Methods** | "How I do X", and lessons from past work | Retrieved when relevant |
 | **Event log** | The raw, complete record | Never directly; it is the source the rest is derived from |
 
@@ -191,7 +192,7 @@ Nothing is deleted automatically. Old, unconfirmed items simply rank lower. You 
 
 Web pages and tool output are attacker-controllable. If they could write lasting memories freely, one bad page could steer Woody for months.
 
-- Content from the web or from targets can only create items of origin "web" or "observed", marked as untrusted.
+- Content from the web or from tool output can only create items of origin "web" or "observed", marked as untrusted.
 - Such content can never create a method, a preference of yours, or an identity change without your confirmation.
 - The memory panel shows the origin of every item, so you can audit what Woody learned and from where.
 
@@ -226,7 +227,7 @@ These tests are the exit criteria for the memory work.
 
 ## 5. Web access
 
-- **Fetch** goes through the executor: read-only, only to sites on an allow-list held in a root-owned file. Woody can ask to add a site; you approve. Private addresses, the host and the lab are never reachable this way.
+- **Fetch** goes through the executor: read-only, only to sites on an allow-list held in a root-owned file. Woody can ask to add a site; you approve. Private addresses and the host are never reachable this way.
 - **Search** uses Claude's built-in web search, which runs on Anthropic's side. It returns titles, links and excerpts; opening a result still needs the site to be on the allow-list.
 - **Quarantined reading.** A fetched page is first read by a small model with no tools, which extracts notes. The mind sees the notes, labelled as untrusted, not the raw page.
 - **Tainted sessions.** A work session that has read web content can only take notes in the workspace. Acting on what was learned happens in a later session, from the notes. A page can therefore never directly trigger an action.
@@ -342,7 +343,7 @@ Code: goals in `agent/src/mind/store.ts`, `agent/src/mind/goal-tools.ts`, the go
 - **Work.** Accepted goals are worked on in your order, one bounded session at a time. Each goal session starts from the goal's dossier, not from an earlier conversation, and must end with a checkpoint: the dossier rewritten and the exact next step.
 - **Stops.** A goal stops and lands in your inbox when its budget is used up, when three sessions in a row end without a checkpoint, or when Woody needs an answer. Accepting it again lets it continue (with double the budget if that was the reason).
 - **Proposals.** Woody can propose goals. They do nothing until you accept the idea, after which they are reviewed like yours. At most ten can wait.
-- **Standing duties,** seeded at the first start: "Keep this machine healthy" (every 6 hours, $1.50 a week) and "Keep improving yourself" (weekly, $2 a week) are on; "Stay up to date" and "Practise in the lab" are off until web access (4e) and the security toolkit (Phase 6) exist. Each can be turned on or off in the HUD. They run in observe-only mode and report only what deserves your attention.
+- **Standing duties,** seeded at the first start: "Keep this machine healthy" (every 6 hours, $1.50 a week) and "Keep improving yourself" (weekly, $2 a week) are on; "Stay up to date" is off until web access (4e) exists. Each can be turned on or off in the HUD. They run in observe-only mode and report only what deserves your attention.
 - **Order of attention:** your messages, then approvals, jobs, alarms and system events, then goals to review, then accepted goals, then standing duties. All of it is subject to Pause and to the pacer.
 - **HUD:** three plain views behind the buttons in the top bar: **inbox** (plans to accept, questions, proposals), **goals** (the board, with a form to add one, and each goal's detail and thread), **journal**.
 
@@ -392,7 +393,7 @@ Limits to know:
 
 Code: `executor/src/web.rs` (the fetch), `agent/src/web.ts` (the quarantined reader), the web tools in `agent/src/tools.ts`, the taint rule in `agent/src/server.ts`.
 
-- **Fetch** is an executor action. It accepts only `https://` URLs on port 443 to hosts on the allow-list, a root-owned file (`/var/lib/woody-execd/web-allow.json`) seeded with NixOS, GitHub, Anthropic's documentation and a few security sources. The executor resolves the host itself, refuses any address that is not public (so never the VM, the host or the lab), and pins the connection to the address it checked. Redirects are not followed. The request is made by `curl` running as a user with no rights (`woody-web`).
+- **Fetch** is an executor action. It accepts only `https://` URLs on port 443 to hosts on the allow-list, a root-owned file (`/var/lib/woody-execd/web-allow.json`) seeded with NixOS, GitHub, Anthropic's documentation and two Linux news sources. The executor resolves the host itself, refuses any address that is not public (so never the VM or the host), and pins the connection to the address it checked. Redirects are not followed. The request is made by `curl` running as a user with no rights (`woody-web`).
 - **A refused fetch is recorded** in the audit log with its reason, before anything touches the network.
 - **Adding a site** is an approval-tier action: Woody asks with a reason, you approve in the HUD. You can also edit the file as root.
 - **Search** uses Claude's web search, run by a separate small model whose only tool is the search.
@@ -417,3 +418,20 @@ Limits to know:
 | Poison: a page cannot create a preference or a method | Agent test at the tool level (34 in total) | To do with a real page |
 | Tainted session refuses to act | Rule in code; not exercised with a model | To do |
 | Search | Not exercised: it needs the API | To do |
+
+## What the redesign will change
+
+Decided on 2026-11-12 and specified in [VISION.md](VISION.md). None of it is built yet; the phases are in [PLAN.md](PLAN.md).
+
+| Today | After the redesign | Phase |
+|---|---|---|
+| Woody's identity changes only when you approve a proposal | Woody rewrites it itself after reflection, in small steps; you are told, every version is kept, any can be restored | 8 |
+| Acting on its own, Woody is in observe-only mode and must propose a goal for any change | Woody changes the canvas and its own program freely, with undo; only the locked core needs approval | 7 (canvas), 10 (program) |
+| Woody proposes goals of its own and waits | A share of the budget is its own, for interests and projects it chooses | 8 |
+| No inner state beyond Working, Resting and so on | A few slow values with real causes (energy, ease, curiosity, attention, unease) that shape behaviour | 8 |
+| Web reading only from an allow-list you approve | Any public site through the quarantined reader; you keep a block list | 9 |
+| $50 a month | $100 a month assumed, about a quarter of it Woody's own | 8 |
+
+What does not change: the store as the mind, the event log, memory with origin and trust, the quarantined reader, the rule that a session which read the web cannot act, Pause and Stop, approvals for the locked core.
+
+The "security fixes" in the "Stay up to date" duty mean updates for this machine's own software. In version 6 of the store's schema the "Practise in the lab" duty is deleted from existing stores.

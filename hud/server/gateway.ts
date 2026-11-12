@@ -474,10 +474,9 @@ wss.on("connection", (browser: WebSocket, host: boolean) => {
   };
   connectAgent();
 
-  // Send the current approvals, scope and meters straight away.
+  // Send the current approvals and meters straight away.
   lastApprovals = "";
   void pollApprovals();
-  void pushScope(true);
   send(browser, readMeters());
 
   browser.on("message", async (raw) => {
@@ -587,29 +586,6 @@ wss.on("connection", (browser: WebSocket, host: boolean) => {
       return;
     }
 
-    if (type === "engagement_set" || type === "engagement_end") {
-      // The human's own decision about what may be tested. The executor
-      // validates it (lab networks only, a stated authorization, a time limit).
-      try {
-        const reply = await approvalCall(
-          type === "engagement_end"
-            ? { op: "engagement_end" }
-            : {
-                op: "engagement_set",
-                name: String(msg.name ?? ""),
-                authorization: String(msg.authorization ?? ""),
-                hours: Number(msg.hours) || 0,
-                allow: Array.isArray(msg.allow) ? msg.allow.filter((a): a is string => typeof a === "string").slice(0, 64) : [],
-              },
-        );
-        send(browser, { type: "engagement", ok: reply.status === "ok", error: reply.error ?? null });
-      } catch (err) {
-        send(browser, { type: "engagement", ok: false, error: err instanceof Error ? err.message : String(err) });
-      }
-      void pushScope(true);
-      return;
-    }
-
     if (type === "get_audit") {
       try {
         const n = Math.min(Number(msg.n ?? 50) || 50, 500);
@@ -664,7 +640,7 @@ async function pollApprovals(): Promise<void> {
 
 setInterval(() => void pollApprovals(), 1000).unref();
 
-// ---- the machine: meters and scope ---------------------------------------
+// ---- the machine: meters -------------------------------------------------
 //
 // Read from /proc by this unprivileged process. No model and no executor
 // action is involved, so the meters cost nothing and work while Woody rests.
@@ -729,22 +705,6 @@ setInterval(() => {
   const meters = readMeters();
   for (const ws of browsers) send(ws, meters);
 }, 2000).unref();
-
-let lastScope = "";
-async function pushScope(force = false): Promise<void> {
-  if (browsers.size === 0) return;
-  try {
-    const reply = await approvalCall({ op: "scope" });
-    const snapshot = JSON.stringify(reply.result ?? null);
-    if (force || snapshot !== lastScope) {
-      lastScope = snapshot;
-      for (const ws of browsers) send(ws, { type: "scope", ...(reply.result ?? {}) });
-    }
-  } catch {
-    /* the executor is down: the approvals feed already says so */
-  }
-}
-setInterval(() => void pushScope(), 30_000).unref();
 
 // ---- start ----------------------------------------------------------------
 

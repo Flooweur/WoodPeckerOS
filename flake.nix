@@ -20,7 +20,7 @@
       system = "x86_64-linux";
       specialArgs = {
         inherit self;
-        # Per-machine values (user name, keyboard, disk, lab subnet) live in one file.
+        # Per-machine values (user name, keyboard, disk, host-only subnet) live in one file.
         settings = import ./nix/hosts/woodpecker/settings.nix;
       };
       modules = [
