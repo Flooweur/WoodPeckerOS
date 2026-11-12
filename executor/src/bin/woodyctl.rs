@@ -5,6 +5,7 @@
 //!   sudo woodyctl deny <id>                deny one
 //!   sudo woodyctl audit-tail [n]           last audit records
 //!   sudo woodyctl scope                    show the engagement in force
+//!   sudo woodyctl pause | resume | status  stop or allow everything that is not read-only
 //!   sudo woodyctl audit-verify [file]      verify the audit hash chain
 //!
 //! Testing as the agent (must run as the agent's user):
@@ -47,7 +48,7 @@ fn print_and_exit(result: Result<Value, String>) -> ! {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: woodyctl pending | approve <id> | deny <id> | audit-tail [n] | scope | audit-verify [file]\n       woodyctl catalog | request <action> [json] | wait <id>   (as the agent user)"
+        "usage: woodyctl pending | approve <id> | deny <id> | pause | resume | status | audit-tail [n] | scope | audit-verify [file]\n       woodyctl catalog | request <action> [json] | wait <id>   (as the agent user)"
     );
     std::process::exit(2);
 }
@@ -68,6 +69,9 @@ fn main() {
             print_and_exit(call(&approve, json!({ "op": "audit_tail", "n": n })))
         }
         ["scope"] => print_and_exit(call(&approve, json!({ "op": "scope" }))),
+        ["pause"] => print_and_exit(call(&approve, json!({ "op": "pause", "on": true }))),
+        ["resume"] => print_and_exit(call(&approve, json!({ "op": "pause", "on": false }))),
+        ["status"] => print_and_exit(call(&approve, json!({ "op": "status" }))),
         ["audit-verify"] | ["audit-verify", _] => {
             let path = args.get(1).copied().unwrap_or("/var/log/woody/audit.jsonl");
             match woody_exec::audit::verify(path) {

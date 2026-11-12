@@ -6,7 +6,8 @@ The only root component Woody can talk to. Source in `executor/`, NixOS module i
 
 - **No arbitrary commands.** It accepts actions from a fixed catalog with validated parameters. There is no "run this" action.
 - **Tiers.** Read-only and reversible actions run at once; approval-tier actions wait for a human; forbidden ones are refused.
-- **Approvals are out of the agent's reach.** They arrive on a second socket that only the HUD gateway user and root can open. An approval covers one exact action and parameter set, and expires after 10 minutes.
+- **Approvals are out of the agent's reach.** They arrive on a second socket that only the HUD gateway user and root can open. An approval covers one exact action and parameter set, and waits a week for your decision.
+- **Pause.** One switch, on the same human-only socket, stops everything that is not read-only, and approving as well, until you resume. It is a file (`/var/lib/woody-execd/paused`), so it survives a restart.
 - **Scope.** A target is refused unless an active, unexpired engagement allows it. Loopback, link-local and the permanent deny list (the Windows host and VMware gateways) are refused whatever the engagement says.
 - **Audit.** Every request, decision and result goes to `/var/log/woody/audit.jsonl`. Records are hash-chained and the file is append-only; if the log cannot be written, the executor stops.
 
@@ -46,6 +47,7 @@ One JSON object per line, on Unix sockets.
 {"op": "action", "action": "service.status", "params": {"unit": "sshd.service"}}
 {"op": "wait", "approval_id": "…", "timeout_ms": 60000}
 {"op": "catalog"}
+{"op": "status"}
 {"op": "event", "data": {…}}
 ```
 
@@ -58,6 +60,8 @@ Replies have `status`: `ok` (with `result`), `error`, `denied` (with `reason`) o
 {"op": "decide", "approval_id": "…", "decision": "approve", "action_hash": "…"}
 {"op": "audit_tail", "n": 50}
 {"op": "scope"}
+{"op": "pause", "on": true}
+{"op": "status"}
 ```
 
 ## Setting the engagement
@@ -107,6 +111,14 @@ sudo woodyctl approve APPROVAL_ID
 ```
 
 ```bash
+sudo woodyctl pause
+```
+
+```bash
+sudo woodyctl resume
+```
+
+```bash
 sudo woodyctl audit-tail 10
 ```
 
@@ -116,4 +128,4 @@ sudo woodyctl audit-verify
 
 ## Tests
 
-`cargo test` runs in the Nix build (48 tests: scope rules, audit chain, parameter validation, configuration changes). The build fails if any test fails.
+`cargo test` runs in the Nix build (49 tests: scope rules, audit chain, parameter validation, configuration changes). The build fails if any test fails.

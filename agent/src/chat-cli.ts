@@ -7,6 +7,7 @@
 // Commands: /model [id]   /new   /stop   /quit
 //           /memories [words]   /memory <id>   /remember <text>   /correct <id> <text>
 //           /pin <id>   /unpin <id>   /forget <id>   /journal [n]   /mind
+//           /alarms   /unalarm <id>   /pulse
 import readline from "node:readline";
 import { WebSocket } from "ws";
 
@@ -20,6 +21,7 @@ type Model = { id: string; label: string; note: string };
 let models: Model[] = [];
 let streaming = false;
 let busy = false;
+let streamedSinceTurn = false;
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const amber = (s: string) => `\x1b[33m${s}\x1b[0m`;
@@ -72,11 +74,13 @@ ws.on("message", (raw) => {
     }
     case "turn_start":
       busy = true;
+      streamedSinceTurn = false;
       break;
     case "assistant_delta":
       if (!streaming) {
         process.stdout.write(amber("woody> "));
         streaming = true;
+        streamedSinceTurn = true;
       }
       process.stdout.write(msg.text);
       break;
@@ -107,6 +111,14 @@ ws.on("message", (raw) => {
       endStream();
       console.log(red(`  error: ${msg.error}${msg.detail ? ` (${msg.detail})` : ""}`));
       prompt();
+      break;
+    case "note":
+      endStream();
+      console.log(amber(`  * ${msg.text}`));
+      break;
+    case "assistant_text":
+      // Shown here only when it was not streamed (Woody speaking unprompted).
+      if (!streaming && !streamedSinceTurn) console.log(amber("woody> ") + msg.text);
       break;
     case "mind_result":
       if (!msg.ok) console.log(red(`  ${msg.error}`));
@@ -141,6 +153,11 @@ function printMind(op: string, result: any): void {
       break;
     case "forget":
       console.log(dim(`  deleted ${result.deleted.map((i: number) => `#${i}`).join(", ")}`));
+      break;
+    case "alarms":
+    case "alarm_cancel":
+      if (!result.length) console.log(dim("  no alarms are set"));
+      for (const a of result) console.log(`  #${a.id} ${new Date(a.due).toISOString().slice(0, 16).replace("T", " ")} UTC  ${a.reason}`);
       break;
     case "stats":
       console.log(dim(`  ${Object.entries(result).map(([k, v]) => `${k} ${v}`).join(" · ")}`));
@@ -186,6 +203,15 @@ function mindCommand(text: string): boolean {
       return true;
     case "/mind":
       mind("stats");
+      return true;
+    case "/alarms":
+      mind("alarms");
+      return true;
+    case "/unalarm":
+      mind("alarm_cancel", { id });
+      return true;
+    case "/pulse":
+      ws.send(JSON.stringify({ type: "pulse" }));
       return true;
     default:
       return false;

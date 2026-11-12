@@ -57,6 +57,13 @@ export class ExecutorClient {
     return this.call({ op: "wait", approval_id: approvalId, timeout_ms: timeoutMs }, timeoutMs + 10_000);
   }
 
+  /** Whether the human has paused Woody. */
+  async status(): Promise<{ paused: boolean }> {
+    const reply = await this.call({ op: "status" }, 5_000);
+    const result = reply.status === "ok" ? (reply.result as { paused?: boolean } | undefined) : undefined;
+    return { paused: Boolean(result?.paused) };
+  }
+
   /** Second audit stream: what the agent itself observed. Best effort. */
   async event(data: Record<string, unknown>): Promise<void> {
     try {

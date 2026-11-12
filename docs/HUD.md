@@ -2,7 +2,7 @@
 
 What you see when the VM boots: a full-screen page for talking to Woody and approving what it asks to do. Source in `hud/`, NixOS module in `nix/locked/hud.nix`.
 
-This is the thin Phase 2 version: chat, model picker, spend meter, approval prompt. The conversation is stored by the agent and shown again after a reload. Plain views for Woody's state, inbox, goals and journal come with the mind loop in Phase 4 (see [MIND.md](MIND.md)). The full HUD, designed around that loop (goals board, memory panel, meters, log stream, terminal, visual pass), is Phase 5.
+This is the thin Phase 2 version: chat, model picker, spend meter, approval prompt. The conversation is stored by the agent and shown again after a reload. The top bar shows what Woody is doing (answering you, working, resting, waiting on you, paused) and has a **Pause** button, which stops everything Woody does on its own until you resume. You can send a message while Woody is working. Plain views for Woody's state, inbox, goals and journal come with the mind loop in Phase 4 (see [MIND.md](MIND.md)). The full HUD, designed around that loop (goals board, memory panel, meters, log stream, terminal, visual pass), is Phase 5.
 
 ## Parts
 

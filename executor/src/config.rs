@@ -32,6 +32,10 @@ pub struct Config {
     pub osquery_tables: Vec<String>,
     #[serde(default = "default_ttl")]
     pub approval_ttl_ms: u64,
+    /// Presence of this file means the human has paused Woody: every action
+    /// that is not read-only is refused until it is removed.
+    #[serde(default = "default_pause_path")]
+    pub pause_path: String,
     /// Screenshots of the kiosk display. screen.capture is refused when unset.
     #[serde(default)]
     pub screen: Option<Screen>,
@@ -67,6 +71,10 @@ pub struct SelfMod {
     /// means everything below.
     #[serde(default)]
     pub locked_paths: Vec<String>,
+}
+
+fn default_pause_path() -> String {
+    "/var/lib/woody-execd/paused".into()
 }
 
 fn default_ttl() -> u64 {

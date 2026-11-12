@@ -15,7 +15,7 @@ const SUMMARISE_AT = 16;
 
 export type CostSink = (model: string, costUsd: number) => void;
 
-async function ask(model: string, system: string, prompt: string, cwd: string, onCost: CostSink): Promise<string> {
+export async function ask(model: string, system: string, prompt: string, cwd: string, onCost: CostSink): Promise<string> {
   let out = "";
   for await (const message of query({
     prompt,

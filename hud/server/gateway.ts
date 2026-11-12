@@ -26,7 +26,7 @@ const WEB_ROOT = path.resolve(import.meta.dirname, "../web");
 const ORIGINS = (process.env.WOODY_HUD_ORIGINS ?? `http://127.0.0.1:${PORT}`).split(",");
 
 /** Messages the browser may send on to the agent unchanged. */
-const AGENT_BOUND = new Set(["chat", "set_model", "new_session", "interrupt", "get_state"]);
+const AGENT_BOUND = new Set(["chat", "set_model", "new_session", "interrupt", "get_state", "get_history", "mind"]);
 
 // ---- access token ---------------------------------------------------------
 
@@ -274,6 +274,19 @@ wss.on("connection", (browser) => {
       return;
     }
 
+    if (type === "pause") {
+      // The Pause switch lives in the executor, so it holds whatever the agent does.
+      try {
+        const reply = await approvalCall({ op: "pause", on: msg.on !== false });
+        if (reply.status !== "ok") send(browser, { type: "error", error: "pause-failed", detail: reply.error ?? "" });
+      } catch (err) {
+        send(browser, { type: "error", error: "pause-failed", detail: err instanceof Error ? err.message : String(err) });
+      }
+      lastApprovals = "";
+      void pollApprovals();
+      return;
+    }
+
     if (type === "get_audit") {
       try {
         const n = Math.min(Number(msg.n ?? 50) || 50, 500);
@@ -309,10 +322,12 @@ async function pollApprovals(): Promise<void> {
   try {
     const reply = await approvalCall({ op: "pending" });
     const items = reply.status === "ok" ? reply.result : [];
-    const snapshot = JSON.stringify(items);
+    const status = await approvalCall({ op: "status" });
+    const paused = Boolean(status.result?.paused);
+    const snapshot = JSON.stringify([items, paused]);
     if (snapshot !== lastApprovals) {
       lastApprovals = snapshot;
-      for (const ws of browsers) send(ws, { type: "approvals", items, executor_up: true });
+      for (const ws of browsers) send(ws, { type: "approvals", items, paused, executor_up: true });
     }
   } catch {
     if (lastApprovals !== "down") {

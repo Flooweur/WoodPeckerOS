@@ -4,12 +4,31 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type Model = { id: string; label: string; note: string };
 type Budget = { month: string; spent_usd: number; cap_usd: number; remaining_usd: number; exhausted: boolean };
+type MindState = {
+  state: "attending" | "working" | "resting" | "waiting" | "paused" | "out_of_allowance" | "no_credential";
+  focus: string;
+  since: number;
+  queue: { operator: number; autonomous: number };
+  next_alarm: { id: number; due: number; reason: string } | null;
+  waiting_on_operator: number;
+};
 type AgentState = {
   model: string;
   models: Model[];
   busy: boolean;
   budget: Budget;
   has_credential: boolean;
+  mind_state?: MindState;
+};
+
+const MIND_LABEL: Record<MindState["state"], string> = {
+  attending: "answering you",
+  working: "working",
+  resting: "resting",
+  waiting: "waiting on you",
+  paused: "paused",
+  out_of_allowance: "out of allowance",
+  no_credential: "no API key",
 };
 type Approval = {
   approval_id: string;
@@ -75,6 +94,7 @@ export function App() {
   const [deciding, setDeciding] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [notices, setNotices] = useState<Notice[]>([]);
+  const [paused, setPaused] = useState(false);
 
   const socket = useRef<WebSocket | null>(null);
   const nextKey = useRef(1);
@@ -110,6 +130,10 @@ export function App() {
           break;
         case "user_text":
           push({ kind: "user", text: msg.text });
+          break;
+        case "note":
+          // Woody woke up by itself, or something else worth a line.
+          push({ kind: "meta", text: msg.text });
           break;
         case "assistant_delta":
           setItems((prev) => {
@@ -157,6 +181,7 @@ export function App() {
           break;
         case "approvals":
           setApprovals(msg.items ?? []);
+          setPaused(Boolean(msg.paused));
           setExecutorUp(Boolean(msg.executor_up));
           break;
         case "notify": {
@@ -224,7 +249,9 @@ export function App() {
   };
 
   const busy = state?.busy ?? false;
-  const canSend = link === "open" && agentUp && !busy && draft.trim().length > 0;
+  // A message can be sent while Woody works: it reads it at its next step.
+  const canSend = link === "open" && agentUp && draft.trim().length > 0;
+  const mind = state?.mind_state;
 
   const submit = () => {
     if (!canSend) return;
@@ -261,6 +288,12 @@ export function App() {
           <Dot ok={agentUp} label="agent" />
           <Dot ok={executorUp} label="executor" />
         </div>
+        {mind && (
+          <div className={`presence ${paused ? "paused" : mind.state}`} title={mind.focus}>
+            <strong>{paused ? "paused" : MIND_LABEL[mind.state]}</strong>
+            {mind.focus && <span className="dim"> · {mind.focus.length > 70 ? `${mind.focus.slice(0, 70)}…` : mind.focus}</span>}
+          </div>
+        )}
         <div className="controls">
           <label className="dim" htmlFor="model">
             model
@@ -268,7 +301,7 @@ export function App() {
           <select
             id="model"
             value={state?.model ?? ""}
-            disabled={!state || busy}
+            disabled={!state}
             onChange={(e) => tx({ type: "set_model", model: e.target.value })}
           >
             {(state?.models ?? []).map((m) => (
@@ -279,6 +312,14 @@ export function App() {
           </select>
           <button className="ghost" disabled={busy || !agentUp} onClick={() => { tx({ type: "new_session" }); setItems([]); }}>
             new chat
+          </button>
+          <button
+            className={paused ? "danger" : "ghost"}
+            disabled={!executorUp}
+            title={paused ? "Woody is paused: nothing but read-only actions can run" : "Stop everything Woody does on its own until you resume"}
+            onClick={() => tx({ type: "pause", on: !paused })}
+          >
+            {paused ? "resume" : "pause"}
           </button>
           {state && <BudgetMeter budget={state.budget} />}
         </div>
@@ -304,13 +345,19 @@ export function App() {
         {items.map((it) => (
           <Row key={it.key} item={it} />
         ))}
-        {busy && <div className="row working">working…</div>}
+        {busy && <div className="row working">{mind?.state === "working" ? "working on its own…" : "working…"}</div>}
       </div>
 
       <footer className="composer">
         <textarea
           value={draft}
-          placeholder={agentUp ? "Message Woody (Enter to send, Shift+Enter for a new line)" : "Agent offline…"}
+          placeholder={
+            !agentUp
+              ? "Agent offline…"
+              : busy
+                ? "Woody is working. Your message will reach it at its next step (Enter to send)"
+                : "Message Woody (Enter to send, Shift+Enter for a new line)"
+          }
           rows={2}
           autoFocus
           onChange={(e) => setDraft(e.target.value)}
@@ -321,15 +368,16 @@ export function App() {
             }
           }}
         />
-        {busy ? (
-          <button className="danger" onClick={() => tx({ type: "interrupt" })}>
-            stop
-          </button>
-        ) : (
+        <div className="composer-buttons">
           <button disabled={!canSend} onClick={submit}>
             send
           </button>
-        )}
+          {busy && (
+            <button className="danger" onClick={() => tx({ type: "interrupt" })}>
+              stop
+            </button>
+          )}
+        </div>
       </footer>
 
       {notices.length > 0 && (
@@ -529,7 +577,11 @@ function ApprovalModal({
           </dd>
           <dt>expires</dt>
           <dd className="dim">
-            in {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}
+            {left > 172800
+              ? `in ${Math.floor(left / 86400)} days`
+              : left > 7200
+                ? `in ${Math.floor(left / 3600)} hours`
+                : `in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`}
           </dd>
         </dl>
         {more > 0 && <p className="dim">{more} more waiting after this one.</p>}

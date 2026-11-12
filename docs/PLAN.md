@@ -38,7 +38,7 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 | 1 | Base system and rollback | Done |
 | 2 | Privileged core, agent, thin HUD | Done |
 | 3 | System hands (3a observe and operate; 3b self-modification; 3c screenshots and clipboard) | Done |
-| 4 | **Mind loop**: events, state, memory, goals, journal, alarms, pacer, web access | 4a built (VM test pending), 4b next |
+| 4 | **Mind loop**: events, state, memory, goals, journal, alarms, pacer, web access | 4a done, 4b built (VM test pending), 4c next |
 | 5 | **Full HUD**, designed around the loop | Planned |
 | 6 | **Security toolkit** | Planned |
 
@@ -89,6 +89,13 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 - Each turn's context is assembled from the store; the SDK session is only a short-lived working context.
 - Chosen: Node's built-in SQLite driver (with full-text search), so no native dependency to package.
 - 12 store-level continuity tests run in the build. The model-level tests are done by hand in the VM.
+
+## Phase 4b results (2026-11-12)
+
+- Woody is now a loop over one event queue, with a one-minute pulse, self-set alarms, system events, messages delivered while it works, Stop and Pause, approvals that wait a week, retry-once crash recovery, the spending pacer and a daily copy of the store. Details in [MIND.md](MIND.md).
+- Pause is enforced in the executor and was tested live against the built binary.
+- Found while building: the SDK delivers queued messages only after the current reply, so mid-work delivery uses a hook that runs between tool calls, with a one-time key so tool output cannot imitate the operator.
+- Wake-ups with a real model are untested outside the VM.
 
 ## Review of the original brief: what changes and why
 

@@ -68,6 +68,15 @@ fn action_hash(action: &str, params: &Value) -> String {
     sha256_hex(format!("{action}|{}", serde_json::to_string(params).unwrap_or_default()).as_bytes())
 }
 
+/// While paused, only read-only actions run. Returns the refusal reason.
+pub fn pause_gate(tier: Tier, paused: bool) -> Option<&'static str> {
+    if paused && !matches!(tier, Tier::Read) {
+        Some("paused-by-operator")
+    } else {
+        None
+    }
+}
+
 fn uid_of(user: &str) -> Result<u32, String> {
     User::from_name(user)
         .map_err(|e| format!("lookup user {user}: {e}"))?
@@ -83,6 +92,14 @@ fn gid_of(group: &str) -> Result<u32, String> {
 }
 
 impl State {
+    fn paused(&self) -> bool {
+        std::path::Path::new(&self.cfg.pause_path).exists()
+    }
+
+    fn status(&self) -> Value {
+        json!({ "paused": self.paused(), "approval_ttl_ms": self.cfg.approval_ttl_ms })
+    }
+
     fn audit(&self, kind: &str, data: Value) {
         let mut log = self.audit.lock().unwrap();
         if let Err(e) = log.append(kind, data) {
@@ -187,6 +204,7 @@ impl State {
     fn handle_action_channel(&self, req: &Value, uid: u32) -> Value {
         match req.get("op").and_then(Value::as_str) {
             Some("catalog") => json!({ "status": "ok", "result": catalog::ACTIONS }),
+            Some("status") => json!({ "status": "ok", "result": self.status() }),
             Some("action") => self.op_action(req, uid),
             Some("wait") => self.op_wait(req),
             Some("event") => {
@@ -217,6 +235,14 @@ impl State {
                 return json!({ "status": "denied", "reason": reason });
             }
         };
+
+        if let Some(reason) = pause_gate(tier, self.paused()) {
+            self.audit("request", json!({
+                "uid": uid, "action": action, "params": logged, "action_hash": hash,
+                "tier": tier, "decision": "refused", "reason": reason,
+            }));
+            return json!({ "status": "denied", "reason": reason });
+        }
 
         match tier {
             Tier::Read | Tier::Reversible => {
@@ -321,6 +347,26 @@ impl State {
                 json!({ "status": "ok", "result": out })
             }
             Some("decide") => self.op_decide(req, uid),
+            Some("status") => json!({ "status": "ok", "result": self.status() }),
+            Some("pause") => {
+                let on = req.get("on").and_then(Value::as_bool).unwrap_or(true);
+                let path = &self.cfg.pause_path;
+                let done = if on {
+                    std::fs::write(path, b"paused\n").map_err(|e| e.to_string())
+                } else {
+                    match std::fs::remove_file(path) {
+                        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+                        _ => Ok(()),
+                    }
+                };
+                match done {
+                    Ok(()) => {
+                        self.audit("pause_changed", json!({ "paused": on, "by_uid": uid }));
+                        json!({ "status": "ok", "result": self.status() })
+                    }
+                    Err(e) => json!({ "status": "error", "error": format!("pause: {e}") }),
+                }
+            }
             Some("audit_tail") => {
                 let n = req.get("n").and_then(Value::as_u64).unwrap_or(50).min(1000) as usize;
                 match self.audit.lock().unwrap().tail(n) {
@@ -371,6 +417,9 @@ impl State {
                     return json!({ "status": "error", "error": "action_hash mismatch" });
                 }
             }
+            if approve && self.paused() {
+                return json!({ "status": "error", "error": "paused-by-operator: resume Woody before approving actions" });
+            }
             if !approve {
                 a.state = ApprovalState::Denied;
             }
@@ -389,6 +438,7 @@ impl State {
 
         // Re-validate: configuration may have changed since the request was made.
         let result = match catalog::classify(&action, &params, &self.cfg) {
+            _ if self.paused() => Err("paused-by-operator: resume Woody before approving actions".to_string()),
             Ok(Tier::Forbidden) => Err("forbidden".to_string()),
             Ok(_) => self.execute(&action, &params, "approved"),
             Err(e) => Err(e),
@@ -507,7 +557,7 @@ pub fn serve(cfg: Config) -> Result<(), String> {
     });
 
     state.audit("executor_start", json!({
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": env!("CARGO_PKG_VERSION"), "paused": state.paused(),
         "agent_uid": agent_uid, "hud_uid": hud_uid,
         "actions": catalog::ACTIONS.iter().map(|a| a.name).collect::<Vec<_>>(),
     }));
@@ -518,4 +568,19 @@ pub fn serve(cfg: Config) -> Result<(), String> {
     accept_loop(state, action_listener, Channel::Action);
     let _ = t.join();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pause_blocks_everything_but_reads() {
+        assert_eq!(pause_gate(Tier::Read, true), None);
+        for tier in [Tier::Reversible, Tier::Approval, Tier::Forbidden] {
+            assert_eq!(pause_gate(tier, true), Some("paused-by-operator"));
+            assert_eq!(pause_gate(tier, false), None);
+        }
+        assert_eq!(pause_gate(Tier::Read, false), None);
+    }
 }

@@ -7,6 +7,9 @@
 //   memories  individual facts, preferences, methods and lessons, each with
 //             its origin and its sources; never overwritten, only superseded
 //   identity  who Woody is, versioned
+//   queue     everything that can wake Woody, waiting to be handled
+//   alarms    wake-ups Woody set for itself
+//   watches   things in progress elsewhere whose outcome Woody is waiting for
 //
 // The model's context is assembled from here on every turn (context.ts), so
 // nothing important exists only in a model conversation. See docs/MIND.md.
@@ -60,7 +63,62 @@ export type JournalEntry = {
 /** Raised when a memory would break a trust rule. The message is for the model. */
 export class PolicyError extends Error {}
 
-const SCHEMA_VERSION = 1;
+export type QueueItem = {
+  id: number;
+  ts: number;
+  source: "operator" | "alarm" | "system" | "job" | "approval";
+  kind: string;
+  payload: Record<string, unknown>;
+  priority: number;
+  attempts: number;
+};
+
+export type Alarm = { id: number; due: number; reason: string; created: number; status: string };
+export type Watch = { id: number; kind: string; ref: string; created: number; data: Record<string, unknown> };
+
+const SCHEMA_VERSION = 2;
+
+const SCHEMA_V2 = `
+CREATE TABLE queue (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts INTEGER NOT NULL,
+  source TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  priority INTEGER NOT NULL DEFAULT 5,
+  status TEXT NOT NULL DEFAULT 'pending',
+  dedupe TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  handled_ts INTEGER,
+  note TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX queue_status ON queue (status, priority, id);
+CREATE INDEX queue_dedupe ON queue (dedupe, ts);
+
+CREATE TABLE alarms (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  due INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  created INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  fired_ts INTEGER
+);
+CREATE INDEX alarms_due ON alarms (status, due);
+
+CREATE TABLE watches (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  ref TEXT NOT NULL,
+  created INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  data TEXT NOT NULL DEFAULT '{}',
+  UNIQUE (kind, ref)
+);
+`;
+
+/** An event is retried once after a crash, then given up on. */
+const MAX_ATTEMPTS = 2;
+const MAX_PENDING_ALARMS = 50;
 
 const SCHEMA_V1 = `
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -278,6 +336,12 @@ export class Store {
         this.db.exec(SCHEMA_V1);
         this.db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', '1')").run();
         this.db.prepare("INSERT INTO identity (ts, text, note) VALUES (?, ?, ?)").run(this.now(), INITIAL_IDENTITY, "initial character");
+      });
+    }
+    if (version < 2) {
+      this.tx(() => {
+        this.db.exec(SCHEMA_V2);
+        this.setMeta("schema_version", "2");
       });
     }
   }
@@ -618,6 +682,169 @@ export class Store {
     return rows.map(toMemory);
   }
 
+  // ---- the event queue ---------------------------------------------------
+
+  /**
+   * Adds something that should wake Woody. With a dedupe key, the event is
+   * dropped if the same key is already waiting or was seen within the window.
+   * Lower priority numbers are handled first. Returns null when deduplicated.
+   */
+  enqueue(e: {
+    source: QueueItem["source"];
+    kind: string;
+    payload: Record<string, unknown>;
+    priority?: number;
+    dedupe?: string;
+    dedupeWindowMs?: number;
+  }): number | null {
+    const now = this.now();
+    if (e.dedupe) {
+      const since = now - (e.dedupeWindowMs ?? 0);
+      const seen = this.db
+        .prepare("SELECT id FROM queue WHERE dedupe = ? AND (status IN ('pending', 'active') OR ts >= ?) LIMIT 1")
+        .get(e.dedupe, since);
+      if (seen) return null;
+    }
+    const r = this.db
+      .prepare("INSERT INTO queue (ts, source, kind, payload, priority, dedupe) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(now, e.source, e.kind, JSON.stringify(e.payload), e.priority ?? 5, e.dedupe ?? null);
+    return Number(r.lastInsertRowid);
+  }
+
+  /**
+   * Claims the next waiting event: the operator's first, then by priority,
+   * then oldest. With operatorOnly, autonomous events are left waiting (used
+   * while paused or out of allowance).
+   */
+  claimNext(opts: { operatorOnly?: boolean } = {}): QueueItem | null {
+    return this.tx(() => {
+      const row = this.db
+        .prepare(
+          `SELECT * FROM queue WHERE status = 'pending' ${opts.operatorOnly ? "AND source = 'operator'" : ""}
+           ORDER BY (source = 'operator') DESC, priority, id LIMIT 1`,
+        )
+        .get() as Row | undefined;
+      if (!row) return null;
+      this.db.prepare("UPDATE queue SET status = 'active', attempts = attempts + 1 WHERE id = ?").run(Number(row.id));
+      return {
+        id: Number(row.id),
+        ts: Number(row.ts),
+        source: row.source as QueueItem["source"],
+        kind: String(row.kind),
+        payload: JSON.parse(String(row.payload)),
+        priority: Number(row.priority),
+        attempts: Number(row.attempts) + 1,
+      };
+    });
+  }
+
+  finishQueued(id: number, status: "handled" | "dropped", note = ""): void {
+    this.db.prepare("UPDATE queue SET status = ?, handled_ts = ?, note = ? WHERE id = ? AND status IN ('pending', 'active')").run(status, this.now(), note, id);
+  }
+
+  /** Puts a claimed event back without counting the attempt (it was not started). */
+  releaseQueued(id: number): void {
+    this.db.prepare("UPDATE queue SET status = 'pending', attempts = max(0, attempts - 1) WHERE id = ? AND status = 'active'").run(id);
+  }
+
+  /**
+   * After a crash: events that were being handled go back in line once;
+   * an event that has already failed twice is dropped. Returns both lists.
+   */
+  recoverQueue(): { retried: number[]; dropped: number[] } {
+    return this.tx(() => {
+      const rows = this.db.prepare("SELECT id, attempts FROM queue WHERE status = 'active'").all() as Row[];
+      const retried: number[] = [];
+      const dropped: number[] = [];
+      for (const r of rows) {
+        const id = Number(r.id);
+        if (Number(r.attempts) >= MAX_ATTEMPTS) {
+          this.db.prepare("UPDATE queue SET status = 'dropped', handled_ts = ?, note = 'gave up after repeated restarts' WHERE id = ?").run(this.now(), id);
+          dropped.push(id);
+        } else {
+          this.db.prepare("UPDATE queue SET status = 'pending' WHERE id = ?").run(id);
+          retried.push(id);
+        }
+      }
+      return { retried, dropped };
+    });
+  }
+
+  queueDepth(): { operator: number; autonomous: number } {
+    const rows = this.db.prepare("SELECT (source = 'operator') AS op, count(*) AS n FROM queue WHERE status = 'pending' GROUP BY op").all() as Row[];
+    const out = { operator: 0, autonomous: 0 };
+    for (const r of rows) {
+      if (Number(r.op)) out.operator = Number(r.n);
+      else out.autonomous = Number(r.n);
+    }
+    return out;
+  }
+
+  /** How many autonomous events were handled since a given time (for rate limits). */
+  autonomousHandledSince(ts: number): number {
+    const row = this.db.prepare("SELECT count(*) AS n FROM queue WHERE source != 'operator' AND status = 'handled' AND handled_ts >= ?").get(ts) as Row;
+    return Number(row.n);
+  }
+
+  // ---- alarms ------------------------------------------------------------
+
+  setAlarm(due: number, reason: string): Alarm {
+    const now = this.now();
+    const text = reason.trim().replace(/\s+/g, " ");
+    if (!text || text.length > 300) throw new PolicyError("an alarm needs a reason of at most 300 characters");
+    if (due < now + 30_000) throw new PolicyError("an alarm must be at least one minute in the future");
+    if (due > now + 366 * 86_400_000) throw new PolicyError("an alarm cannot be more than a year away");
+    const pending = Number((this.db.prepare("SELECT count(*) AS n FROM alarms WHERE status = 'pending'").get() as Row).n);
+    if (pending >= MAX_PENDING_ALARMS) throw new PolicyError(`too many alarms are waiting (limit ${MAX_PENDING_ALARMS}); cancel some first`);
+    const r = this.db.prepare("INSERT INTO alarms (due, reason, created) VALUES (?, ?, ?)").run(due, text, now);
+    const id = Number(r.lastInsertRowid);
+    this.event("alarm_set", { id, due, reason: text });
+    return { id, due, reason: text, created: now, status: "pending" };
+  }
+
+  /** Marks every due alarm as fired and returns them. */
+  takeDueAlarms(): Alarm[] {
+    const now = this.now();
+    return this.tx(() => {
+      const rows = this.db.prepare("SELECT * FROM alarms WHERE status = 'pending' AND due <= ? ORDER BY due").all(now) as Row[];
+      for (const r of rows) this.db.prepare("UPDATE alarms SET status = 'fired', fired_ts = ? WHERE id = ?").run(now, Number(r.id));
+      return rows.map((r) => ({ id: Number(r.id), due: Number(r.due), reason: String(r.reason), created: Number(r.created), status: "fired" }));
+    });
+  }
+
+  pendingAlarms(): Alarm[] {
+    const rows = this.db.prepare("SELECT * FROM alarms WHERE status = 'pending' ORDER BY due").all() as Row[];
+    return rows.map((r) => ({ id: Number(r.id), due: Number(r.due), reason: String(r.reason), created: Number(r.created), status: "pending" }));
+  }
+
+  cancelAlarm(id: number, actor = "woody"): void {
+    const r = this.db.prepare("UPDATE alarms SET status = 'cancelled' WHERE id = ? AND status = 'pending'").run(id);
+    if (Number(r.changes) === 0) throw new PolicyError(`no waiting alarm #${id}`);
+    this.event("alarm_cancelled", { id }, { actor });
+  }
+
+  // ---- watches -----------------------------------------------------------
+
+  addWatch(kind: string, ref: string, data: Record<string, unknown> = {}): void {
+    this.db
+      .prepare("INSERT INTO watches (kind, ref, created, data) VALUES (?, ?, ?, ?) ON CONFLICT (kind, ref) DO UPDATE SET status = 'active', data = excluded.data")
+      .run(kind, ref, this.now(), JSON.stringify(data));
+  }
+
+  activeWatches(): Watch[] {
+    const rows = this.db.prepare("SELECT * FROM watches WHERE status = 'active' ORDER BY id").all() as Row[];
+    return rows.map((r) => ({ id: Number(r.id), kind: String(r.kind), ref: String(r.ref), created: Number(r.created), data: JSON.parse(String(r.data)) }));
+  }
+
+  closeWatch(id: number): void {
+    this.db.prepare("UPDATE watches SET status = 'done' WHERE id = ?").run(id);
+  }
+
+  /** Writes a consistent copy of the whole database to a new file. */
+  backup(file: string): void {
+    this.db.exec(`VACUUM INTO '${file.replaceAll("'", "''")}'`);
+  }
+
   // ---- identity ----------------------------------------------------------
 
   identity(): { version: number; text: string } {
@@ -633,6 +860,8 @@ export class Store {
       journal: count("SELECT count(*) AS n FROM journal"),
       memories: count("SELECT count(*) AS n FROM memories WHERE superseded_by IS NULL"),
       superseded: count("SELECT count(*) AS n FROM memories WHERE superseded_by IS NOT NULL"),
+      alarms: count("SELECT count(*) AS n FROM alarms WHERE status = 'pending'"),
+      queued: count("SELECT count(*) AS n FROM queue WHERE status = 'pending'"),
       identity_version: this.identity().version,
     };
   }

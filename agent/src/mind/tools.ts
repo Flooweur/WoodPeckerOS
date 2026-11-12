@@ -122,6 +122,44 @@ export function createMemoryTools(store: Store, currentSources: () => number[]) 
       { annotations: { destructiveHint: true } },
     ),
     tool(
+      "alarm_set",
+      "Set an alarm to wake yourself up later, with nobody typing: to check on something, continue work, or keep a promise you made to the operator. When it goes off you get the reason back, so write it as a note to your future self. Give either a delay or an exact time.",
+      {
+        reason: z.string().min(3).max(300).describe("What to do when it goes off, understandable without this conversation"),
+        in_minutes: z.number().min(1).max(527040).optional().describe("Delay from now, in minutes"),
+        at: z.string().optional().describe("Exact time, ISO 8601 with a time zone, for example 2026-11-13T08:00:00+01:00"),
+      },
+      async (args) =>
+        guarded(() => {
+          let due: number;
+          if (args.in_minutes !== undefined) due = store.now() + args.in_minutes * 60_000;
+          else if (args.at) {
+            due = Date.parse(args.at);
+            if (Number.isNaN(due)) return fail("'at' is not a valid ISO 8601 time.");
+          } else return fail("Give either in_minutes or at.");
+          const a = store.setAlarm(due, args.reason);
+          return ok(`Alarm #${a.id} set for ${new Date(a.due).toISOString().slice(0, 16).replace("T", " ")} UTC.`);
+        }),
+    ),
+    tool(
+      "alarm_list",
+      "List the alarms you have set that have not gone off yet.",
+      {},
+      async () =>
+        guarded(() => {
+          const alarms = store.pendingAlarms();
+          if (!alarms.length) return ok("No alarms are set.");
+          return ok(alarms.map((a) => `- #${a.id} at ${new Date(a.due).toISOString().slice(0, 16).replace("T", " ")} UTC: ${a.reason}`).join("\n"));
+        }),
+      READ_ONLY,
+    ),
+    tool("alarm_cancel", "Cancel an alarm that has not gone off yet.", { id: z.number().int().positive() }, async (args) =>
+      guarded(() => {
+        store.cancelAlarm(args.id);
+        return ok(`Alarm #${args.id} cancelled.`);
+      }),
+    ),
+    tool(
       "journal_search",
       "Search your journal: one entry per time you were active, saying why, what you did and how it ended. Use it to answer 'what did we do about X?' or 'when did that happen?', and cite the date when you answer from it. With no query, returns the latest entries.",
       { query: z.string().max(300).optional(), limit: z.number().int().min(1).max(30).optional() },

@@ -1,6 +1,6 @@
 # The mind (design)
 
-Status: **4a is built** (the store, the journal, saved conversation, memory, context assembly; see "What 4a built" at the end). The rest is design. This is the specification for Phase 4 (the mind loop) and the base that Phase 5 (HUD) and Phase 6 (security toolkit) build on.
+Status: **4a and 4b are built** (the store, journal, memory and context assembly; then the loop, alarms, system events, Pause and the pacer; see "What 4a built" and "What 4b built" at the end). The rest is design. This is the specification for Phase 4 (the mind loop) and the base that Phase 5 (HUD) and Phase 6 (security toolkit) build on.
 
 Woody stops being a chat that runs when you type. It becomes a process that is always present: it wakes on its own, works towards goals, rests, and treats your messages as one kind of event among others.
 
@@ -293,3 +293,37 @@ Not in 4a: the event queue and pulse (4b), goals (4c), reflection that extracts 
 | Poison | Passes (rule in the store) | Full test needs web access (4e) |
 | Long gap | Passes with a simulated clock | Later |
 | Kill mid-goal, Rollback | Recovery of an interrupted turn is built; the tests belong to 4b | Later |
+
+## What 4b built
+
+Code: `agent/src/server.ts` (the loop), `agent/src/mind/pulse.ts`, `agent/src/budget.ts` (the pacer), the queue, alarms and watches in `agent/src/mind/store.ts`; Pause in `executor/src/server.rs`.
+
+- **One queue.** Your messages, alarms, system events, finished jobs and decided approvals all go into one queue in the store. Woody handles them one at a time: yours first, then by priority.
+- **The pulse** runs every minute as plain code. It fires due alarms, follows what Woody is waiting for, and every two minutes checks the system. A model is called only if the queue then holds something.
+- **System events:** a service that newly failed; a filesystem with less than 10% free; error-level log lines. The first two are rules. Log errors are deduplicated, then a small model with no tools answers IGNORE, NOTE or WAKE (at most 40 times a day). NOTE writes a journal line without waking Woody.
+- **Alarms:** Woody sets them with `alarm_set` (a reason and a delay or a time), and gets the reason back when one goes off. At most 50 waiting.
+- **Wake-ups by itself.** When Woody wakes without you, the conversation shows "woke up: ..." and then its message, if it has one. If it decides nothing needs saying, it stays silent and only the journal records it.
+- **Your messages while it works** are delivered between two tool calls, in a block carrying a one-time key that tool output cannot know. If Woody makes no further tool call, your message is answered right after.
+- **Stop** interrupts the current work. **Pause** is enforced by the executor: while paused, everything that is not read-only is refused, approving is refused too, and Woody starts nothing on its own. It still answers you. The agent cannot unpause itself.
+- **Approvals wait.** A request stays in your inbox for a week instead of 10 minutes. Woody waits 90 seconds for you, then moves on and is woken with the outcome when you decide.
+- **Crash safety.** An event that was being handled when the agent died or was restarted goes back in the queue once, and Woody is told it is a retry so it checks what it had already done. A second failure drops it, so a crash cannot loop. A change of the running system (including a rollback) is detected and written in the journal.
+- **The pacer.** The monthly cap is released day by day; unused days roll over; half a day is kept in reserve for answering you. Woody's own work is refused when the released amount is used up, and there is a ceiling of 12 autonomous sessions an hour. Your messages are limited only by the monthly cap.
+- **Daily copy** of the store in `/var/lib/woody/backups/`, kept for 30 days.
+
+Limits to know:
+
+- Approval requests are held in the executor's memory. If the executor restarts before you decide, they are lost; Woody is told so and can ask again.
+- Per-goal budgets come with goals (4c).
+- The HUD shows Woody's state and a Pause button, but not yet an inbox or the alarms; use `/alarms` in `woody-chat`.
+
+### Test status
+
+| Test | Automated | By hand in the VM |
+|---|---|---|
+| Queue order, deduplication, retry after a kill, alarms, pacer | 6 more store tests (18 in total) | |
+| Pause | Live against the built executor: reads run, the rest is refused, approving is refused, the agent cannot resume, the audit chain holds | To do with the HUD button |
+| Wake on an alarm | | To do |
+| Wake on a failed service | | To do |
+| Message delivered while working | | To do |
+| Approval decided later | | To do |
+| Kill mid-work with a real session | | To do |

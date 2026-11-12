@@ -121,7 +121,14 @@ pre {
 }
 .composer textarea { resize: none; padding: 10px 12px; color: var(--text); min-height: 52px; }
 .composer textarea::placeholder { color: var(--amber-dim); }
-.composer button { align-self: stretch; min-width: 96px; }
+.composer button { min-width: 96px; flex: 1; }
+.composer-buttons { display: flex; flex-direction: column; gap: 6px; }
+
+/* ---- presence: what Woody is doing right now ---- */
+.presence { font-size: 13px; color: var(--amber-soft); max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.presence strong { color: var(--amber); text-transform: uppercase; letter-spacing: 0.1em; font-size: 12px; }
+.presence.working strong, .presence.attending strong { color: var(--ok); }
+.presence.paused strong, .presence.out_of_allowance strong, .presence.no_credential strong, .presence.waiting strong { color: var(--red); }
 
 /* ---- notices from Woody ---- */
 .notices { position: fixed; top: 64px; right: 18px; width: min(380px, calc(100% - 36px)); display: flex; flex-direction: column; gap: 8px; }

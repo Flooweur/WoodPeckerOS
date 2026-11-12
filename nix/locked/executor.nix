@@ -40,7 +40,9 @@ let
       "systemd-journald.service"
       "woody-hud.service"
     ];
-    approval_ttl_ms = 600000;
+    # Approval requests wait a week for the human: Woody works unattended, so
+    # a request must still be there when they come back.
+    approval_ttl_ms = 7 * 24 * 3600 * 1000;
 
     # osquery: read-only SQL over host state. Only these tables exist for a
     # query; password hashes (shadow), process environments (process_envs),

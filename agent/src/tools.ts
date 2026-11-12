@@ -14,8 +14,21 @@ export type Notify = (message: Record<string, unknown>) => void;
 
 export const TOOL_SERVER_NAME = "woody";
 
-/** How long a tool call waits for a human decision before giving up. */
-const APPROVAL_WAIT_MS = 11 * 60_000;
+/**
+ * How long a tool call waits for a human decision before it stops waiting.
+ * The request then stays in the operator's inbox, and Woody is woken with
+ * the outcome when they decide.
+ */
+const APPROVAL_WAIT_MS = 90_000;
+
+/** What the loop does for long-running things a tool started. */
+export type LoopHooks = {
+  /** Remember an approval request so the outcome wakes Woody later. */
+  parkApproval(approvalId: string, action: string, params: Record<string, unknown>): void;
+  /** Follow a configuration change in the background (it survives a restart of the agent). */
+  watchConfig(candidate: string): void;
+  unwatchConfig(candidate: string): void;
+};
 
 type ToolResult = {
   content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
@@ -44,7 +57,7 @@ const READ_ONLY = { annotations: { readOnlyHint: true } };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyTool = ReturnType<typeof tool<any>>;
 
-export function createToolServer(exec: ExecutorClient, notify: Notify, files: Files, extraTools: AnyTool[] = []) {
+export function createToolServer(exec: ExecutorClient, notify: Notify, files: Files, loop: LoopHooks, extraTools: AnyTool[] = []) {
   async function settle(reply: ExecReply, action: string): Promise<ToolResult> {
     switch (reply.status) {
       case "ok":
@@ -88,8 +101,12 @@ export function createToolServer(exec: ExecutorClient, notify: Notify, files: Fi
       notify({ type: "approval_resolved", approval_id: approvalId, status: "error" });
       return failure(`${action}: lost contact with the executor while waiting for approval.`);
     }
-    notify({ type: "approval_resolved", approval_id: approvalId, status: "expired" });
-    return failure(`${action} was not approved in time.`);
+    loop.parkApproval(approvalId, action, clean);
+    return data({
+      waiting_for_approval: true,
+      approval_id: approvalId,
+      note: "The request is waiting in the operator's inbox and has not run. You will be woken with the outcome when they decide. Do not send it again. Tell the operator it is waiting, and carry on with other work or end here.",
+    });
   }
 
   /**
@@ -109,7 +126,10 @@ export function createToolServer(exec: ExecutorClient, notify: Notify, files: Fi
           last = reply.result;
           const st = reply.result as { finished?: boolean; state?: string; step?: string; message?: string };
           notify({ type: "config_progress", candidate, state: st.state, step: st.step, message: st.message });
-          if (st.finished) return data(reply.result);
+          if (st.finished) {
+            loop.unwatchConfig(candidate);
+            return data(reply.result);
+          }
         } else if (reply.status !== "pending") {
           return settle(reply, "config.status");
         }
@@ -276,6 +296,9 @@ export function createToolServer(exec: ExecutorClient, notify: Notify, files: Fi
         async (args) => {
           const started = await run("config.apply", { candidate: args.candidate });
           if (started.isError) return started;
+          // Parked for approval: the job has not started; the outcome will wake Woody.
+          if (started.content.some((c) => c.type === "text" && c.text.includes('"waiting_for_approval": true'))) return started;
+          loop.watchConfig(args.candidate);
           return followConfig(args.candidate, 10 * 60_000);
         },
         { annotations: { destructiveHint: true } },

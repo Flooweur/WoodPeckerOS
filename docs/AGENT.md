@@ -2,7 +2,7 @@
 
 The reasoning process: Claude, through the Claude Agent SDK, running as the unprivileged user `woody`. Source in `agent/`, NixOS module in `nix/modules/agent.nix`.
 
-Today the agent answers when you write to it. Phase 4 turns it into an always-present loop with goals and memory; that design is in [MIND.md](MIND.md).
+The agent is a loop: it answers when you write, and it also wakes by itself on alarms it set, on system events, and when something it was waiting for finishes. The design and what is built so far are in [MIND.md](MIND.md).
 
 ## What it can and cannot do
 
@@ -13,6 +13,7 @@ Today the agent answers when you write to it. Phase 4 turns it into an always-pr
 - **Files (local):** `fs_list` and `fs_read` under its workspace, `/etc` and `/nix/store`; `fs_write` only inside its workspace (`/var/lib/woody/workspace`). Symlinks that lead out of those areas are refused.
 - **See the screen:** `screenshot` returns a picture of the kiosk display and saves a copy under `screenshots/` in the workspace.
 - **Memory:** `remember`, `memory_search`, `memory_history`, `memory_update`, `memory_forget`, `journal_search`, `conversation_search`. These use the agent's own store (`/var/lib/woody/mind.db`), not the executor. See [MIND.md](MIND.md).
+- **Alarms:** `alarm_set`, `alarm_list`, `alarm_cancel`.
 - **HUD:** `hud_notify` raises a notice on the HUD. `clipboard_offer` shows a notice with a Copy button. Woody cannot read the clipboard; paste into the chat instead.
 - It runs under systemd hardening with no capabilities and a read-only view of the system. Its only writable place is `/var/lib/woody`.
 - It cannot open the approval socket. When a tool needs approval, the call waits until a human decides.
@@ -65,10 +66,12 @@ sudo woody-chat
 | `/forget 12` | Delete memory 12 and all its versions |
 | `/journal [n]` | Show the last n journal entries |
 | `/mind` | Counts of events, messages, journal entries and memories |
+| `/alarms`, `/unalarm 3` | List Woody's alarms; cancel one |
+| `/pulse` | Run a pulse now instead of waiting for the next minute |
 | `/stop` | Interrupt the current reply |
 | `/quit` | Leave |
 
-When Woody asks for something that needs approval, the client prints the `woodyctl approve …` command to run in another shell.
+When Woody asks for something that needs approval, the client prints the `woodyctl approve …` command to run in another shell. You can write to Woody while it is working; it reads the message at its next step. To stop everything it does on its own, use `sudo woodyctl pause` (and `resume`).
 
 ## Models and cost
 
@@ -79,15 +82,15 @@ When Woody asks for something that needs approval, the client prints the `woodyc
 | Chat, selectable | `claude-fable-5-2` | $8 / $40 |
 | Triage and quarantined reading (Phase 4) | `claude-haiku-5-5` | $0.10 / $0.50 |
 
-The chosen model is remembered across restarts. Every turn's cost, as reported by the SDK, is appended to `/var/lib/woody/usage.jsonl`. After each turn a short journal summary is written with `claude-haiku-5-5`; its cost is recorded there too, as "background". Two limits from `settings.nix` are enforced: `monthlyCapUsd` (new turns are refused once reached) and `perTurnCapUsd` (a single reply is stopped at that cost).
+The chosen model is remembered across restarts. Every turn's cost, as reported by the SDK, is appended to `/var/lib/woody/usage.jsonl`. After each turn a short journal summary is written with `claude-haiku-5-5`; its cost is recorded there too, as "background". Two limits from `settings.nix` are enforced: `monthlyCapUsd` (new turns are refused once reached) and `perTurnCapUsd` (a single reply is stopped at that cost). What Woody does on its own is paced further: the cap is released day by day, with a reserve kept for answering you (see MIND.md).
 
 ## Chat protocol
 
 WebSocket on `/run/woody-agent/agent.sock`, JSON messages.
 
-Client to agent: `chat {text}`, `set_model {model}`, `new_session`, `interrupt`, `get_state`, `get_history`, `mind {op, ...}` (ops: `memories`, `memory`, `add`, `correct`, `pin`, `unpin`, `forget`, `journal`, `identity`, `stats`).
+Client to agent: `chat {text}`, `set_model {model}`, `new_session`, `interrupt`, `get_state`, `get_history`, `pulse`, `mind {op, ...}` (ops: `memories`, `memory`, `add`, `correct`, `pin`, `unpin`, `forget`, `journal`, `alarms`, `alarm_cancel`, `identity`, `stats`).
 
-Agent to client: `state`, `history` (the stored conversation, sent on connect), `mind_result`, `user_text`, `turn_start`, `assistant_delta`, `assistant_text`, `tool_use`, `tool_result`, `approval_pending`, `approval_resolved`, `result`, `error`.
+Agent to client: `state` (now with `mind_state`: what Woody is doing, the queue, the next alarm), `note` (a wake-up), `history` (the stored conversation, sent on connect), `mind_result`, `user_text`, `turn_start`, `assistant_delta`, `assistant_text`, `tool_use`, `tool_result`, `approval_pending`, `approval_resolved`, `result`, `error`.
 
 ## Logs
 
