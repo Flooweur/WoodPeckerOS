@@ -163,6 +163,9 @@ button.card:hover, .card-main:hover { border-color: var(--line-strong); }
 .add-goal button { justify-self: end; }
 .inline-number { width: 5.5em; padding: 2px 4px; font-size: 12px; }
 .small { font-size: 12px; }
+.board-foot { margin-top: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.board-foot button { padding: 3px 10px; font-size: 12px; }
+.board-foot .inline-number { width: 7em; }
 .pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0; }
 .goal-detail { display: flex; flex-direction: column; gap: 4px; }
 .goal-detail h3 { margin: 8px 0 0; color: var(--amber); font-size: 16px; }

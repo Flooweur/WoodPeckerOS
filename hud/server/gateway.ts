@@ -26,7 +26,7 @@ const WEB_ROOT = path.resolve(import.meta.dirname, "../web");
 const ORIGINS = (process.env.WOODY_HUD_ORIGINS ?? `http://127.0.0.1:${PORT}`).split(",");
 
 /** Messages the browser may send on to the agent unchanged. */
-const AGENT_BOUND = new Set(["chat", "set_model", "new_session", "interrupt", "get_state", "get_history", "mind"]);
+const AGENT_BOUND = new Set(["chat", "set_model", "new_session", "interrupt", "get_state", "get_history", "mind", "presence"]);
 
 // ---- access token ---------------------------------------------------------
 

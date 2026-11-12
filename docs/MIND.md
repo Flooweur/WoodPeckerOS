@@ -1,6 +1,6 @@
 # The mind (design)
 
-Status: **4a, 4b and 4c are built** (the store, journal, memory and context assembly; then the loop, alarms, system events, Pause and the pacer; then the goals board; see "What 4a built", "What 4b built" and "What 4c built" at the end). The rest is design. This is the specification for Phase 4 (the mind loop) and the base that Phase 5 (HUD) and Phase 6 (security toolkit) build on.
+Status: **4a to 4d are built**; 4e (web access) is design (the store, journal, memory and context assembly; then the loop, alarms, system events, Pause and the pacer; then the goals board; see the "What 4x built" sections at the end). The rest is design. This is the specification for Phase 4 (the mind loop) and the base that Phase 5 (HUD) and Phase 6 (security toolkit) build on.
 
 Woody stops being a chat that runs when you type. It becomes a process that is always present: it wakes on its own, works towards goals, rests, and treats your messages as one kind of event among others.
 
@@ -361,3 +361,29 @@ Limits to know:
 | Goal commands over the socket | Smoke test without an API key | |
 | A goal reviewed, questioned, estimated and completed unattended | | To do |
 | Observe-only refusal of a free configuration change | | To do |
+
+## What 4d built
+
+Code: `reflectionPrompt` and `briefPreamble` in `agent/src/mind/context.ts`, scheduling and presence in `agent/src/server.ts`, identity proposals and merging in `agent/src/mind/store.ts`.
+
+- **Daily reflection.** Once a day, at the first quiet moment after 03:00, if you wrote to Woody or it did at least three things since the last one. Woody reads the period's record (its journal and what was said in every thread), stores what is durable, merges duplicates, corrects what is out of date, and may propose a change to its identity. It runs as its own session in its own thread, so nothing of it appears in the conversation; the journal records what it changed.
+- **What reflection does not read:** tool output. Only lines you wrote are marked as yours, and only those can establish a preference or a method.
+- **Merging** marks the duplicate as replaced by the memory that stays. Nothing is deleted, and a memory that came from you is never merged into a weaker one.
+- **Identity.** Woody can propose a new version of its identity text, with its reason. Nothing changes until you approve; you see the current text and the proposal. Only one proposal can wait at a time. You can also rewrite the text yourself. Every version is kept. The identity is placed after the rules and is declared unable to override them.
+- **Daily brief** at 08:00 local time by default (changeable, or off): what Woody did, what it learned, what is blocked on you, what it plans next. It is built from the journal, the board and what waits on you, so it does not depend on what the model happens to remember.
+- **Catch-up.** The HUD sends a sign of life when you press a key or click (at most once a minute). If that comes after three hours of silence and Woody did things by itself meanwhile, it tells you what happened. If nothing worth telling happened, it says nothing.
+- All three are ordinary queued events: Pause and the pacer apply, and they run in observe-only mode.
+
+Limits to know:
+
+- Reflection is one pass a day by the chat model, with a spending cap per session. It is not a guarantee that everything worth remembering is caught; `remember` during work is still the main route.
+- "Local time" is the VM's time zone (`settings.nix`).
+- The catch-up relies on the HUD's sign of life. Messages from `woody-chat` count too.
+
+### Test status
+
+| Test | Automated | By hand in the VM |
+|---|---|---|
+| Identity proposal, approval, rejection, history | Store tests (30 in total) and a socket smoke test | To do with the HUD |
+| Merge rules; what reflection reads; brief material | Store tests | |
+| A real reflection, brief and catch-up | | To do |

@@ -14,6 +14,7 @@ The agent is a loop: it answers when you write, and it also wakes by itself on a
 - **See the screen:** `screenshot` returns a picture of the kiosk display and saves a copy under `screenshots/` in the workspace.
 - **Memory:** `remember`, `memory_search`, `memory_history`, `memory_update`, `memory_forget`, `journal_search`, `conversation_search`. These use the agent's own store (`/var/lib/woody/mind.db`), not the executor. See [MIND.md](MIND.md).
 - **Alarms:** `alarm_set`, `alarm_list`, `alarm_cancel`.
+- **Reflection and identity:** `memory_merge`, `identity_propose` (a proposal changes nothing until you approve it).
 - **Goals:** `goal_board`, `goal_get`, `goal_review`, `goal_checkpoint`, `goal_propose`. Woody cannot create a goal in your name, accept a plan or raise a budget.
 - **HUD:** `hud_notify` raises a notice on the HUD. `clipboard_offer` shows a notice with a Copy button. Woody cannot read the clipboard; paste into the chat instead.
 - It runs under systemd hardening with no capabilities and a read-only view of the system. Its only writable place is `/var/lib/woody`.
@@ -74,6 +75,10 @@ sudo woody-chat
 | `/goal-add title \| details` | Add a goal |
 | `/accept 3`, `/drop 3` | Accept a proposal or a plan (or let a stopped goal continue); drop a goal |
 | `/say 3 text` | Write to Woody in goal 3's thread |
+| `/identity` | Who Woody is, and any change it proposes |
+| `/identity-approve 2`, `/identity-reject 2` | Decide a proposed change |
+| `/brief`, `/brief 07:30`, `/brief off`, `/brief now` | Show or set the daily brief time, turn it off, or ask for one now |
+| `/reflect` | Run the daily reflection now |
 | `/stop` | Interrupt the current reply |
 | `/quit` | Leave |
 
@@ -94,7 +99,7 @@ The chosen model is remembered across restarts. Every turn's cost, as reported b
 
 WebSocket on `/run/woody-agent/agent.sock`, JSON messages.
 
-Client to agent: `chat {text}`, `set_model {model}`, `new_session`, `interrupt`, `get_state`, `get_history`, `pulse`, `mind {op, ...}` (ops: `memories`, `memory`, `add`, `correct`, `pin`, `unpin`, `forget`, `journal`, `alarms`, `alarm_cancel`, `identity`, `stats`, and for the board `goals`, `goal`, `inbox`, `goal_add`, `goal_edit`, `goal_accept`, `goal_drop`, `goal_move`, `goal_message`, `standing`, `small_goal_limit`).
+Client to agent: `chat {text}`, `set_model {model}`, `new_session`, `interrupt`, `get_state`, `get_history`, `pulse`, `presence`, `mind {op, ...}` (ops: `memories`, `memory`, `add`, `correct`, `pin`, `unpin`, `forget`, `journal`, `alarms`, `alarm_cancel`, `identity`, `stats`, and for the board `goals`, `goal`, `inbox`, `goal_add`, `goal_edit`, `goal_accept`, `goal_drop`, `goal_move`, `goal_message`, `standing`, `small_goal_limit`; and `identity`, `identity_decide`, `identity_set`, `brief`, `reflect_now`).
 
 Agent to client: `state` (now with `mind_state`: what Woody is doing, the queue, the next alarm), `note` (a wake-up), `goals_changed`, `history` (the stored conversation, sent on connect), `mind_result`, `user_text`, `turn_start`, `assistant_delta`, `assistant_text`, `tool_use`, `tool_result`, `approval_pending`, `approval_resolved`, `result`, `error`.
 

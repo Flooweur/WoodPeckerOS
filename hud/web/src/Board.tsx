@@ -36,6 +36,8 @@ type Goal = {
 type ThreadItem = { kind: string; text?: string; name?: string; ts?: number };
 type Journal = { id: number; ts: number; wake: string; did: string; outcome: string; next: string; summary: string };
 type InboxItem = { kind: "plan" | "blocked" | "proposal"; goal: Goal };
+type IdentityProposal = { id: number; ts: number; text: string; reason: string };
+type Identity = { current: { version: number; text: string }; pending: IdentityProposal[] };
 
 export type Tab = "inbox" | "goals" | "journal";
 
@@ -88,12 +90,17 @@ export function Board({
   const [description, setDescription] = useState("");
   const [reply, setReply] = useState("");
   const [showClosed, setShowClosed] = useState(false);
+  const [identity, setIdentity] = useState<Identity | null>(null);
+  const [showIdentity, setShowIdentity] = useState(false);
+  const [brief, setBrief] = useState<{ time: string; enabled: boolean } | null>(null);
 
   const mind = (op: string, extra: Record<string, unknown> = {}) => tx({ type: "mind", op, ...extra });
 
   // Load what the current view shows, and again whenever the board changes.
   useEffect(() => {
     mind("inbox");
+    mind("identity");
+    if (tab === "inbox") mind("brief");
     if (tab === "goals") mind("goals", { all: showClosed });
     if (tab === "journal") mind("journal", { n: 40 });
     if (open !== null) mind("goal", { id: open });
@@ -121,6 +128,13 @@ export function Board({
       case "goal":
         setDetail(incoming.result);
         break;
+      case "identity":
+      case "identity_decide":
+        setIdentity(incoming.result);
+        break;
+      case "brief":
+        setBrief(incoming.result);
+        break;
       case "goal_add":
         setTitle("");
         setDescription("");
@@ -139,8 +153,8 @@ export function Board({
     <aside className="board" aria-label="Woody's mind">
       <header>
         <nav>
-          <button className={tab === "inbox" ? "on" : "ghost"} onClick={() => { setOpen(null); setTab("inbox"); }}>
-            inbox{inbox.length + approvals > 0 ? ` (${inbox.length + approvals})` : ""}
+          <button className={tab === "inbox" ? "on" : "ghost"} onClick={() => { setOpen(null); setShowIdentity(false); setTab("inbox"); }}>
+            inbox{inbox.length + approvals + (identity?.pending.length ?? 0) > 0 ? ` (${inbox.length + approvals + (identity?.pending.length ?? 0)})` : ""}
           </button>
           <button className={tab === "goals" ? "on" : "ghost"} onClick={() => { setOpen(null); setTab("goals"); }}>
             goals
@@ -157,7 +171,31 @@ export function Board({
       {error && <div className="row error">{error}</div>}
 
       <div className="board-body">
-        {goalView ? (
+        {showIdentity && identity ? (
+          <div className="goal-detail">
+            <button className="ghost" onClick={() => setShowIdentity(false)}>
+              ← back
+            </button>
+            <h3>Who Woody is</h3>
+            <p className="dim small">Version {identity.current.version}. This text describes Woody's character; it cannot change its rules.</p>
+            <pre>{identity.current.text}</pre>
+            {identity.pending.map((p) => (
+              <div key={p.id}>
+                <h4>Woody proposes this instead</h4>
+                <pre>{p.text}</pre>
+                <h4>Its reason</h4>
+                <p className="pre">{p.reason}</p>
+                <div className="actions left">
+                  <button onClick={() => mind("identity_decide", { id: p.id, approve: true })}>approve</button>
+                  <button className="danger" onClick={() => mind("identity_decide", { id: p.id, approve: false })}>
+                    reject
+                  </button>
+                </div>
+              </div>
+            ))}
+            {identity.pending.length === 0 && <p className="dim small">No change is proposed.</p>}
+          </div>
+        ) : goalView ? (
           <GoalDetail
             goal={goalView.goal}
             messages={goalView.messages}
@@ -169,7 +207,14 @@ export function Board({
         ) : tab === "inbox" ? (
           <>
             {approvals > 0 && <p className="dim">{approvals} action(s) await your approval (shown as a prompt).</p>}
-            {inbox.length === 0 && approvals === 0 && <p className="dim">Nothing needs you.</p>}
+            {inbox.length === 0 && approvals === 0 && !identity?.pending.length && <p className="dim">Nothing needs you.</p>}
+            {(identity?.pending ?? []).map((p) => (
+              <button key={`id${p.id}`} className="card" onClick={() => setShowIdentity(true)}>
+                <em className="alert-text">Woody proposes a change to who it is</em>
+                <strong>Identity change #{p.id}</strong>
+                <span>{p.reason}</span>
+              </button>
+            ))}
             {inbox.map((item) => (
               <button key={item.goal.id} className="card" onClick={() => setOpen(item.goal.id)}>
                 <em className={item.kind === "blocked" ? "alert-text" : ""}>{INBOX_LABEL[item.kind]}</em>
@@ -185,6 +230,29 @@ export function Board({
                 </span>
               </button>
             ))}
+            <p className="dim small board-foot">
+              <button className="ghost" onClick={() => setShowIdentity(true)}>
+                who Woody is
+              </button>{" "}
+              {brief && (
+                <>
+                  <label>
+                    <input type="checkbox" checked={brief.enabled} onChange={(e) => mind("brief", { enabled: e.target.checked })} /> daily brief at{" "}
+                  </label>
+                  <input
+                    className="inline-number"
+                    type="time"
+                    value={brief.time}
+                    onChange={(e) => {
+                      if (/^\d\d:\d\d$/.test(e.target.value)) mind("brief", { time: e.target.value });
+                    }}
+                  />{" "}
+                  <button className="ghost" onClick={() => mind("brief", { now: true })}>
+                    brief me now
+                  </button>
+                </>
+              )}
+            </p>
           </>
         ) : tab === "goals" ? (
           <>

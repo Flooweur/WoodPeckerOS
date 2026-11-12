@@ -67,7 +67,7 @@ export class PolicyError extends Error {}
 export type QueueItem = {
   id: number;
   ts: number;
-  source: "operator" | "alarm" | "system" | "job" | "approval" | "goal";
+  source: "operator" | "alarm" | "system" | "job" | "approval" | "goal" | "brief" | "reflect";
   kind: string;
   payload: Record<string, unknown>;
   priority: number;
@@ -123,9 +123,22 @@ export type Goal = {
   standing: Standing | null;
 };
 
+export type IdentityProposal = { id: number; ts: number; text: string; reason: string; status: "pending" | "approved" | "rejected"; decided_ts: number | null };
+
 const MAX_OPEN_PROPOSALS = 10;
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
+
+const SCHEMA_V4 = `
+CREATE TABLE identity_proposals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  decided_ts INTEGER
+);
+`;
 
 const SCHEMA_V3 = `
 ALTER TABLE threads ADD COLUMN goal_id INTEGER;
@@ -477,6 +490,12 @@ export class Store {
           this.db.prepare("UPDATE threads SET goal_id = ? WHERE id = ?").run(Number(r.lastInsertRowid), Number(t.lastInsertRowid));
         });
         this.setMeta("schema_version", "3");
+      });
+    }
+    if (version < 4) {
+      this.tx(() => {
+        this.db.exec(SCHEMA_V4);
+        this.setMeta("schema_version", "4");
       });
     }
   }
@@ -1321,11 +1340,120 @@ export class Store {
     return this.needGoal(id).thread_id;
   }
 
+  // ---- reflection: what it reads, and merging duplicates -----------------
+
+  /** A thread that is neither the main conversation nor a goal's (for example "reflection"). */
+  systemThread(kind: string): number {
+    const row = this.db.prepare("SELECT id FROM threads WHERE kind = ? ORDER BY id LIMIT 1").get(kind) as Row | undefined;
+    if (row) return Number(row.id);
+    const r = this.db.prepare("INSERT INTO threads (kind, title, created) VALUES (?, ?, ?)").run(kind, kind, this.now());
+    return Number(r.lastInsertRowid);
+  }
+
+  journalSince(ts: number, limit = 60): JournalEntry[] {
+    const rows = this.db.prepare("SELECT * FROM journal WHERE ts >= ? ORDER BY id DESC LIMIT ?").all(ts, limit) as Row[];
+    return rows.reverse().map(toJournal);
+  }
+
+  /** What was said, by the operator and by Woody, in every thread since a time (oldest first). */
+  textSince(ts: number, limit = 300): Message[] {
+    const rows = this.db
+      .prepare("SELECT * FROM messages WHERE ts >= ? AND kind = 'text' AND role IN ('user', 'woody') ORDER BY id DESC LIMIT ?")
+      .all(ts, limit) as Row[];
+    return rows.reverse().map(toMessage);
+  }
+
+  operatorMessagesSince(ts: number): number {
+    return Number((this.db.prepare("SELECT count(*) AS n FROM messages WHERE ts >= ? AND role = 'user'").get(ts) as Row).n);
+  }
+
+  /**
+   * Marks one memory as a duplicate of another: the duplicate is kept, but
+   * as replaced by the one that stays. Nothing is deleted.
+   */
+  mergeMemory(duplicateId: number, keepId: number): Memory {
+    const dup = this.memory(duplicateId);
+    const keep = this.memory(keepId);
+    if (!dup || !keep) throw new PolicyError("both memories must exist");
+    if (duplicateId === keepId) throw new PolicyError("a memory cannot be merged into itself");
+    if (dup.superseded_by !== null || keep.superseded_by !== null) throw new PolicyError("only current memories can be merged");
+    if (dup.kind !== keep.kind) throw new PolicyError("only memories of the same kind can be merged");
+    // The one that stays must not be less trustworthy than the one it replaces.
+    if (dup.origin === "user" && keep.origin !== "user") throw new PolicyError("keep the memory that came from the operator, and merge the other into it");
+    this.tx(() => {
+      this.db.prepare("UPDATE memories SET superseded_by = ? WHERE id = ?").run(keepId, duplicateId);
+      this.db
+        .prepare("UPDATE memories SET confirmed = ?, pinned = max(pinned, ?), importance = max(importance, ?) WHERE id = ?")
+        .run(this.now(), dup.pinned ? 1 : 0, dup.importance, keepId);
+      this.event("memory_merged", { duplicate: duplicateId, kept: keepId });
+    });
+    return this.memory(keepId)!;
+  }
+
   // ---- identity ----------------------------------------------------------
 
   identity(): { version: number; text: string } {
     const row = this.db.prepare("SELECT version, text FROM identity ORDER BY version DESC LIMIT 1").get() as Row;
     return { version: Number(row.version), text: String(row.text) };
+  }
+
+  identityHistory(): Array<{ version: number; ts: number; text: string; note: string }> {
+    const rows = this.db.prepare("SELECT * FROM identity ORDER BY version DESC LIMIT 30").all() as Row[];
+    return rows.map((r) => ({ version: Number(r.version), ts: Number(r.ts), text: String(r.text), note: String(r.note) }));
+  }
+
+  private toProposal(r: Row): IdentityProposal {
+    return {
+      id: Number(r.id),
+      ts: Number(r.ts),
+      text: String(r.text),
+      reason: String(r.reason),
+      status: r.status as IdentityProposal["status"],
+      decided_ts: r.decided_ts == null ? null : Number(r.decided_ts),
+    };
+  }
+
+  /**
+   * Woody proposes a new version of who it is. Nothing changes until the
+   * operator approves. Only one proposal can wait at a time.
+   */
+  proposeIdentity(text: string, reason: string): IdentityProposal {
+    const clean = text.trim();
+    if (clean.length < 40 || clean.length > 3000) throw new PolicyError("the identity text must be between 40 and 3000 characters");
+    if (!reason.trim()) throw new PolicyError("say why you propose this change");
+    if (clean === this.identity().text.trim()) throw new PolicyError("that is already your identity");
+    if (this.pendingIdentityProposals().length) throw new PolicyError("a proposal is already waiting for the operator; do not send another until they decide");
+    const r = this.db.prepare("INSERT INTO identity_proposals (ts, text, reason) VALUES (?, ?, ?)").run(this.now(), clean, reason.trim().slice(0, 2000));
+    const id = Number(r.lastInsertRowid);
+    this.event("identity_proposed", { id });
+    return this.toProposal(this.db.prepare("SELECT * FROM identity_proposals WHERE id = ?").get(id) as Row);
+  }
+
+  pendingIdentityProposals(): IdentityProposal[] {
+    return (this.db.prepare("SELECT * FROM identity_proposals WHERE status = 'pending' ORDER BY id").all() as Row[]).map((r) => this.toProposal(r));
+  }
+
+  /** The operator approves or rejects a proposal. Approval creates a new identity version. */
+  decideIdentity(id: number, approve: boolean): { version: number; text: string } {
+    const row = this.db.prepare("SELECT * FROM identity_proposals WHERE id = ? AND status = 'pending'").get(id) as Row | undefined;
+    if (!row) throw new PolicyError(`no waiting identity proposal #${id}`);
+    return this.tx(() => {
+      this.db.prepare("UPDATE identity_proposals SET status = ?, decided_ts = ? WHERE id = ?").run(approve ? "approved" : "rejected", this.now(), id);
+      if (approve) {
+        this.db.prepare("INSERT INTO identity (ts, text, note) VALUES (?, ?, ?)").run(this.now(), String(row.text), `proposed by Woody, approved by the operator: ${String(row.reason).slice(0, 300)}`);
+      }
+      this.event("identity_decided", { id, approved: approve }, { actor: "operator" });
+      return this.identity();
+    });
+  }
+
+  /** The operator rewrites the identity directly. */
+  setIdentity(text: string): { version: number; text: string } {
+    const clean = text.trim();
+    if (clean.length < 40 || clean.length > 3000) throw new PolicyError("the identity text must be between 40 and 3000 characters");
+    this.db.prepare("INSERT INTO identity (ts, text, note) VALUES (?, ?, 'written by the operator')").run(this.now(), clean);
+    this.event("identity_set", {}, { actor: "operator" });
+    return this.identity();
   }
 
   stats(): Record<string, number> {
@@ -1339,6 +1467,7 @@ export class Store {
       alarms: count("SELECT count(*) AS n FROM alarms WHERE status = 'pending'"),
       goals_open: count("SELECT count(*) AS n FROM goals WHERE status NOT IN ('done', 'dropped', 'standing')"),
       goals_need_you: count("SELECT count(*) AS n FROM goals WHERE status IN ('review', 'waiting', 'proposed')"),
+      identity_pending: count("SELECT count(*) AS n FROM identity_proposals WHERE status = 'pending'"),
       queued: count("SELECT count(*) AS n FROM queue WHERE status = 'pending'"),
       identity_version: this.identity().version,
     };

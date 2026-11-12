@@ -20,7 +20,7 @@ type AgentState = {
   budget: Budget;
   has_credential: boolean;
   mind_state?: MindState;
-  mind?: { goals_need_you?: number };
+  mind?: { goals_need_you?: number; identity_pending?: number };
 };
 
 const MIND_LABEL: Record<MindState["state"], string> = {
@@ -263,6 +263,24 @@ export function App() {
     };
   }, [onMessage]);
 
+  // Tell the agent when someone is at the HUD (at most once a minute), so it
+  // can say what happened while they were away.
+  useEffect(() => {
+    let last = 0;
+    const signal = () => {
+      const now = Date.now();
+      if (now - last < 60_000) return;
+      last = now;
+      if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify({ type: "presence" }));
+    };
+    window.addEventListener("pointerdown", signal);
+    window.addEventListener("keydown", signal);
+    return () => {
+      window.removeEventListener("pointerdown", signal);
+      window.removeEventListener("keydown", signal);
+    };
+  }, []);
+
   // keep the transcript pinned to the bottom unless the reader scrolled up
   useEffect(() => {
     const el = scroller.current;
@@ -277,6 +295,7 @@ export function App() {
   // A message can be sent while Woody works: it reads it at its next step.
   const canSend = link === "open" && agentUp && draft.trim().length > 0;
   const mind = state?.mind_state;
+  const needYou = (state?.mind?.goals_need_you ?? 0) + (state?.mind?.identity_pending ?? 0) + approvals.length;
 
   const submit = () => {
     if (!canSend) return;
@@ -339,7 +358,7 @@ export function App() {
             new chat
           </button>
           <button className={boardTab === "inbox" ? "on" : "ghost"} onClick={() => setBoardTab(boardTab === "inbox" ? null : "inbox")}>
-            inbox{(state?.mind?.goals_need_you ?? 0) + approvals.length > 0 ? ` (${(state?.mind?.goals_need_you ?? 0) + approvals.length})` : ""}
+            inbox{needYou > 0 ? ` (${needYou})` : ""}
           </button>
           <button className={boardTab === "goals" ? "on" : "ghost"} onClick={() => setBoardTab(boardTab === "goals" ? null : "goals")}>
             goals
