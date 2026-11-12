@@ -283,9 +283,11 @@ function GoalDetail({
 }) {
   const r = goal.review;
   const closed = goal.status === "done" || goal.status === "dropped";
-  const canAccept = goal.status === "proposed" || (goal.status === "review" && r && r.questions.length === 0) || (goal.status === "waiting" && goal.accepted);
+  const retryReview = goal.status === "waiting" && !goal.accepted && !r;
+  const canAccept =
+    goal.status === "proposed" || (goal.status === "review" && r && r.questions.length === 0) || (goal.status === "waiting" && goal.accepted) || retryReview;
   const acceptLabel =
-    goal.status === "proposed" ? "accept the idea" : goal.status === "review" ? "accept the plan" : "let it continue";
+    goal.status === "proposed" ? "accept the idea" : goal.status === "review" ? "accept the plan" : retryReview ? "try the review again" : "let it continue";
 
   return (
     <div className="goal-detail">

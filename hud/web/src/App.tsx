@@ -6,7 +6,7 @@ import { Board, type MindResult, type Tab } from "./Board";
 type Model = { id: string; label: string; note: string };
 type Budget = { month: string; spent_usd: number; cap_usd: number; remaining_usd: number; exhausted: boolean };
 type MindState = {
-  state: "attending" | "working" | "resting" | "waiting" | "paused" | "out_of_allowance" | "no_credential";
+  state: "attending" | "working" | "resting" | "waiting" | "paused" | "out_of_allowance" | "no_credential" | "api_error";
   focus: string;
   since: number;
   queue: { operator: number; autonomous: number };
@@ -31,6 +31,7 @@ const MIND_LABEL: Record<MindState["state"], string> = {
   paused: "paused",
   out_of_allowance: "out of allowance",
   no_credential: "no API key",
+  api_error: "model API refused",
 };
 type Approval = {
   approval_id: string;
@@ -82,6 +83,7 @@ const ERROR_TEXT: Record<string, string> = {
   busy: "Woody is still working on the previous message.",
   "agent-unavailable": "The agent service is not reachable.",
   "turn-failed": "The reply failed.",
+  "api-error": "The model API refused the request",
 };
 
 // ---- app ------------------------------------------------------------------
@@ -196,7 +198,9 @@ export function App() {
         case "error":
           push({
             kind: "error",
-            text: (ERROR_TEXT[msg.error] ?? msg.error) + (msg.detail && !ERROR_TEXT[msg.error] ? `: ${msg.detail}` : ""),
+            text:
+              (ERROR_TEXT[msg.error] ?? msg.error) +
+              (msg.detail && (!ERROR_TEXT[msg.error] || msg.error === "api-error") ? `: ${msg.detail}` : ""),
           });
           break;
         case "approvals":

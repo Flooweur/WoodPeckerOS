@@ -1150,6 +1150,9 @@ export class Store {
     } else if (g.status === "review" && g.review && !g.review.questions.length) {
       const budget = budgetUsd ?? Math.max(0.25, Math.round(g.review.estimate_usd * 150) / 100);
       this.touchGoal(id, "status = 'ready', accepted = 1, auto_started = 0, budget_usd = ?, waiting_reason = ''", budget);
+    } else if (g.status === "waiting" && !g.accepted && !g.review) {
+      // A review that never completed: send it back to be reviewed.
+      this.touchGoal(id, "status = 'inbox', waiting_reason = '', stalls = 0");
     } else if (g.status === "waiting" && (g.accepted || g.auto_started)) {
       // Unblocks a goal that stopped for budget or lack of progress.
       const budget = budgetUsd ?? (g.spent_usd >= g.budget_usd ? Math.round(g.budget_usd * 200) / 100 : g.budget_usd);
@@ -1230,6 +1233,11 @@ export class Store {
       const week = 7 * 86_400_000;
       if (now - standing.week_start >= week) standing = { ...standing, week_start: now, week_spent_usd: 0 };
       standing = { ...standing, week_spent_usd: standing.week_spent_usd + costUsd };
+    } else if (status === "inbox") {
+      if (stalls >= 3) {
+        status = "waiting";
+        reason = "Three attempts to review this goal ended without a review. Accept to let Woody try again, or drop it.";
+      }
     } else if (status === "active") {
       if (g.budget_usd > 0 && spent >= g.budget_usd) {
         status = "waiting";

@@ -351,6 +351,7 @@ Limits to know:
 - The estimate is the model's guess. The budget, not the estimate, is what is enforced.
 - "Read-only" is declared by Woody in its review. The declaration decides whether the goal may start alone, but the permissions do not depend on it: a goal started that way stays in observe-only mode whatever its plan says.
 - A goal session's reply appears in the goal's thread; the main conversation only gets a line when a goal needs you or is done.
+- When the model API refuses requests (a spending limit on the key, an outage), Woody shows the error once, stops starting work on its own, and tries again after 5 minutes, then 10, 20 and so on up to 6 hours. Your own messages are still attempted. A review that fails three times for any other reason stops and waits for you.
 
 ### Test status
 

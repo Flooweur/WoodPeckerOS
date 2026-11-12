@@ -580,3 +580,19 @@ test("a goal session is framed by the goal, its dossier and its permissions", ()
   assert.match(preamble(store, store.mainThread(), "how are the goals going?", true), /#\d+ \[active\] Map the lab network \(next: Scan/);
   store.close();
 });
+
+test("goals: a review that never completes stops after three attempts and can be sent back", () => {
+  const store = new Store(tempDb());
+  const g = store.addGoal({ title: "Something hard to review", owner: "operator" });
+  assert.equal(store.noteGoalSession(g.id, 0, false).status, "inbox");
+  assert.equal(store.noteGoalSession(g.id, 0, false).status, "inbox");
+  const stuck = store.noteGoalSession(g.id, 0, false);
+  assert.equal(stuck.status, "waiting");
+  assert.match(stuck.waiting_reason, /ended without a review/);
+  assert.equal(nextOwnWork(store), null); // no longer retried
+  const back = store.acceptGoal(g.id);
+  assert.deepEqual([back.status, back.stalls], ["inbox", 0]);
+  // A session that was refused by the API does not count against the goal.
+  for (let i = 0; i < 5; i++) assert.equal(store.noteGoalSession(g.id, 0, true).status, "inbox");
+  store.close();
+});

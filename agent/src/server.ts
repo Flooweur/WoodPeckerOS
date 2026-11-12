@@ -160,7 +160,24 @@ let paused = false;
 /** Messages from the operator that arrived while a session was running. */
 let arrivals: Array<{ queueId: number; event: number; text: string }> = [];
 
-type MindStateName = "attending" | "working" | "resting" | "waiting" | "paused" | "out_of_allowance" | "no_credential";
+type MindStateName = "attending" | "working" | "resting" | "waiting" | "paused" | "out_of_allowance" | "no_credential" | "api_error";
+
+/**
+ * When the model API refuses requests (a spending limit on the key, an
+ * outage, a revoked key), Woody stops starting work on its own and tries
+ * again later, waiting longer each time. Replies to the operator are still
+ * attempted, so they see the error for themselves.
+ */
+const apiBlock = { until: 0, failures: 0, reason: "" };
+const API_ERROR = /^API Error\b/;
+
+function noteApiFailure(text: string): void {
+  apiBlock.failures += 1;
+  const wait = Math.min(6 * 3_600_000, 5 * 60_000 * 2 ** (apiBlock.failures - 1));
+  apiBlock.until = Date.now() + wait;
+  apiBlock.reason = text.replace(/\s+/g, " ").slice(0, 300);
+  store.event("api_error", { text: apiBlock.reason, failures: apiBlock.failures, retry_in_ms: wait });
+}
 let mind: { state: MindStateName; focus: string; since: number } = { state: "resting", focus: "", since: Date.now() };
 
 function setMind(next: MindStateName, focus = ""): void {
@@ -441,6 +458,7 @@ async function runSession(item: QueueItem): Promise<void> {
   let problem: string | undefined;
   let cost = 0;
   let sawResult = false;
+  let apiError = false;
 
   // Between tool calls, hand over anything the operator wrote meanwhile.
   const deliverArrivals: HookCallback = async () => {
@@ -523,6 +541,10 @@ async function runSession(item: QueueItem): Promise<void> {
           for (const block of message.message.content) {
             if (block.type === "text") {
               finalText = block.text;
+              if (API_ERROR.test(block.text.trim())) {
+                // The SDK reports a refused request as text. It is an error, not Woody speaking.
+                continue;
+              }
               if (operator) {
                 store.addMessage(thread, "woody", "text", block.text);
                 store.event("assistant_message", { text: block.text }, { thread });
@@ -572,10 +594,22 @@ async function runSession(item: QueueItem): Promise<void> {
           budget.record({ kind: operator ? "chat" : "autonomous", model, cost_usd: cost, session: message.session_id });
           void exec.event({ kind: "session_end", source: item.source, model, subtype: message.subtype, cost_usd: cost });
           if (message.subtype !== "success") problem = `The session stopped early (${message.subtype.replaceAll("_", " ")})`;
+          apiError = Boolean((message as { is_error?: boolean }).is_error) || API_ERROR.test(finalText.trim());
+          if (apiError) {
+            const detail = clip(finalText.trim() || "The model API refused the request.", 300);
+            problem = `The model API refused the request (${detail})`;
+            noteApiFailure(detail);
+            store.addMessage(thread, "system", "error", detail);
+            emit({ type: "error", error: "api-error", detail });
+            finalText = "";
+          } else if (message.subtype === "success") {
+            apiBlock.failures = 0;
+            apiBlock.until = 0;
+          }
 
           // An autonomous session speaks only if it has something to say.
           const silent = !operator && !problem && finalText.trim().replace(/[.!]$/, "").toUpperCase() === "NOTHING";
-          if (!operator && !silent) {
+          if (!operator && !silent && !apiError) {
             for (const t of held) {
               store.addMessage(thread, "woody", "text", t);
               store.event("assistant_message", { text: t, unprompted: true }, { thread });
@@ -653,7 +687,8 @@ async function runSession(item: QueueItem): Promise<void> {
       store.setMeta("open_turn", null);
       if (goal) {
         // The cost counts against the goal; a goal that overruns or stalls stops for the operator.
-        const after = store.noteGoalSession(goal.id, cost, touchedGoals.has(goal.id));
+        // A refused API call is not the goal's fault: it does not count as a session without progress.
+        const after = store.noteGoalSession(goal.id, cost, apiError || touchedGoals.has(goal.id));
         broadcast({ type: "goals_changed" });
         if (after.status !== goal.status && ["review", "waiting", "done"].includes(after.status)) {
           const what =
@@ -685,6 +720,7 @@ async function runSession(item: QueueItem): Promise<void> {
 function autonomyBlock(): MindStateName | null {
   if (paused) return "paused";
   if (!hasCredential()) return "no_credential";
+  if (Date.now() < apiBlock.until) return "api_error";
   const b = budget.status();
   if (b.exhausted || b.autonomous_usd < MIN_AUTONOMOUS_USD) return "out_of_allowance";
   if (store.autonomousHandledSince(Date.now() - 3_600_000) >= MAX_AUTONOMOUS_PER_HOUR) return "out_of_allowance";
@@ -697,6 +733,7 @@ function restingState(): void {
   const waiting = store.activeWatches().filter((w) => w.kind === "approval").length;
   const next = store.pendingAlarms()[0];
   if (block === "paused") setMind("paused", depth.autonomous ? `${depth.autonomous} event(s) waiting` : "");
+  else if (block === "api_error") setMind("api_error", `${apiBlock.reason} Trying again at ${new Date(apiBlock.until).toISOString().slice(11, 16)} UTC.`);
   else if (block && depth.autonomous) setMind(block, `${depth.autonomous} event(s) waiting`);
   else if (waiting) setMind("waiting", `${waiting} request(s) need your decision`);
   else setMind("resting", next ? `until ${new Date(next.due).toISOString().slice(11, 16)} UTC: ${next.reason}` : "");
