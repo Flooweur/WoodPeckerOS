@@ -10,6 +10,9 @@
 //  * relays the operator's terminal to the kiosk, and only to the kiosk
 //  * keeps the canvas: the things Woody makes, served as sealed documents,
 //    with their versions, what is pinned, and the record of changes (canvas.ts)
+//  * takes Woody's requests about the canvas over a link to the agent, tries
+//    each new thing on the screen before keeping it, and refuses them while
+//    the operator has paused Woody
 //
 // Because it carries approvals, access is gated by a secret token. The token
 // reaches the kiosk browser through a bootstrap file only the kiosk user can
@@ -22,7 +25,8 @@ import https from "node:https";
 import net from "node:net";
 import path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
-import { Canvas, CanvasError, THING_POLICY, describe, wrapThing, type Actor } from "./canvas.js";
+import { Canvas, CanvasError, THING_POLICY, describe, wrapThing, type Actor, type Thing } from "./canvas.js";
+import { buildPart, kitCatalogue } from "./kit.js";
 
 const PORT = Number(process.env.WOODY_HUD_PORT ?? "7800");
 const BIND = process.env.WOODY_HUD_BIND ?? "127.0.0.1";
@@ -172,6 +176,11 @@ function canvasOp(by: Actor, m: Record<string, any>): unknown {
     switch (String(m.op ?? "")) {
       case "make":
         return changed(canvas.make(by, m));
+      case "kit":
+        // A ready part: its source is written here from a few values.
+        return changed(canvas.make(by, { ...m, source: buildPart(m.part, m.props) }));
+      case "kit_catalogue":
+        return kitCatalogue();
       case "change":
         return changed(canvas.change(by, m));
       case "restore":
@@ -197,6 +206,15 @@ function canvasOp(by: Actor, m: Record<string, any>): unknown {
       case "state_set":
         canvas.setState(String(m.id), m.value);
         return true;
+      case "health":
+        // The frame says whether a thing started. Only a screen can know.
+        if (by !== "you") throw new CanvasError("only a screen reports that");
+        reportHealth(String(m.id), Number(m.version), m.phase === "ready" ? "ready" : "failed", Array.isArray(m.faults) ? m.faults.map(String).slice(-5) : []);
+        return true;
+      case "emit":
+        // A thing tells Woody that something happened on it.
+        if (by !== "you") throw new CanvasError("only a thing on a screen sends that");
+        return thingEvent(canvas.get(String(m.id)), m.name, m.data);
       case "viewport":
         if (by === "you" && Number(m.w) >= 600 && Number(m.h) >= 400) canvas.viewport = { w: Math.min(Math.round(m.w), 8000), h: Math.min(Math.round(m.h), 8000) };
         return canvas.viewport;
@@ -208,6 +226,147 @@ function canvasOp(by: Actor, m: Record<string, any>): unknown {
     if (err instanceof CanvasError) pushCanvas();
     throw err;
   }
+}
+
+// ---- what the screens report about things ----
+
+type Health = { phase: "ready" | "failed"; faults: string[]; at: number };
+/** The latest report for each version of each thing ("t3:2"). Not kept across restarts. */
+const health = new Map<string, Health>();
+const healthWaiters = new Map<string, (h: Health) => void>();
+
+function reportHealth(id: string, version: number, phase: Health["phase"], faults: string[]): void {
+  const key = `${id}:${version}`;
+  const report = { phase, faults, at: Date.now() };
+  // A later report of trouble replaces "ready"; "ready" never hides a failure.
+  if (health.get(key)?.phase === "failed" && phase === "ready") return;
+  health.set(key, report);
+  if (health.size > 500) health.delete(health.keys().next().value!);
+  healthWaiters.get(key)?.(report);
+}
+
+/**
+ * A thing Woody made or changed is tried on a screen before it is kept. If it
+ * does not start, the change is taken back and Woody is told why, so a broken
+ * thing never stays on the canvas.
+ */
+async function tried(thing: Thing, seq: number): Promise<unknown> {
+  if (browsers.size === 0) return { thing, tried: false, note: "No screen is showing the canvas right now, so it could not be tried." };
+  const key = `${thing.id}:${thing.version}`;
+  const began = Date.now();
+  const report =
+    health.get(key) ??
+    (await new Promise<Health | null>((resolve) => {
+      const timer = setTimeout(() => {
+        healthWaiters.delete(key);
+        resolve(null);
+      }, 12_000);
+      healthWaiters.set(key, (h) => {
+        clearTimeout(timer);
+        healthWaiters.delete(key);
+        resolve(h);
+      });
+    }));
+  if (!report) return { thing, tried: false, note: "The screen did not say in time whether it started. Look again with canvas_look." };
+  if (report.phase === "ready") return { thing, tried: true, started: true, start_ms: Date.now() - began };
+  const why = report.faults.join(" | ") || "it never called woody.ready()";
+  canvas.takeBack(seq, "it did not start");
+  pushCanvas();
+  throw new CanvasError(`It did not start, so the canvas is as it was before. What went wrong: ${why}`);
+}
+
+// ---- things telling Woody that something happened ----
+
+const eventTimes = new Map<string, number[]>();
+function thingEvent(thing: Thing, name: unknown, data: unknown): boolean {
+  const label = String(name ?? "").trim().slice(0, 40);
+  if (!label) throw new CanvasError("an event needs a name");
+  const body = JSON.stringify(data ?? null);
+  if (body.length > 2000) throw new CanvasError("an event's data is limited to 2000 characters");
+  // At most six a minute from one thing, sixty an hour from all of them.
+  const now = Date.now();
+  const mine = (eventTimes.get(thing.id) ?? []).filter((t) => t > now - 60_000);
+  const all = [...eventTimes.values()].flat().filter((t) => t > now - 3_600_000);
+  if (mine.length >= 6 || all.length >= 60) throw new CanvasError("too many events: Woody is not woken more often than this");
+  if (link?.readyState !== WebSocket.OPEN) throw new CanvasError("Woody is not connected right now");
+  eventTimes.set(thing.id, [...mine, now]);
+  link.send(JSON.stringify({ type: "thing_event", id: thing.id, title: thing.title, name: label, data: JSON.parse(body) }));
+  return true;
+}
+
+// ---- Woody's side ----
+//
+// The gateway keeps one connection to the agent's socket for the canvas.
+// Requests arriving on it are Woody's: they are checked against Pause, they
+// cannot pin, unpin or undo, and what they make is tried on a screen.
+
+let link: WebSocket | undefined;
+const WOODY_CHANGES = new Set(["make", "kit", "change", "restore", "place", "remove", "bring_back"]);
+const WOODY_TRIED = new Set(["make", "kit", "change", "restore", "bring_back"]);
+
+async function woodyRequest(m: Record<string, any>): Promise<unknown> {
+  const op = String(m.op ?? "");
+  if (op === "look") {
+    const all = canvas.list();
+    return {
+      screen: canvas.viewport,
+      screens_showing_it: browsers.size,
+      things: all
+        .filter((t) => !t.removed)
+        .map((t) => {
+          const h = health.get(`${t.id}:${t.version}`);
+          return {
+            id: t.id, title: t.title, kind: t.kind, for: t.for, made_by: t.by, why: t.why, version: t.version, pinned: t.pinned,
+            x: t.box.x, y: t.box.y, width: t.box.w, height: t.box.h,
+            running: h ? (h.phase === "ready" ? (h.faults.length ? `yes, with faults: ${h.faults.join(" | ")}` : "yes") : `no: ${h.faults.join(" | ") || "it did not start"}`) : "not reported",
+          };
+        }),
+      put_away: all.filter((t) => t.removed).map((t) => ({ id: t.id, title: t.title })),
+      kit: kitCatalogue(),
+    };
+  }
+  if (op === "get" || op === "kit_catalogue") return canvasOp("woody", m);
+  if (!WOODY_CHANGES.has(op)) throw new CanvasError("that is the operator's alone to do");
+  let paused: boolean;
+  try {
+    paused = Boolean((await approvalCall({ op: "status" })).result?.paused);
+  } catch {
+    throw new CanvasError("The executor cannot be reached, so Pause cannot be checked. Nothing was changed.");
+  }
+  if (paused) throw new CanvasError("paused-by-operator: the canvas is not changed while the operator has paused you");
+  const thing = canvasOp("woody", m) as Thing;
+  return WOODY_TRIED.has(op) ? tried(thing, canvas.last()!.seq) : thing;
+}
+
+function connectCanvasLink(): void {
+  const ws = new WebSocket(`ws+unix://${AGENT_SOCKET}:/`);
+  ws.on("open", () => {
+    link = ws;
+    ws.send(JSON.stringify({ type: "canvas_link" }));
+  });
+  ws.on("message", async (data) => {
+    let m: Record<string, any>;
+    try {
+      m = JSON.parse(data.toString());
+    } catch {
+      return;
+    }
+    if (m.type !== "canvas_request") return; // the agent's broadcasts are for the screens, not for this link
+    let reply: Record<string, unknown>;
+    try {
+      reply = { ok: true, result: await woodyRequest(m) };
+    } catch (err) {
+      reply = { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "canvas_reply", rid: m.rid, ...reply }));
+  });
+  ws.on("error", () => {
+    // "close" follows; handled there.
+  });
+  ws.on("close", () => {
+    if (link === ws) link = undefined;
+    setTimeout(connectCanvasLink, 2000).unref();
+  });
 }
 
 function serveThing(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
@@ -250,14 +409,17 @@ function serveCanvasSocket(): void {
       while ((i = buffer.indexOf("\n")) >= 0) {
         const line = buffer.slice(0, i);
         buffer = buffer.slice(i + 1);
-        let reply: Record<string, unknown>;
-        try {
-          const m = JSON.parse(line);
-          reply = { ok: true, result: canvasOp(m.by === "you" ? "you" : "woody", m) };
-        } catch (err) {
-          reply = { ok: false, error: err instanceof Error ? err.message : String(err) };
-        }
-        socket.write(JSON.stringify(reply) + "\n");
+        void (async () => {
+          let reply: Record<string, unknown>;
+          try {
+            const m = JSON.parse(line);
+            // As Woody: the same checks as Woody's own requests (Pause, the trial on a screen).
+            reply = { ok: true, result: m.by === "you" ? canvasOp("you", m) : await woodyRequest(m) };
+          } catch (err) {
+            reply = { ok: false, error: err instanceof Error ? err.message : String(err) };
+          }
+          if (!socket.destroyed) socket.write(JSON.stringify(reply) + "\n");
+        })();
       }
     });
   });
@@ -947,6 +1109,9 @@ if (process.argv[2] === "canvas") {
         request = { op, title: words[0], source: file(words[1]), kind: flags.pretend ? "pretend" : "real", for: flags.for, why: flags.why,
           box: flags.at ? Object.fromEntries(flags.at.split(",").map((v, i) => [["x", "y", "w", "h"][i]!, Number(v)])) : undefined };
         break;
+      case "kit":
+        request = { op, part: words[0], props: JSON.parse(words[1] ?? "{}"), title: flags.title ?? words[0], why: flags.why };
+        break;
       case "change":
         request = { op, id: words[0], source: file(words[1]), why: flags.why, title: flags.title };
         break;
@@ -965,6 +1130,7 @@ if (process.argv[2] === "canvas") {
         console.error(
           "usage: woody-hud canvas list | history [n] | undo\n" +
             "       woody-hud canvas make <title> <file> [--why text] [--pretend] [--for woody] [--at x,y,w,h]\n" +
+            "       woody-hud canvas kit <part> '<values as JSON>' [--title text] [--why text]\n" +
             "       woody-hud canvas change <id> <file> [--why text] [--title text]\n" +
             "       woody-hud canvas place <id> <x> <y> [w] [h] | remove <id> | bring_back <id> | get <id> | pin <id> [off]\n" +
             "       add --as you to act as the operator; without it the request is made as Woody would make it",
@@ -975,7 +1141,7 @@ if (process.argv[2] === "canvas") {
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(2);
   }
-  request.by = flags.as === "you" || op === "undo" || op === "pin" ? "you" : "woody";
+  request.by = flags.as === "you" || ["undo", "pin", "list", "history", "get"].includes(op!) ? "you" : "woody";
   const socket = net.createConnection(CANVAS_SOCKET);
   let reply = "";
   socket.setEncoding("utf8");
@@ -998,6 +1164,7 @@ if (process.argv[2] === "canvas") {
 terminalFlag();
 canvas = new Canvas(path.join(STATE_DIR, "canvas"));
 serveCanvasSocket();
+connectCanvasLink();
 
 server.listen(PORT, BIND, () => {
   writeBootstrap();

@@ -83,9 +83,13 @@ export function Canvas({
           tx({ type: "canvas_op", op: m.op === "state.get" ? "state_get" : "state_set", id, value: m.args?.value, rid: r });
           return;
         }
-        case "emit":
-          // Telling Woody that something happened arrives with Phase 7d.
-          return reply(win, call, true, true);
+        case "emit": {
+          // Tell Woody that something happened on this thing. The gateway paces it.
+          const r = `b${++rid.current}`;
+          waiting.current.set(r, { win, call });
+          tx({ type: "canvas_op", op: "emit", id, name: String(m.args?.name ?? "").slice(0, 40), data: m.args?.data ?? null, rid: r });
+          return;
+        }
         default:
           return reply(win, call, false, null, "unknown request");
       }
@@ -167,6 +171,7 @@ export function Canvas({
           onPin={() => tx({ type: "canvas_op", op: "pin", id: thing.id, pinned: !thing.pinned })}
           onClose={() => tx({ type: "canvas_op", op: "remove", id: thing.id })}
           onWhy={() => onWhy(thing.id)}
+          onHealth={(phase, faults) => tx({ type: "canvas_op", op: "health", id: thing.id, version: thing.version, phase, faults, rid: "bhealth" })}
         />
       ))}
     </div>
@@ -184,6 +189,7 @@ function ThingView({
   onPin,
   onClose,
   onWhy,
+  onHealth,
 }: {
   thing: ThingInfo;
   box: Box;
@@ -195,6 +201,8 @@ function ThingView({
   onPin: () => void;
   onClose: () => void;
   onWhy: () => void;
+  /** Tell the gateway whether this version started: Woody's change is kept only if it did. */
+  onHealth: (phase: "ready" | "failed", faults: string[]) => void;
 }) {
   const frame = useRef<HTMLIFrameElement | null>(null);
   // A thing is shown once it says it is working. One that never does is not shown.
@@ -209,6 +217,11 @@ function ThingView({
     const timer = window.setTimeout(() => setPhase((p) => (p === "starting" ? "failed" : p)), START_MS);
     return () => window.clearTimeout(timer);
   }, [thing.version, thing.key]);
+
+  useEffect(() => {
+    if (phase !== "starting") onHealth(phase, faults);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, faults]);
 
   useEffect(() => {
     register(thing.id, {

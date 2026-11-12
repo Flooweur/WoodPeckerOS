@@ -67,7 +67,7 @@ export class PolicyError extends Error {}
 export type QueueItem = {
   id: number;
   ts: number;
-  source: "operator" | "alarm" | "system" | "job" | "approval" | "goal" | "brief" | "reflect";
+  source: "operator" | "alarm" | "system" | "job" | "approval" | "goal" | "brief" | "reflect" | "thing";
   kind: string;
   payload: Record<string, unknown>;
   priority: number;

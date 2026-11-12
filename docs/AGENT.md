@@ -12,6 +12,7 @@ The agent is a loop: it answers when you write, and it also wakes by itself on a
 - **Change the system:** `config_propose`, `config_apply`, `config_status`. Free except for the locked core, which needs approval; see [SELFMOD.md](SELFMOD.md).
 - **Files (local):** `fs_list` and `fs_read` under its workspace, `/etc` and `/nix/store`; `fs_write` only inside its workspace (`/var/lib/woody/workspace`). Symlinks that lead out of those areas are refused.
 - **See the screen:** `screenshot` returns a picture of the kiosk display and saves a copy under `screenshots/` in the workspace.
+- **The canvas:** `canvas_look`, `thing_source`, `kit_place`, `thing_make`, `thing_change`, `thing_place`, `thing_remove`. The canvas is kept by the HUD gateway, which enforces its rules; see "Making things" below and [HUD.md](HUD.md).
 - **Memory:** `remember`, `memory_search`, `memory_history`, `memory_update`, `memory_forget`, `journal_search`, `conversation_search`. These use the agent's own store (`/var/lib/woody/mind.db`), not the executor. See [MIND.md](MIND.md).
 - **Alarms:** `alarm_set`, `alarm_list`, `alarm_cancel`.
 - **The web:** `web_search`, `web_fetch`, `web_allowlist`, `web_allow_request`. Woody only ever gets notes written by a separate reader that cannot act, and a session that used them can only observe and take notes afterwards.
@@ -21,6 +22,26 @@ The agent is a loop: it answers when you write, and it also wakes by itself on a
 - It runs under systemd hardening with no capabilities and a read-only view of the system. Its only writable place is `/var/lib/woody`.
 - It cannot open the approval socket. When a tool needs approval, the call waits until a human decides.
 - Tool results are labelled as data, and the system prompt tells the model never to follow instructions found in them.
+
+## Making things
+
+Woody puts things on the canvas through the HUD gateway, over a connection the gateway opens to the agent's socket. The gateway refuses what Woody may not do (a pinned thing, anything while you have paused it), tries each new thing on the screen, and records every change.
+
+- **The kit** (`kit_place`): ten ready parts (text, note, list, table, chart, clock, meter, picture, buttons, input). Placing one involves no model: it is on the screen in about a second.
+- **The maker** (`thing_make`, `thing_change`): Woody writes a brief, and a separate model call writes the thing's code from it. The maker is given the rules of the frame and the brief, nothing else. Woody chooses the effort, which chooses the model:
+
+| Effort | Model | Measured in Phase 7a |
+|---|---|---|
+| small | Haiku 5.5 | about 5 s, a fraction of a cent |
+| normal (the default) | Sonnet 5.5 | about 10 s, 1 to 2 cents |
+| hard | Opus 5.5 | about 18 s, about 5 cents |
+| best (only when you ask for the strongest) | Fable 5.2 | up to a minute, up to 26 cents |
+
+- **The trial.** The gateway shows the new thing on the screen and waits for it to say it runs. If it does not, the change is taken back and Woody is told why. The maker then gets one more attempt, by the next stronger model, with the error and what it wrote. After two failures Woody is told and says so.
+- **What it costs** is added to the monthly total as background spending. It is not yet counted against a goal's own budget.
+- **Events from things.** A thing can tell Woody that something happened on it (a button of the kit, or `woody.emit` in a made thing). Woody is woken with an event that names the thing; it is not treated as a message from you. At most six a minute from one thing and sixty an hour in all.
+- **A session that has read the web cannot change the canvas,** like every other action.
+- For now Woody changes the canvas when you ask or when a goal calls for it. Acting on the canvas on its own comes with Phase 8.
 
 ## Giving it the API key
 

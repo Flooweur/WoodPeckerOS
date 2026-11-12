@@ -281,6 +281,28 @@ export class Canvas {
     if (by !== "you") throw new CanvasError("only the operator undoes");
     const change = this.undoable();
     if (!change) throw new CanvasError("there is nothing to undo");
+    const thing = this.putBack(change);
+    this.record({ by, op: "undo", id: thing.id, title: thing.title, why: describe(change), of: change.seq });
+    return change;
+  }
+
+  /** The change recorded last. */
+  last(): Change | null {
+    return this.changes[this.changes.length - 1] ?? null;
+  }
+
+  /**
+   * Takes back one change because what it made does not work (a thing that
+   * did not start on the screen). The canvas is then as it was before it.
+   */
+  takeBack(seq: number, reason: string): void {
+    const change = this.changes.find((c) => c.seq === seq);
+    if (!change || !change.before || change.refused || this.undone.has(seq)) return;
+    const thing = this.putBack(change);
+    this.record({ by: change.by, op: "undo", id: thing.id, title: thing.title, why: `${describe(change)} (${text(reason, 200)})`, of: seq });
+  }
+
+  private putBack(change: Change): Thing {
     const thing = this.find(change.id);
     const b = change.before!;
     if (b.version !== undefined) thing.version = b.version;
@@ -289,8 +311,7 @@ export class Canvas {
     if (b.pinned !== undefined) thing.pinned = b.pinned;
     if (b.removed !== undefined) thing.removed = b.removed;
     this.undone.add(change.seq);
-    this.record({ by, op: "undo", id: thing.id, title: thing.title, why: describe(change), of: change.seq });
-    return change;
+    return thing;
   }
 
   // ---- inside --------------------------------------------------------------

@@ -109,6 +109,24 @@ test("undo state survives a restart", () => {
   assert.deepEqual(again.list().map((t) => [t.title, t.removed]), [["A", false], ["B", true]]);
 });
 
+test("a change that does not work is taken back, and the record says why", () => {
+  const { canvas } = fresh();
+  canvas.make("woody", { title: "Clock", source: "one" });
+  canvas.change("woody", { id: "t1", source: "broken" });
+  canvas.takeBack(canvas.last()!.seq, "it did not start");
+  assert.deepEqual([canvas.get("t1").version, canvas.source("t1")], [1, "one"]);
+  assert.equal(canvas.get("t1").versions.length, 2); // the broken version is kept for the record
+  assert.equal(canvas.history()[0]!.why, 'changed "Clock" (it did not start)');
+  canvas.takeBack(canvas.history()[1]!.seq, "again"); // taking back twice does nothing
+  assert.equal(canvas.history().length, 3);
+
+  canvas.make("woody", { title: "Never", source: "x" });
+  canvas.takeBack(canvas.last()!.seq, "it did not start");
+  assert.equal(canvas.get("t2").removed, true);
+  // What was taken back is not offered to the operator's undo.
+  assert.equal(describe(canvas.undoable()!), 'made "Clock"');
+});
+
 test("limits and bad input are refused", () => {
   const { canvas } = fresh();
   assert.throws(() => canvas.make("woody", { title: "", source: "x" }), /title/);

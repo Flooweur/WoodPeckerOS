@@ -2,7 +2,7 @@
 
 What you see when the VM boots: a black screen with the lattice in its top right corner. Source in `hud/`, NixOS module in `nix/locked/hud.nix`.
 
-This is the frame of the redesign ([VISION.md](VISION.md)): the small part of the screen that Woody cannot change. The rest of the screen is Woody's canvas, where its things are shown. Woody itself cannot put a thing there yet: that is Phase 7d ([PLAN.md](PLAN.md)). Until then a thing is made by hand, as described under "The canvas".
+This is the frame of the redesign ([VISION.md](VISION.md)): the small part of the screen that Woody cannot change. The rest of the screen is Woody's canvas, where its things are shown. Ask Woody for something ("show me a clock that runs backwards") and it puts a thing there.
 
 The frame can be used from two places: the VM's own screen, and your browser on the Windows host.
 
@@ -53,9 +53,19 @@ A thing is a small live program Woody put on the canvas: a clock, a list, a char
 - **A thing that does not work is not shown.** A thing appears once it says it is running. One that never does, or that tries to leave its frame, is covered with the reason.
 - The canvas is the same on the VM's screen and in your Windows browser, and survives restarts.
 
+### How Woody makes a thing
+
+- For something a ready part covers, Woody places a part of the **kit** (text, note, list, table, chart, clock, meter, picture, buttons, input). It appears in about a second.
+- For anything else it writes a brief and a **maker** writes the thing: about ten seconds with the everyday model, less for something small, more for something intricate. While it is being made, the voice line says so.
+- The new thing is **tried on the screen** before it is kept. If it does not start, the canvas stays as it was and Woody tells you.
+- While you have **paused** Woody it cannot change the canvas.
+- A kit button or input, or a made thing that was asked to, can **tell Woody** that something happened on it. Woody then wakes for that event.
+
+Details are in [AGENT.md](AGENT.md), under "Making things".
+
 ### Making a thing by hand
 
-Until Woody can make things itself, or to try one, use the command line on the VM. A thing's source is an HTML fragment (markup, a `<style>` and a `<script>`). The samples of the Phase 7a spike are ready to use: `clock`, `backclock`, `list`, `meters` and `note` in `/etc/woodpecker/source/spikes/phase7/canvas/things/` (the system's own copy of the repository).
+To try a thing yourself, use the command line on the VM. A thing's source is an HTML fragment (markup, a `<style>` and a `<script>`). The samples of the Phase 7a spike are ready to use: `clock`, `backclock`, `list`, `meters` and `note` in `/etc/woodpecker/source/spikes/phase7/canvas/things/` (the system's own copy of the repository).
 
 ```bash
 sudo -u woody-hud woody-hud canvas make "Backwards clock" /etc/woodpecker/source/spikes/phase7/canvas/things/backclock.html --why "trying the canvas"
@@ -68,6 +78,7 @@ sudo -u woody-hud woody-hud canvas list
 | Command | What it does |
 |---|---|
 | `canvas make <title> <file> [--why text] [--pretend] [--for woody] [--at x,y,w,h]` | Puts a new thing on the canvas |
+| `canvas kit <part> '<values as JSON>' [--title text]` | Puts a kit part on the canvas, for example `canvas kit clock '{"timezone":"Asia/Tokyo"}'` |
 | `canvas change <id> <file> [--why text] [--title text]` | A new version of a thing |
 | `canvas place <id> <x> <y> [w] [h]` | Moves or resizes it |
 | `canvas remove <id>` and `canvas bring_back <id>` | Takes it off the canvas, puts it back |
@@ -75,14 +86,14 @@ sudo -u woody-hud woody-hud canvas list
 | `canvas undo` | Takes back the last change (as you) |
 | `canvas list`, `canvas get <id>`, `canvas history [n]` | What is there, one thing with its source, the latest changes |
 
-These requests are made the way Woody will make them, so a pinned thing refuses them. Add `--as you` to act as yourself. The file must be readable by the `woody-hud` user, which your home directory is not: use the system's copy as above, or copy your own file to `/tmp` first.
+These requests are made the way Woody makes them: a pinned thing refuses them, Pause refuses them, and a new thing that does not start is taken back. Add `--as you` to act as yourself. The file must be readable by the `woody-hud` user, which your home directory is not: use the system's copy as above, or copy your own file to `/tmp` first.
 
 ### How a thing is kept and served
 
 - The gateway keeps the things under `/var/lib/woody-hud/canvas/`: each version's source, each thing's saved state, the layout, and `changes.jsonl`, the append-only record of changes. Woody's user cannot write there.
 - A thing is served at `/thing/<key>`, where the key is an unguessable name for that one thing. The page is sent with a policy that allows inline code only and forbids every network use, and the frame shows it with `sandbox="allow-scripts"`. The WebRTC interfaces are removed before the thing's code runs.
 - The frame page may only show frames from `/thing/` and `/term/`, so a thing cannot take its frame anywhere else.
-- A thing talks to the frame through the bridge (`window.woody`): `ready()`, `state.get()` and `state.set(value)` for its own saved state, `subscribe("meters", fn)` for the machine's readings. The frame knows which thing is speaking from the window the message came from.
+- A thing talks to the frame through the bridge (`window.woody`): `ready()`, `state.get()` and `state.set(value)` for its own saved state, `subscribe("meters", fn)` for the machine's readings, and `emit(name, data)` to tell Woody that something happened. The frame knows which thing is speaking from the window the message came from.
 
 ### The lattice
 

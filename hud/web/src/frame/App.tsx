@@ -128,6 +128,8 @@ export function App() {
   const [menu, setMenu] = useState(false);
   const [canvas, setCanvas] = useState<CanvasState>({ things: [], undo: null });
   const [canvasResult, setCanvasResult] = useState<CanvasResult | null>(null);
+  /** The thing Woody is making right now, shown in the voice line until it is on the canvas. */
+  const [making, setMaking] = useState<{ call: string; what: string } | null>(null);
   /** Lines of the conversation older than this are no longer shown by the voice line. */
   const [voiceFloor, setVoiceFloor] = useState(0);
   const [now, setNow] = useState(Date.now());
@@ -185,12 +187,20 @@ export function App() {
           const name = String(msg.name ?? "").replace(TOOL_PREFIX, "");
           setSession((s) => ({ ...s, steps: s.steps + 1 }));
           if (name === "web_search" || name === "web_fetch") setOverlay("web");
+          if (name === "thing_make" || name === "thing_change" || name === "kit_place") {
+            const title = typeof msg.input?.title === "string" ? `"${msg.input.title}"` : msg.input?.id ? `thing ${msg.input.id}` : "a thing";
+            setMaking({ call: String(msg.id), what: `${name === "thing_change" ? "CHANGING" : "MAKING"} ${title.toUpperCase()}` });
+          }
           show(SAVING_TOOLS.includes(name) ? "saved" : "tool");
           break;
         }
+        case "tool_result":
+          setMaking((m) => (m && m.call === msg.id ? null : m));
+          break;
         case "result":
           setSession((s) => ({ ...s, cost: typeof msg.cost_usd === "number" ? msg.cost_usd : s.cost }));
           setOverlay(null);
+          setMaking(null);
           break;
         case "error":
           show("problem");
@@ -306,7 +316,7 @@ export function App() {
         case "canvas_result": {
           setCanvasResult({ seq: ++mindSeq.current, rid: msg.rid ?? null, op: String(msg.op), ok: Boolean(msg.ok), result: msg.result, error: msg.error });
           // A refusal of something the operator did on the canvas is said out loud.
-          if (!msg.ok && !String(msg.rid ?? "").startsWith("b")) {
+          if (!msg.ok && !String(msg.rid ?? "").startsWith("b") && msg.rid !== "viewport") {
             const key = nextKey.current++;
             setNotices((prev) => [...prev.slice(-3), { key, title: "The canvas refused that", body: String(msg.error ?? ""), level: "warn" }]);
             window.setTimeout(() => setNotices((prev) => prev.filter((n) => n.key !== key)), 15000);
@@ -766,7 +776,7 @@ export function App() {
           {showState && (
             <div className={`voice-state ${alertState || trouble ? "alert" : ""}`}>
               <StateMark state={mindName} />
-              <span>{trouble || headline}</span>
+              <span>{trouble || making?.what || headline}</span>
             </div>
           )}
           {needs > 0 && (

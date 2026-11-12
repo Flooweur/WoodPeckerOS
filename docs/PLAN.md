@@ -38,7 +38,7 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 | 4 | The mind loop: events, memory, goals, journal, alarms, pacer, web reading | Built; 4c, 4d and 4e await the VM test |
 | 5 | The first full HUD | Built; awaits the VM test |
 | 6 | Change of goal: security material removed, documents rewritten | Done (2026-11-12); awaits the VM rebuild |
-| 7 | **The canvas**: the frame, things, the kit, making | 7a and 7b done. 7c (things) built; awaits the VM test. 7d (making) is next |
+| 7 | **The canvas**: the frame, things, the kit, making | Built (7a to 7d). 7d (making) awaits the VM test |
 | 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | Planned |
 | 9 | **Learning and showing**: open reading, studies, explainers, web pictures | Planned |
 | 10 | **Reshaping itself**: free change of its own program | Planned |
@@ -188,13 +188,34 @@ Built and run in a container with the VM's own Chromium build (157), headless, t
 - **Two new records,** Things and Changes, and undo in the lattice menu.
 - **By hand:** `woody-hud canvas ...` makes, changes, places and removes things the way Woody will, for trying the canvas before 7d.
 - Changed while building: the strip first appeared when the pointer was anywhere on a thing. That relied on the pointer being tracked over a sealed frame and would have covered the thing's top row while using it. It is now a band of the frame's own.
-- Not in 7c: files in a thing's own folder (only one saved value per thing for now), and a thing telling Woody that something happened (it arrives with 7d, when Woody is connected to the canvas).
+- Not in 7c: files in a thing's own folder (only one saved value per thing for now). A thing telling Woody that something happened came with 7d.
 - Tested:
   - the store's rules: 7 tests that run in the build;
   - a scripted browser run with the real gateway and the VM's Chromium build, 36 checks: things appear and start; a broken one is not shown; drag, resize, pin, close and undo work and are kept; Woody's attempts on a pinned thing are refused and recorded; a new version reloads; saved state survives a reload; the records show sources, versions, changes and refusals; everything survives a gateway restart;
   - isolation under the real gateway: a hostile thing tried 15 ways out, all blocked, nothing reached a listener, and it could not write another thing's state.
 - Limit of that run: the scripted pointer does not enter a sealed frame, so clicking inside a thing was not exercised by pointer there. It was on the VM's screen during the 7a run.
 - Not yet seen in the VM.
+
+## Phase 7d results (2026-11-12): making
+
+- **Woody is connected to the canvas.** The gateway opens a connection to the agent's socket; Woody's requests arrive on it and are held to its rules: no pinning, unpinning or undoing, nothing on a pinned thing, and nothing at all while the operator has paused it (the gateway asks the executor).
+- **Seven tools** (`agent/src/canvas.ts`): `canvas_look`, `thing_source`, `kit_place`, `thing_make`, `thing_change`, `thing_place`, `thing_remove`.
+- **The kit** (`hud/server/kit.ts`): text, note, list, table, chart, clock, meter, picture, buttons, input. A part is written by the gateway from a few values and becomes an ordinary thing. No model is involved.
+- **The maker.** Changed from the plan's "Woody writes the code": Woody writes a brief, and a separate model call writes the thing. This keeps code out of Woody's own context, and lets the model fit the job: Haiku 5.5 for small, Sonnet 5.5 by default, Opus 5.5 for hard, Fable 5.2 only when the operator asks for the strongest.
+- **The trial on the screen.** A new or changed thing of Woody's is kept only if the frame reports that it started. Otherwise the gateway takes the change back and says why; the maker gets one more attempt by the next stronger model.
+- **While it is made,** the voice line says what is being made. There is no placeholder at the thing's future place: the place is only chosen once the thing exists.
+- **Events from things** reach Woody as wake-ups (six a minute per thing, sixty an hour in all). They are not operator messages.
+- A session that has read the web cannot change the canvas.
+- Found by the scripted check: a form never submits inside a sealed frame. The kit's input uses a button and the Enter key instead, and the maker is told.
+- Not done:
+  - the maker's cost is added to the monthly total but not to a goal's own budget;
+  - the maker runs at the model's default effort, which may be slower than the Phase 7a measurements (those were at low effort);
+  - Woody acting on the canvas on its own (Phase 8).
+- Tested:
+  - the gateway's rules: 11 tests in the build (the store, taking back a change that does not start, the kit and its refusals);
+  - the agent's side: 8 more tests in the build (43 in all): the link, the choice of model, the second attempt, refusals that are final;
+  - the scripted browser check with the real gateway and the VM's Chromium, with the script playing Woody on the link: 61 checks. Every kit part starts on the screen; a thing that does not start is refused and the canvas is as before; a failed change returns to the earlier version; Pause refuses; a pinned thing refuses; a button and a typed line reach Woody; a flood of events is cut at six.
+- Not tested: anything with a real model. The first real thing Woody makes will be in the VM.
 
 ## Architecture
 
@@ -268,7 +289,7 @@ The body. After this phase, "show me a clock that runs backwards" works.
   - The change log with one-step undo. Pinning is enforced by the gateway.
   - Two new records, changes and things, and undo in the lattice menu.
   - The WebRTC interfaces removed from a thing's page (found by the 7a spike).
-- **7d. Making.**
+- **7d. Making.** Built: see "Phase 7d results".
   - Woody's canvas tools: make, change, place, remove, look.
   - The hidden test load before a thing is shown; a placeholder while it is made.
   - The first kit: text, note, list, table, chart, clock, meter, picture, buttons, input.
