@@ -222,7 +222,7 @@ What follows from it:
 | Step | State |
 |---|---|
 | A | Done, tested in the VM (commit `46e03f2`). Not done: one snapshot script instead of two, a formatter and a linter |
-| B | Done except recall by meaning: the session object, the policy table, the loop under test (9 tests against a scripted model), the loop's file split in eight, the in-process checker removed, two ledgers, the tokens of each session recorded. The rules text is drafted for the operator to read ([RULES-DRAFT.md](RULES-DRAFT.md)). The gateway (1,261 lines) and the frame's main file (1,125 lines) are not split yet |
+| B | Done: the session object, the policy table, the loop under test (9 tests against a scripted model), the loop's file split in eight, the in-process checker removed, two ledgers, the tokens of each session recorded, recall by meaning with a local model (bge-m3). The rules text is drafted for the operator to read ([RULES-DRAFT.md](RULES-DRAFT.md)). Not done: the gateway (1,261 lines) and the frame's main file (1,125 lines) are not split yet |
 
 ### The order that follows
 

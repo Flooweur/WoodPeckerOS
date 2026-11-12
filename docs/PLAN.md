@@ -42,7 +42,7 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 | 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | 8a (inner state) done, tested in the VM. 8b (a life of its own) and 8c (identity and face) built; they await the VM test |
 | 9 | **Learning and showing**: open reading, studies, explainers, web pictures | Built in three steps (9a open reading, 9b studies and explainers, 9c web pictures); awaits the VM test |
 | 10 | **Reshaping itself**: free change of its own program | 10a (the wall around the protections) and 10b (methods as data) done, tested in the VM. 10c and 10d are replaced by the decisions of the review: see [REVIEW.md](REVIEW.md) |
-| R | **The review** of 2026-11-12: restructuring, the workbench, the canvas carrying data, the web rule by consequence, the trust dial, the HUD split | Steps A and B done and tested in the VM, except recall by meaning. Next: the rules text (drafted, to be read), recall by meaning, then step C, the workbench. See [REVIEW.md](REVIEW.md) |
+| R | **The review** of 2026-11-12: restructuring, the workbench, the canvas carrying data, the web rule by consequence, the trust dial, the HUD split | Steps A and B done. Next: the rules text (drafted, to be read), then step C, the workbench. See [REVIEW.md](REVIEW.md) |
 | 11 | **Sound and voice** | Planned |
 | 12 | **Programs on the canvas** | Planned |
 | 13 | **Universal pipes**: outputs of things wired to inputs of things, the machine, Woody and approved actions | Planned (decided 2026-11-12) |
@@ -336,7 +336,7 @@ Ordinary watchers react to bytes. A trigger reacts to what a change means for th
 - The API key sits in a root-only file outside the repository. Encrypting it in the repository (sops-nix) was planned and dropped as unneeded; the unused input was removed.
 - Approval requests are held in the executor's memory and are lost if it restarts.
 - Whether the subscription token can replace the API key for a long-running service.
-- Recall by meaning with a local embedding model: decided by the review, to be built (step B).
+- Recall by meaning covers memories only; the journal and the conversation are still searched by words.
 - Helper workers running in parallel under the mind.
 - A phone notification that carries no content.
 - An Xorg-based kiosk as the route to real graphics acceleration. The canvas makes this more valuable: animation is limited by software rendering today.

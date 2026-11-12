@@ -225,6 +225,25 @@ These tests are the exit criteria for the memory work.
 | Rollback | After a system rollback, memory is intact and the journal mentions the rollback |
 | Delete | You delete a memory; it no longer influences answers |
 
+### Recall by meaning
+
+Code: `agent/src/core/embed.ts`, the vectors in `agent/src/core/store.ts`, the service in `nix/modules/embed.nix`.
+
+Memory was searched by words only, so a question about a "trip" missed a memory about a "holiday". Now it is also searched by meaning.
+
+- **The model** is bge-m3, which understands French and English among a hundred languages. It runs on this machine as its own service (`woody-embed`), with no network, no rights and nothing writable. Nothing leaves the machine.
+- **Each memory gets a vector**: a list of numbers that stands for its meaning. The pulse gives vectors to new memories, sixteen at a time.
+- **A search uses both ways.** The words of the question are searched as before, the question's vector is compared with every memory's, and the two lists are merged. A memory found both ways comes first.
+- **Nothing is returned for the sake of it.** Something is always "closest"; a memory is kept only if it stands out clearly from the rest.
+- **Where it is used:** the memories put in front of Woody with your message or with an event, and the `memory_search` tool.
+- **If the service is down or slow,** the search by words stands alone. Recall never fails and never holds an answer back.
+
+Limits to know:
+
+- Only memories have vectors. The journal and the conversation are still searched by words.
+- The memory list in the HUD searches by words.
+- On the VM's processor one lookup takes a fraction of a second. On a machine with a GPU it is instant.
+
 ## 5. Pacing
 
 - The monthly cap ($100) bounds everything, your conversations included.

@@ -10,10 +10,16 @@ import http from "node:http";
 import { WebSocketServer } from "ws";
 import { createAgent } from "./agent.js";
 import { configFromEnv } from "./config.js";
+import { httpEmbedder } from "./embed.js";
 import { ExecutorClient } from "./executor.js";
 
 const cfg = configFromEnv();
-const agent = createAgent({ cfg, exec: new ExecutorClient(cfg.execSocket) });
+const agent = createAgent({
+  cfg,
+  exec: new ExecutorClient(cfg.execSocket),
+  // Recall by meaning, when the machine runs an embedding model (docs/MIND.md).
+  embedder: cfg.embedUrl && cfg.embedModel ? httpEmbedder({ url: cfg.embedUrl, model: cfg.embedModel, queryPrefix: cfg.embedQueryPrefix, passagePrefix: cfg.embedPassagePrefix }) : undefined,
+});
 
 const server = http.createServer((_req, res) => {
   res.writeHead(426, { "content-type": "text/plain" });

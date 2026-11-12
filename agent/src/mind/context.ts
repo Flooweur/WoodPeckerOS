@@ -130,7 +130,7 @@ function contextBlock(store: Store, thread: number, userText: string, fresh: boo
   }
 
   const coreIds = new Set(store.coreMemories().map((m) => m.id));
-  const relevant = store.searchMemories(userText, { limit: RELEVANT_MEMORIES + coreIds.size }).filter((m) => !coreIds.has(m.id));
+  const relevant = store.relevantMemories(userText, { limit: RELEVANT_MEMORIES + coreIds.size }).filter((m) => !coreIds.has(m.id));
   if (relevant.length) {
     lines.push("", "Memories that may be relevant to this message:");
     for (const m of relevant.slice(0, RELEVANT_MEMORIES)) lines.push(memoryLine(m));

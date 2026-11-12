@@ -11,6 +11,7 @@ This document says how the system works today (2026-11-12, after steps A and B o
 | The HUD gateway (`woody-hud`) | Serves the screen, keeps the canvas, carries your approvals to the executor | `woody-hud` | `hud/server/` |
 | The frame | The fixed part of the screen: the lattice, its menu, the records, the approval prompt | the kiosk's browser | `hud/web/src/frame/` |
 | Things | What Woody puts on the canvas: small programs in sealed frames | the kiosk's browser, sandboxed | kept by the gateway in `/var/lib/woody-hud` |
+| The embedding service (`woody-embed`) | A small local model that turns a text into a vector, for recall by meaning. No network | `woody-embed` | `nix/modules/embed.nix` |
 | The system | NixOS, built from this repository, with snapshots before every change | | `flake.nix`, `nix/` |
 
 ## Who can talk to whom
@@ -20,6 +21,7 @@ This document says how the system works today (2026-11-12, after steps A and B o
 | `/run/woody/exec.sock` | The agent's user only | Requests for actions; waiting on approvals |
 | `/run/woody/approve.sock` | The HUD gateway's user, and root | Your decisions, Pause, the block list, the audit log |
 | `/run/woody-agent/agent.sock` | The HUD gateway's group, and root | Whoever speaks here speaks as you: messages, the records, Stop |
+| `/run/woody-embed/embed.sock` | The agent's user (through the service's group) | Texts in, vectors out |
 | The kiosk's browser | Loopback only (policy and a firewall rule) | The frame and the things |
 | The host door (HTTPS, port 7843) | The Windows host's address only, behind a password | The same HUD in your own browser |
 | Web fetches | The user `woody-web`, to public addresses on port 443 only (a firewall rule) | Pages and pictures, fetched by the executor |
@@ -47,6 +49,7 @@ Everything is under `agent/src/`. The whole directory is a locked path: it chang
 | `core/budget.ts` | The spend ledger and its two paces |
 | `core/rules.ts`, `core/methods.ts`, `core/prompt.ts` | What every session is told: the rules, the methods as shipped, and their order |
 | `core/web-tools.ts`, `core/web.ts`, `core/links.ts` | Reading the web: the tools, the quarantined reader, the addresses a session was given |
+| `core/embed.ts` | Recall by meaning: the client of the local embedding service, and how the search by words and the search by meaning are merged |
 | `core/models.ts`, `core/sdk.ts`, `core/config.ts` | The model names, the one place a model is called from, the settings |
 | `tools.ts`, `canvas.ts`, `mind/*.ts` | Woody's tools and what each kind of session is told |
 | `core/testing.ts`, `core/loop.test.ts` | A scripted model and the tests that run the whole loop against it |

@@ -15,8 +15,8 @@ import type { ExecutorClient } from "./executor.js";
 import type { Files } from "./files.js";
 import type { Aside } from "./model.js";
 import type { SessionState } from "./session.js";
-import type { Message, QueueItem, Store, Study } from "./store.js";
-import type { WoodyStore } from "./woody-store.js";
+import type { Memory, Message, QueueItem, Store, Study } from "./store.js";
+import type { RecallOptions, WoodyStore } from "./woody-store.js";
 
 export type MindStateName = "attending" | "working" | "resting" | "sleeping" | "waiting" | "paused" | "out_of_allowance" | "pacing" | "no_credential" | "api_error";
 
@@ -81,6 +81,12 @@ export type Core = {
   recordAsideCost(model: string, cost: number): void;
   aside: Aside;
   failedUnits(): string[];
+
+  // ---- recall by meaning (embed.ts) ----
+  /** Memories for a text, found by words and, when the machine has an embedding model, by meaning. Never fails: it falls back to words. */
+  recall(query: string, opts?: RecallOptions): Promise<Memory[]>;
+  /** Gives a vector to memories that have none yet. Returns how many. */
+  embedPending(max?: number): Promise<number>;
 
   // ---- Woody's tools ----
   /** The mind's store as Woody's tools may use it (woody-store.ts). */

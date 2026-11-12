@@ -24,6 +24,12 @@ export type Config = {
   awayMs: number;
   /** Moments of Woody's own run on this model, whatever the operator chose for the conversation. */
   ownModel: string;
+  /** Where the local embedding service listens, for recall by meaning ("unix:/run/woody-embed/embed.sock", or an http:// address). Without it, memory is searched by words only. */
+  embedUrl?: string;
+  embedModel?: string;
+  /** What some embedding models want in front of a question and of a stored text. */
+  embedQueryPrefix?: string;
+  embedPassagePrefix?: string;
   /** The default hours of Woody's day ("07:00"); the operator can change them from the HUD. */
   dayStart?: string;
   nightStart?: string;
@@ -43,6 +49,10 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
     systemEvery: Number(env.WOODY_SYSTEM_EVERY ?? "2"),
     awayMs: Number(env.WOODY_AWAY_MS ?? String(3 * 3_600_000)),
     ownModel: env.WOODY_OWN_MODEL ?? DEFAULT_MODEL,
+    embedUrl: env.WOODY_EMBED_URL || undefined,
+    embedModel: env.WOODY_EMBED_MODEL || undefined,
+    embedQueryPrefix: env.WOODY_EMBED_QUERY_PREFIX,
+    embedPassagePrefix: env.WOODY_EMBED_PASSAGE_PREFIX,
     dayStart: env.WOODY_DAY_START,
     nightStart: env.WOODY_NIGHT_START,
   };

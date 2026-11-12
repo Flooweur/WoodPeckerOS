@@ -120,6 +120,8 @@ let
         # The kiosk browser's own network policy (the firewall rule behind it
         # is in nix/locked/hud.nix).
         "nix/modules/kiosk.nix"
+        # Which model file the machine downloads and runs for recall by meaning.
+        "nix/modules/embed.nix"
       ];
     };
   });

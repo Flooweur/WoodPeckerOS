@@ -257,6 +257,8 @@ export function createDaily(core: Core) {
       }
       dailyBackup();
       scheduleDaily();
+      // Memories stored since the last pulse get their vector, for recall by meaning.
+      await core.embedPending().catch((err) => console.error("embedding failed:", err instanceof Error ? err.message : err));
     } catch (err) {
       console.error("pulse failed:", err instanceof Error ? err.message : err);
     } finally {

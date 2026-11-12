@@ -6,7 +6,7 @@
 // when a session starts and drops it when the session ends, so nothing of
 // one session can be left over in the next.
 import { GivenLinks, scrubLinks } from "./links.js";
-import type { QueueItem } from "./store.js";
+import type { Memory, QueueItem } from "./store.js";
 
 export type SessionStudy = { id: number; kind: "read" | "explain" };
 
@@ -60,6 +60,8 @@ export class SessionState {
   readonly touchedGoals = new Set<number>();
   /** Event ids of the session; each memory stored during it cites them. */
   turnSources: number[] = [];
+  /** What Woody remembers that may bear on this session, found by words and by meaning before it started: the text that was searched for, and what was found. */
+  recalled: { text: string; memories: Memory[] } | null = null;
   /** Messages from the operator that arrived while the session was running. */
   arrivals: Array<{ queueId: number; event: number; text: string }> = [];
 

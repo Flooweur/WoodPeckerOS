@@ -19,6 +19,7 @@
 // nothing important exists only in a model conversation. See docs/MIND.md.
 import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { blobToVector, vectorToBlob } from "./embed.js";
 import { METHODS, type MethodDefault } from "./methods.js";
 import { BUILTIN, FACE, IDENTITY, changedShare, checkDesign, nameProblem, remainingShare, type Design, type FaceKind } from "./self.js";
 
@@ -226,7 +227,7 @@ const MAX_OPEN_PROPOSALS = 10;
 const MAX_OPEN_INTERESTS = 12;
 const MAX_INTEREST_NOTES = 12;
 
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 const SCHEMA_V11 = `
 CREATE TABLE IF NOT EXISTS methods (
@@ -739,6 +740,13 @@ export class Store {
         this.setMeta("schema_version", "12");
       });
     }
+    if (version < 13) {
+      // Recall by meaning: one vector for each memory, made by a local embedding model (embed.ts).
+      this.tx(() => {
+        this.db.exec("CREATE TABLE IF NOT EXISTS memory_vectors (memory_id INTEGER PRIMARY KEY, model TEXT NOT NULL, vec BLOB NOT NULL)");
+        this.setMeta("schema_version", "13");
+      });
+    }
   }
 
   private tx<T>(fn: () => T): T {
@@ -1031,6 +1039,34 @@ export class Store {
     return row ? toMemory(row) : null;
   }
 
+  /** The memories with these ids, in this order; ids that no longer exist are left out. */
+  memoriesByIds(ids: number[]): Memory[] {
+    return ids.map((id) => this.memory(id)).filter((m): m is Memory => m !== null);
+  }
+
+  // ---- recall by meaning: one vector for each current memory (embed.ts) ----
+
+  /** Current memories that have no vector from this model yet, oldest first. Vectors of memories that are gone are dropped on the way. */
+  memoriesWithoutVector(model: string, limit: number): Memory[] {
+    this.db.prepare("DELETE FROM memory_vectors WHERE memory_id NOT IN (SELECT id FROM memories)").run();
+    const rows = this.db
+      .prepare("SELECT m.* FROM memories m LEFT JOIN memory_vectors v ON v.memory_id = m.id AND v.model = ? WHERE m.superseded_by IS NULL AND v.memory_id IS NULL ORDER BY m.id LIMIT ?")
+      .all(model, limit) as Row[];
+    return rows.map(toMemory);
+  }
+
+  setMemoryVector(id: number, model: string, vec: Float32Array): void {
+    this.db.prepare("INSERT OR REPLACE INTO memory_vectors (memory_id, model, vec) VALUES (?, ?, ?)").run(id, model, vectorToBlob(vec));
+  }
+
+  /** The vectors of the current memories, for this model. */
+  memoryVectors(model: string, kind?: MemoryKind): Array<{ id: number; vec: Float32Array }> {
+    const rows = this.db
+      .prepare(`SELECT v.memory_id AS id, v.vec AS vec FROM memory_vectors v JOIN memories m ON m.id = v.memory_id WHERE v.model = ? AND m.superseded_by IS NULL ${kind ? "AND m.kind = ?" : ""}`)
+      .all(...(kind ? [model, kind] : [model])) as Row[];
+    return rows.map((r) => ({ id: Number(r.id), vec: blobToVector(r.vec as Uint8Array) }));
+  }
+
   /** A memory with all its earlier versions, newest first. */
   history(id: number): Memory[] {
     const chain: Memory[] = [];
@@ -1105,6 +1141,15 @@ export class Store {
       });
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, opts.limit ?? 8).map((s) => s.memory);
+  }
+
+  /** Memories that may bear on a text. The store itself searches by words; the loop's view of it adds what was found by meaning (woody-store.ts, embed.ts). */
+  relevantMemories(text: string, opts: { limit?: number; kind?: MemoryKind; includeSuperseded?: boolean } = {}): Memory[] {
+    return this.searchMemories(text, opts);
+  }
+
+  async recall(query: string, opts: { limit?: number; kind?: MemoryKind; includeSuperseded?: boolean } = {}): Promise<Memory[]> {
+    return this.searchMemories(query, opts);
   }
 
   /** What is always in context: pinned memories and the operator's preferences. */

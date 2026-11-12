@@ -33,6 +33,7 @@ import { CanvasLink } from "./canvas-link.js";
 import { API_ERROR, HISTORY_MESSAGES, MAX_EXPRESSED_PER_SESSION, type Config } from "./config.js";
 import type { Client, Core, ExecPort, MindStateName, Persisted, ToolEntry } from "./core.js";
 import { createDaily } from "./daily.js";
+import { fuse, nearest, type Embedder } from "./embed.js";
 import { Files } from "./files.js";
 import { gatedExec, gatedLink, gatedNotify, type Session } from "./gate.js";
 import { createLife } from "./life-now.js";
@@ -46,15 +47,17 @@ import { createQueue } from "./queue-loop.js";
 import { TOOL_SERVER_NAME } from "./rules.js";
 import { createSessions } from "./run-session.js";
 import { query } from "./sdk.js";
-import { Store, type Message } from "./store.js";
+import { Store, type Memory, type Message } from "./store.js";
 import { createWebTools, type WebHooks } from "./web-tools.js";
-import { woodyStore, type StoreSession } from "./woody-store.js";
+import { woodyStore, type RecallOptions, type StoreSession } from "./woody-store.js";
 
 export type AgentDeps = {
   cfg: Config;
   exec: ExecPort;
   /** Whether a key for the model API is configured. Defaults to looking at the environment. */
   hasCredential?: () => boolean;
+  /** The local embedding model, for recall by meaning. Without it, memory is searched by words only. */
+  embedder?: Embedder;
 };
 
 export type Agent = Core & {
@@ -293,7 +296,43 @@ export function createAgent(deps: AgentDeps): Agent {
     return out;
   }
 
-  Object.assign(core, { send, broadcast, moment, note, stateMessage, historyMessage, historyItem, setMind, hasCredential, noteApiFailure, recordBackgroundCost, recordAsideCost, aside, failedUnits });
+  // ---- recall by meaning -------------------------------------------------------
+
+  const embedder = deps.embedder;
+  let embedFailures = 0;
+
+  /**
+   * Memories for a text: by words always, and by meaning when the machine has
+   * an embedding model. The two lists are merged. If the model does not answer,
+   * the search by words stands alone: recall never fails and never waits long.
+   */
+  async function recall(query: string, opts: RecallOptions = {}): Promise<Memory[]> {
+    const limit = opts.limit ?? 8;
+    const words = store.searchMemories(query, { ...opts, limit: Math.max(limit, 20) });
+    // Replaced memories have no vector: a search that includes them is by words.
+    if (!embedder || opts.includeSuperseded || !query.trim()) return words.slice(0, limit);
+    try {
+      const [q] = await embedder.embed([query.slice(0, 2000)], "query");
+      const near = nearest(q!, store.memoryVectors(embedder.model, opts.kind), 20);
+      embedFailures = 0;
+      return store.memoriesByIds(fuse([words.map((m) => m.id), near], limit));
+    } catch (err) {
+      if (embedFailures++ === 0) console.error("recall by meaning is not available, searching by words:", err instanceof Error ? err.message : err);
+      return words.slice(0, limit);
+    }
+  }
+
+  /** Gives a vector to memories that have none yet, a few at a time (called by the pulse). */
+  async function embedPending(max = 16): Promise<number> {
+    if (!embedder) return 0;
+    const todo = store.memoriesWithoutVector(embedder.model, max);
+    if (!todo.length) return 0;
+    const vectors = await embedder.embed(todo.map((m) => `${m.subject ? `${m.subject}: ` : ""}${m.statement}`.slice(0, 2000)), "passage");
+    todo.forEach((m, i) => store.setMemoryVector(m.id, embedder.model, vectors[i]!));
+    return todo.length;
+  }
+
+  Object.assign(core, { send, broadcast, moment, note, stateMessage, historyMessage, historyItem, setMind, hasCredential, noteApiFailure, recordBackgroundCost, recordAsideCost, aside, failedUnits, recall, embedPending });
 
   // ---- what Woody's tools are handed ---------------------------------------------
   //
@@ -328,6 +367,8 @@ export function createAgent(deps: AgentDeps): Agent {
     study: () => core.session?.study ?? null,
     takeSources: () => core.session?.pages.splice(0) ?? [],
     madeThing: () => core.session?.made ?? null,
+    recalled: (text) => (core.session?.recalled?.text === text ? core.session.recalled.memories : null),
+    recall,
   };
   const woody = woodyStore(store, session);
   const woodyExec = gatedExec(exec, session);
