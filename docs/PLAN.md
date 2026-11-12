@@ -38,7 +38,7 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 | 4 | The mind loop: events, memory, goals, journal, alarms, pacer, web reading | Built; 4c, 4d and 4e await the VM test |
 | 5 | The first full HUD | Built; awaits the VM test |
 | 6 | Change of goal: security material removed, documents rewritten | Done (2026-11-12); awaits the VM rebuild |
-| 7 | **The canvas**: the frame, things, the kit, making | 7a (spikes) built and run in a container; awaits the VM run. 7b is next |
+| 7 | **The canvas**: the frame, things, the kit, making | 7a (spikes) done. 7b (the frame) built; awaits the VM test. 7c (things) is next |
 | 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | Planned |
 | 9 | **Learning and showing**: open reading, studies, explainers, web pictures | Planned |
 | 10 | **Reshaping itself**: free change of its own program | Planned |
@@ -147,7 +147,7 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 
 ## Phase 7a results (2026-11-12): spikes for the canvas
 
-Built and run in a container with the VM's own Chromium build (157), headless. The run in the VM (frame rates on the real screen, and the making benchmark, which needs the API key) is still to do: see `spikes/phase7/README.md`.
+Built and run in a container with the VM's own Chromium build (157), headless, then run in the VM.
 
 - **The design under test:** a thing's source is a fragment; the server wraps it in a document it owns and sends it with a policy that forbids every network use; the frame shows it with `sandbox="allow-scripts"`; the bridge is `postMessage`, and the frame page identifies the sender by its window.
 - **Isolation:** a hostile thing tried 33 ways out (requests of every kind, navigation, popups, reading the frame page and its token, other things' documents and saved state, forged bridge messages, storage, dialogs, the clipboard). 32 were blocked as designed.
@@ -157,8 +157,27 @@ Built and run in a container with the VM's own Chromium build (157), headless. T
 - **Things may be served from the gateway's own address.** Serving them from a second site changed nothing for isolation.
 - **The making benchmark** (four models, three requests) works end to end against a stand-in for the API, and what it saved started in the sandbox.
 - Added for this and later tests: root can point the kiosk at a local test page (`/run/woody-kiosk-page`).
-- Not yet known: frame rates on the software-rendered screen, and the time and cost of making with each model.
+- **Run in the VM (same day).** Details in `spikes/phase7/README.md`.
+  - Frame rate at 1718 by 920: 59 fps with the frame page alone, 65 to 70 with 5, 10 and 20 things, 41 to 47 at the slowest 1%. Adding things costs nothing measurable.
+  - Isolation in the kiosk: all 33 ways out blocked, no leak. A thing burning the processor stalled the frame page 22 ms.
+  - Making, at low effort: a kit part takes about 1 s with any model. A new coded thing takes Sonnet 5.5 about 8 to 11 s and 1 to 2 cents; Haiku 5.5 5 to 20 s and a fraction of a cent; Opus 5.5 15 to 18 s and 4 to 5 cents; Fable 5.2 21 to 63 s and 9 to 26 cents. All eight things started in the sandbox and worked.
+  - Decided from this: things are served by the gateway itself; Sonnet 5.5 is the default maker, Haiku 5.5 for kit parts and small things, Opus 5.5 for a second attempt, Fable 5.2 when asked for.
 - Known limit of the test: it cannot see a name lookup (DNS). A thing has no way left to trigger one that we know of, but the kiosk should also get a network rule of its own in 7b.
+
+## Phase 7b results (2026-11-12): the frame
+
+- The three-column HUD is replaced by the frame: a black canvas, the lattice in its corner with its menu (Pause, Stop, the records), the voice line beside it, a typing line that appears when you type anywhere, records that open below the lattice, and the approval prompt above everything. See [HUD.md](HUD.md).
+- Everything the old screen showed is a record. Nothing was dropped.
+- The source is split: `hud/web/src/frame/` holds the frame. The canvas will sit beside it. Both stay in the locked core until Phase 10 opens the canvas side to Woody.
+- The kiosk's browser is sealed from the network twice: it resolves no outside name, and a firewall rule lets the `kiosk` user reach the loopback address only.
+- Changed from the plan: the **changes** and **things** records and the **undo** and **mute** entries of the menu are not in 7b. They have nothing to show before the canvas exists, so they come with 7c (undo, changes, things) and Phase 11 (mute).
+- A mock of the gateway and the agent is now in the repository (`hud/dev/mock.cjs`).
+- Tested:
+  - in a browser against the mock: the menu, every record, typing anywhere, the reply appearing beside the lattice, a first boot with nothing said, phone width;
+  - the HUD package builds and the system evaluates;
+  - the firewall unit builds with NixOS's own ruleset check, and the rule was loaded for real in a container: the kiosk user reached loopback and nothing else;
+  - the resolver flag in the VM's Chromium build: an outside site no longer loads, the local page still works.
+- Not yet seen in the VM: the frame on the kiosk screen, typing with the French keyboard's dead keys, and the firewall rule on the real system.
 
 ## Architecture
 
@@ -218,18 +237,20 @@ The body. After this phase, "show me a clock that runs backwards" works.
   - Frame rate of the software-rendered kiosk with 5, 10 and 20 sandboxed things, one of them animated.
   - The isolation of a thing: it cannot use the network, read the access token, reach the frame or navigate the page.
   - Time and cost to make a thing with each model: a kit part, a small coded thing, a complex one.
-- **7b. The frame.**
+- **7b. The frame.** Built: see "Phase 7b results".
   - Split `hud/` into the frame (stays in the locked core) and the canvas (Woody's).
-  - The lattice in its corner with its menu: Stop, Pause, undo, mute, records.
+  - The lattice in its corner with its menu: Stop, Pause, the records.
   - The typing line and the voice line.
   - The approval prompt on the frame's own layer.
-  - Today's panels become the records behind the lattice, plus two new ones: changes and things.
+  - Today's panels become the records behind the lattice.
 - **7c. Things.**
   - A store for things with every version kept, in Woody's storage.
   - The sandboxed frame and the bridge: time, machine readings, a thing's own state and files, events to Woody.
   - The layout, saved and shared by both doors.
   - Direct handling: move, resize, pin, close, view source, ask why.
   - The change log with one-step undo. Pinning is enforced by the gateway.
+  - Two new records, changes and things, and undo in the lattice menu.
+  - The WebRTC interfaces removed from a thing's page (found by the 7a spike).
 - **7d. Making.**
   - Woody's canvas tools: make, change, place, remove, look.
   - The hidden test load before a thing is shown; a placeholder while it is made.

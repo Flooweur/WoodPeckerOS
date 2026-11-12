@@ -1,5 +1,8 @@
-// The views that open over the conversation: one goal, a new goal, the
-// journal, memory, who Woody is, and the settings.
+// The records: the views that open below the lattice. Some are drawn here
+// (one goal, a new goal, the journal, memory, who Woody is, the logs, the web
+// list, the terminal, the settings); the others are handed in by the frame,
+// which holds their data (what needs you, the conversation, the goals, the
+// activity, the machine).
 import { useEffect, useState } from "react";
 import type { AgentState, GatewayResult, Goal, Identity, JournalEntry, LogEntry, Memory, MindResult, Send } from "./types";
 import { TOOL_PREFIX, day, money, until } from "./types";
@@ -13,7 +16,12 @@ export type Panel =
   | { kind: "settings" }
   | { kind: "logs" }
   | { kind: "web" }
-  | { kind: "terminal" };
+  | { kind: "terminal" }
+  | { kind: "needs" }
+  | { kind: "talk" }
+  | { kind: "goals" }
+  | { kind: "activity" }
+  | { kind: "machine" };
 
 const STATUS: Record<string, string> = {
   inbox: "to be reviewed",
@@ -43,6 +51,7 @@ export function PanelView({
   smallLimit,
   expressions,
   setExpressions,
+  children,
 }: {
   panel: Panel;
   setPanel: (p: Panel | null) => void;
@@ -57,6 +66,8 @@ export function PanelView({
   smallLimit: number;
   expressions: boolean;
   setExpressions: (on: boolean) => void;
+  /** The body of a record the frame draws itself. */
+  children?: React.ReactNode;
 }) {
   const mind = (op: string, extra: Record<string, unknown> = {}) => tx({ type: "mind", op, ...extra });
   const [error, setError] = useState("");
@@ -74,7 +85,14 @@ export function PanelView({
     : panel.kind === "logs" ? "SYSTEM LOG"
     : panel.kind === "web" ? "WEB ALLOW-LIST"
     : panel.kind === "terminal" ? "TERMINAL"
+    : panel.kind === "needs" ? "NEEDS YOU"
+    : panel.kind === "talk" ? "CONVERSATION"
+    : panel.kind === "goals" ? "GOALS AND DUTIES"
+    : panel.kind === "activity" ? "ACTIVITY"
+    : panel.kind === "machine" ? "WOODY AND THE MACHINE"
     : "SETTINGS";
+  // The conversation scrolls by itself, like the terminal: it gets no padded body.
+  const bare = panel.kind === "terminal" || panel.kind === "talk";
 
   return (
     <section className="panel overlay" aria-label={title}>
@@ -87,7 +105,9 @@ export function PanelView({
       </header>
       {error && <div className="line problem">{error}</div>}
       {panel.kind === "terminal" && <Terminal available={door.terminal} />}
-      <div className="overlay-body" hidden={panel.kind === "terminal"}>
+      {panel.kind === "talk" && children}
+      <div className="overlay-body" hidden={bare}>
+        {!bare && children}
         {panel.kind === "logs" && <Logs tx={tx} gateway={gateway} />}
         {panel.kind === "web" && <WebList tx={tx} gateway={gateway} />}
         {panel.kind === "goal" && <GoalDetail id={panel.id} mind={mind} incoming={incoming} version={version} />}

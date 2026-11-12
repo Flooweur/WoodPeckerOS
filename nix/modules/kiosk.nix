@@ -9,6 +9,10 @@
 # this flag a page could use it to send packets to any address (found by the
 # Phase 7a spike).
 #
+# --host-resolver-rules: the browser only ever talks to this machine, so it
+# resolves no other name. With the firewall rule for the kiosk user in
+# nix/locked/hud.nix, nothing shown on this screen can reach the network.
+#
 # The session opens the bootstrap page written by the HUD gateway
 # (nix/locked/hud.nix), which loads the HUD with its access token.
 { lib, pkgs, settings, ... }:
@@ -40,6 +44,7 @@ let
           --disable-infobars \
           --disable-session-crashed-bubble \
           --webrtc-ip-handling-policy=disable_non_proxied_udp \
+          --host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost" \
           --user-data-dir="$HOME/.chromium-kiosk" \
           "--app=$1"
     }

@@ -1,5 +1,7 @@
-/* WoodPecker HUD: an amber terminal. Notched panels floating on black,
-   titles in inverse video, one shape per kind of event, segmented meters.
+/* The frame of WoodPecker-OS: a black canvas, the lattice in its corner, and
+   what the frame itself draws (the voice line, the menu, the records, the
+   typing line, the approval prompt). Amber on black, titles in inverse video,
+   one shape per kind of event, segmented meters.
    Red means "needs you" or "refused", nothing else.
    No blur, glow or large animation: the kiosk is software-rendered. */
 :root {
@@ -51,26 +53,69 @@ input, textarea, select { color: var(--text); padding: 7px 9px; }
 input[type="checkbox"] { accent-color: var(--amber); }
 :focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
 
-/* ---- frame ---- */
-.hud { height: 100%; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+/* ---- the frame ---- */
+.frame { position: relative; height: 100%; overflow: hidden; }
+.canvas { position: absolute; inset: 0; }
+.canvas-hint { position: absolute; left: 24px; bottom: 22px; max-width: 60ch; color: var(--dim); }
 
-.presence { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
-.notch { flex: 1 1 460px; min-width: 0; padding: 1px; background: var(--line-strong);
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px)); }
-.notch.alert { background: var(--red-line); }
-.notch-in { height: 100%; background: var(--panel); padding: 10px 18px; display: flex; align-items: center; gap: 16px; overflow: hidden;
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px)); }
 .tab { flex: none; background: var(--amber); color: var(--bg); font-weight: 700; letter-spacing: 0.16em; padding: 2px 10px; white-space: nowrap; }
 .tab.alert { background: var(--red); }
-.tab .code { font-weight: 400; color: inherit; }
-.sentence-text { flex: 1; min-width: 0; }
-.headline { font-size: 18px; font-weight: 700; letter-spacing: 0.12em; color: var(--amber); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.notch.alert .headline { color: var(--red-soft); }
-.sub { color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.5em; }
-.links { flex: none; display: flex; flex-direction: column; font-size: 10px; letter-spacing: 0.12em; line-height: 1.4; text-align: right; }
-.links .up { color: var(--dim); }
-.links .down { color: var(--red-soft); }
-.links .down::after { content: " ✕"; }
+.headline { font-size: 14px; font-weight: 700; letter-spacing: 0.12em; color: var(--amber); overflow-wrap: anywhere; }
+.sub { font-size: 12px; color: var(--soft); overflow-wrap: anywhere; }
+
+/* the lattice: the one fixed thing on the screen */
+.lattice-button { position: fixed; top: 16px; right: 16px; z-index: 7; width: 112px; height: 112px; min-height: 0; padding: 0; border: 0; background: transparent; letter-spacing: 0; }
+.lattice-button:hover:not(:disabled) { background: transparent; }
+.lattice-button.needs { outline: 1px solid var(--red-line); outline-offset: 5px; }
+.lattice-button .badge { position: absolute; top: -8px; left: -8px; min-width: 20px; height: 20px; padding: 0 5px; background: var(--red); color: var(--bg); font-weight: 700; font-size: 12px; line-height: 20px; text-align: center; }
+
+/* the voice line: beside the lattice, what Woody is doing and what was just said */
+.voice { position: fixed; top: 16px; right: 148px; z-index: 5; width: min(640px, calc(100% - 172px)); display: flex; flex-direction: column; align-items: flex-end; gap: 6px; pointer-events: none; }
+.voice > * { pointer-events: auto; }
+.voice-state { display: flex; align-items: center; gap: 8px; color: var(--amber); font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-align: right; }
+.voice-state.alert { color: var(--red-soft); }
+.voice-state .state-mark { width: 10px; height: 10px; border-width: 2px; }
+.voice-needs { min-height: 24px; padding: 0 8px; background: var(--red-bg); color: var(--red-soft); border-color: var(--red-line); font-size: 11px; }
+.voice-said { display: block; max-width: 100%; min-height: 0; padding: 0; border: 0; background: transparent; text-align: left; text-transform: none; letter-spacing: 0; font-size: 14px; line-height: 1.5; color: var(--text); }
+.voice-said:hover:not(:disabled) { background: transparent; }
+.voice-you { display: block; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.voice-you::before { content: "› "; }
+.voice-reply { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 16; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+.frame.with-record .voice-reply { -webkit-line-clamp: 3; }
+.frame.with-record .voice-you { display: none; }
+
+/* the lattice menu */
+.menu-backdrop { position: fixed; inset: 0; z-index: 6; }
+.menu { position: fixed; top: 140px; right: 16px; z-index: 7; width: min(320px, calc(100% - 32px)); max-height: calc(100% - 156px); overflow-y: auto; background: var(--panel); border: 1px solid var(--line-strong); }
+.menu-state { display: grid; gap: 2px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.menu-state.alert .headline { color: var(--red-soft); }
+.menu-list { display: grid; }
+.menu-list button { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 6px; align-items: center; min-height: 34px; padding: 0 12px;
+  border: 0; border-top: 1px solid var(--faint); background: transparent; color: var(--text); text-align: left; font-size: 13px; }
+.menu-list button .n { color: var(--dim); }
+.menu-list button.alert, .menu-list button.alert .n { color: var(--red-soft); }
+.menu-foot { padding: 8px 12px; border-top: 1px solid var(--line); font-size: 11px; color: var(--dim); }
+
+/* a record, below the lattice */
+.record-layer { position: fixed; inset: 140px 16px 16px 16px; z-index: 4; display: flex; }
+.record-layer > .overlay { border: 1px solid var(--line-strong); }
+
+/* the typing line: always present to catch keystrokes, visible once something is typed */
+.typing { position: fixed; left: 50%; bottom: 20px; z-index: 8; transform: translateX(-50%); width: min(820px, calc(100% - 32px));
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 1px; background: var(--line-strong); border: 1px solid var(--line-strong);
+  opacity: 0; pointer-events: none; }
+.typing.shown { opacity: 1; pointer-events: auto; }
+.typing label { display: flex; align-items: center; padding: 0 12px; background: var(--amber); color: var(--bg); font-weight: 700; }
+.typing textarea { min-height: 46px; max-height: 40vh; resize: none; border: 0; padding: 12px; background: var(--bg); field-sizing: content; }
+.typing textarea::placeholder { color: var(--dim); }
+.typing button { min-height: 46px; padding: 0 22px; border: 0; background: var(--panel); font-weight: 700; font-size: 13px; }
+.typing-note { grid-column: 1 / -1; padding: 3px 12px; background: var(--bg); color: var(--dim); font-size: 11px; }
+
+.record-layer .meters { max-width: 640px; padding-left: 0; }
+.links-row { display: flex; gap: 18px; }
+.links-row .up { color: var(--dim); }
+.links-row .down { color: var(--red-soft); }
+.links-row .down::after { content: " ✕"; }
 
 /* the state's own shape */
 .state-mark { flex: none; width: 16px; height: 16px; }
@@ -83,7 +128,7 @@ input[type="checkbox"] { accent-color: var(--amber); }
 .state-mark.paused { border-left: 5px solid var(--red-soft); border-right: 5px solid var(--red-soft); }
 .state-mark.api_error, .state-mark.no_credential { background: var(--red-soft); transform: rotate(45deg) scale(0.8); }
 
-.readouts { flex: 1 1 660px; min-width: 0; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.9fr) minmax(0, 1.35fr) minmax(0, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.readouts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
 .readout { background: var(--panel); padding: 7px 12px; min-width: 0; overflow: hidden; }
 .readout .label { font-size: 11px; letter-spacing: 0.14em; color: var(--dim); }
 .readout .value { font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -103,21 +148,10 @@ input[type="checkbox"] { accent-color: var(--amber); }
 .bar.small > .amber { background: repeating-linear-gradient(90deg, var(--amber) 0 4px, transparent 4px 6px); }
 .bar.small > .red { background: repeating-linear-gradient(90deg, var(--red) 0 4px, transparent 4px 6px); }
 
-.columns { flex: 1; min-height: 0; display: flex; flex-wrap: wrap; gap: 10px; }
-.col { flex: 1 1 320px; max-width: 380px; min-width: 0; height: 100%; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; overflow-x: hidden; }
-.centre { flex: 999 1 560px; min-width: 0; height: 100%; min-height: 420px; display: flex; flex-direction: column; border: 1px solid var(--line); background: var(--panel); }
-
 /* ---- panels ---- */
 .panel { position: relative; flex: none; background: var(--panel); border: 1px solid var(--line); overflow: hidden; }
 .panel.strong { border-color: var(--line-strong); }
 .panel.alert { border-color: var(--red-line); background: var(--red-bg); }
-.panel.notch-tr { clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%); }
-.panel.notch-br { clip-path: polygon(0 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%); }
-.panel.notch-tr::after, .panel.notch-br::after { content: ""; position: absolute; right: 0; width: 17px; height: 1px; background: var(--line); transform-origin: 100% 50%; }
-.panel.notch-tr::after { top: 11px; transform: rotate(45deg); }
-.panel.notch-br::after { bottom: 11px; transform: rotate(-45deg); background: var(--line-strong); }
-.panel.alert.notch-tr::after { background: var(--red-line); }
-
 .panel-head { display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 0; min-height: 34px; }
 .leader { flex: 1; min-width: 8px; border-bottom: 1px dotted var(--line-strong); }
 .panel.alert .leader { border-color: var(--red-line); }
@@ -154,9 +188,6 @@ input[type="checkbox"] { accent-color: var(--amber); }
 .entry.duty .when { font-size: 12px; text-align: right; white-space: nowrap; }
 .entry.duty.off { color: var(--dim); }
 
-.doors { margin-top: auto; flex: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
-.doors button { min-height: 44px; border: 0; background: var(--panel); color: var(--text); text-align: left; padding: 0 12px; font-size: 13px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .code { color: var(--dim); }
 
 /* ---- the conversation, on a time spine ---- */
@@ -184,22 +215,12 @@ details.talk-row pre { margin: 6px 0 2px 90px; }
 pre { font: 12px/1.45 var(--font); color: var(--soft); background: var(--bg); border: 1px solid var(--line); padding: 10px; margin: 0;
   max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 
-.composer { flex: none; display: flex; align-items: stretch; gap: 1px; background: var(--line); border-top: 1px solid var(--line-strong); }
-.composer label { display: flex; align-items: center; padding: 0 12px; background: var(--amber); color: var(--bg); font-weight: 700; }
-.composer textarea { flex: 1; min-width: 0; min-height: 46px; max-height: 140px; resize: none; border: 0; padding: 12px; background: var(--bg); }
-.composer textarea::placeholder { color: var(--dim); }
-.composer button { min-height: 46px; padding: 0 22px; border: 0; background: var(--panel); font-weight: 700; font-size: 13px; }
 .legend { flex: none; display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 5px 12px; background: var(--bg); font-size: 11px; color: var(--dim); }
-.legend .keys { margin-left: auto; }
 .mark { flex: none; }
 
-/* ---- the mind ---- */
-.mind { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 16px; align-items: center; padding: 4px 12px 14px; }
+/* ---- the lattice's cells ---- */
 .lattice { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; }
 .lattice i { display: block; aspect-ratio: 1; }
-.mind dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; font-size: 12px; }
-.mind dt { color: var(--dim); letter-spacing: 0.1em; }
-.mind dd { margin: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 @keyframes lat-sweep { 0% { opacity: .12 } 18% { opacity: 1 } 55% { opacity: .12 } 100% { opacity: .12 } }
 @keyframes lat-pop { 0% { opacity: .12 } 6% { opacity: 1 } 22% { opacity: .12 } 100% { opacity: .12 } }
@@ -225,7 +246,7 @@ pre { font: 12px/1.45 var(--font); color: var(--soft); background: var(--bg); bo
 .meter.alert .column span { background: repeating-linear-gradient(0deg, var(--red) 0 5px, transparent 5px 7px); }
 .meter.alert .value { color: var(--red-soft); }
 
-/* ---- a panel opened over the conversation ---- */
+/* ---- the body of a record ---- */
 .overlay { flex: 1; min-height: 0; display: flex; flex-direction: column; border: 0; }
 .overlay-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 6px 22px 22px; }
 .stack { display: flex; flex-direction: column; gap: 8px; max-width: 900px; }
@@ -249,11 +270,9 @@ textarea { resize: vertical; }
 .log .msg { overflow-wrap: anywhere; white-space: pre-wrap; }
 .log .warn .msg { color: var(--amber); }
 .terminal { flex: 1; min-height: 0; width: 100%; border: 0; border-top: 1px solid var(--line); background: var(--bg); }
-.doors.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.col > .doors + .doors, .col > .panel + .doors { margin-top: auto; }
 
 /* ---- notices from Woody ---- */
-.notices { position: fixed; top: 96px; right: 20px; width: min(380px, calc(100% - 40px)); display: flex; flex-direction: column; gap: 8px; z-index: 5; }
+.notices { position: fixed; top: 140px; right: 16px; width: min(380px, calc(100% - 40px)); display: flex; flex-direction: column; gap: 8px; z-index: 9; }
 .notice { display: grid; gap: 4px; padding: 10px 12px; background: var(--panel); color: var(--text); border: 1px solid var(--line-strong); }
 .notice strong { color: var(--amber); }
 .notice span { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
@@ -285,12 +304,10 @@ pre.diff .del { color: var(--red-soft); }
 .blocked { height: 100%; display: grid; place-content: center; text-align: center; gap: 4px; padding: 20px; }
 .blocked h1 { color: var(--amber); letter-spacing: 0.3em; font-size: 22px; }
 
-/* ---- narrow windows: the columns stack and the page scrolls ---- */
-@media (max-width: 1100px) {
-  body { overflow: auto; }
-  .hud { height: auto; min-height: 100%; }
-  .columns { flex: none; }
-  .col { max-width: none; height: auto; overflow: visible; }
-  .centre { height: 70vh; order: -1; flex-basis: 100%; }
-  .readouts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* ---- narrow windows: the voice line moves below the lattice ---- */
+@media (max-width: 720px) {
+  .voice { top: 140px; right: 16px; width: calc(100% - 32px); }
+  .frame.with-record .voice-said { display: none; }
+  .frame.with-record .voice { top: 16px; right: 148px; width: calc(100% - 172px); }
+  .record-layer { inset: 140px 8px 8px 8px; }
 }

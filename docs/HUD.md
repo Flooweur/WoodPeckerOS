@@ -1,23 +1,45 @@
-# The HUD
+# The HUD: the frame
 
-What you see when the VM boots today: a full-screen page for talking to Woody and approving what it asks to do. Source in `hud/`, NixOS module in `nix/locked/hud.nix`.
+What you see when the VM boots: a black screen with the lattice in its top right corner. Source in `hud/`, NixOS module in `nix/locked/hud.nix`.
 
-This screen is due to be replaced. The redesign of 2026-11-12 ([VISION.md](VISION.md)) keeps only the lattice fixed, gives the rest of the screen to Woody as its canvas, and moves the views described here behind the lattice as records. Until that is built (Phase 7 in [PLAN.md](PLAN.md)), this document describes what runs.
+This is the frame of the redesign ([VISION.md](VISION.md)): the small part of the screen that Woody cannot change. The rest of the screen is Woody's canvas. It is empty until Phase 7c gives Woody the means to put things on it ([PLAN.md](PLAN.md)).
 
-The design was drafted and chosen on a canvas (proposal B, with the lattice mind panel). The HUD can be used from two places: the VM's own screen, and your browser on the Windows host.
+The frame can be used from two places: the VM's own screen, and your browser on the Windows host.
 
 ## The screen
 
-- **Top bar.** One sentence saying what Woody is doing, with a mark whose shape is different for each state. Then four readouts: the next alarm, the queue, the allowance, and the **Pause** and **Stop** switches.
-- **Left: Woody's mind in records.** "Needs you" (approvals, plans to accept, questions, proposals, identity changes), the goals in your order, the standing duties with their next run and weekly spend, and four doors: memory, journal, identity, settings.
-- **Centre: the conversation,** on a time spine. Each line carries the mark of its kind: circle for something said, square for a tool, triangle for a wake-up, diamond for a save, cross for a problem. Opening a goal or one of the four doors replaces the conversation until you close it.
-- **Right: the mind and the machine.** The lattice shows Woody's state, plays a short moment for each event, and has a few expressions. Under it: the activity stream, the machine's meters (read by the gateway from `/proc` every two seconds) and failed services.
-
-Under the right column are the machine's views: **LOGS** (the system journal, filtered by unit and severity), **WEB LIST** (the sites Woody may read; you can add and remove them) and, on the VM's own screen only, **TERMINAL**.
-
-Keys: `F2` new goal, `F5` memory, `F6` journal, `F7` identity, `F8` settings, `Esc` closes a panel or, with none open, stops Woody.
+- **The lattice,** top right, always there. It shows Woody's state, plays a short moment for each event, and has a few expressions. A red number on its corner counts what needs you.
+- **The voice line,** beside the lattice. While Woody is doing something, one sentence says what. What you wrote and what Woody answered appear here as it speaks, stay for a while (longer for a longer answer), then let go. Click them to open the whole conversation. At rest, with nothing said, there is only the lattice.
+- **The typing line.** Just start typing, anywhere: a line appears at the bottom with what you typed. Enter sends it, Shift+Enter adds a line, Esc clears it. You can send while Woody is working; it reads the message at its next step.
+- **The lattice menu.** Click the lattice. It shows what Woody is doing and the allowance, the **Pause** and **Stop** switches, and the records.
+- **A record** opens below the lattice and closes with Esc.
+- **The approval prompt** is drawn by the frame above everything else. Keyboard focus starts on **Deny**.
 
 Red is used only for what needs you or was refused. Nothing blurs or glows, because the kiosk is software-rendered.
+
+### The records
+
+Everything the three-column HUD showed is still there, one click or one key away.
+
+| Key | Record | What it holds |
+|---|---|---|
+| `F1` | Needs you | Approvals, plans to accept, questions, proposals, identity changes |
+| `F2` | New goal | The form to give Woody a goal |
+| `F3` | Goals | The goals in your order, and the standing duties with their next run and weekly spend |
+| `F4` | Conversation | Everything said, on a time spine. Each line carries the mark of its kind: circle for something said, square for a tool, triangle for a wake-up, diamond for a save, cross for a problem |
+| `F5` | Memory | What Woody remembers, with where each item came from |
+| `F6` | Journal | One entry per wake-up |
+| `F7` | Identity | Who Woody is, and the earlier versions |
+| `F8` | Settings | The model, the daily brief, the small-goal limit, the expressions |
+| `F9` | Machine | Woody's state, next alarm, queue and allowance; the machine's meters (read by the gateway from `/proc` every two seconds), failed services, and which services answer |
+| `F10` | Activity | The latest events |
+| | System log | The system journal, filtered by unit and severity |
+| | Web list | The sites Woody may read; you can add and remove them |
+| | Terminal | A shell, on the VM's own screen only |
+
+`Esc` lets go of one thing at a time: the line being typed, the menu, the open record and, with nothing open, Woody's current work.
+
+Two records of the design are not there yet, because they need the canvas: **changes** (every change with its reason and an undo) and **things**. They come with Phase 7c.
 
 ### The lattice
 
@@ -74,7 +96,7 @@ sudo openssl x509 -in /var/lib/woody-hud/tls/cert.pem -noout -fingerprint -sha25
 
 ## The terminal
 
-On the VM's own screen, **TERMINAL** opens a real shell.
+On the VM's own screen, **Terminal** in the lattice menu opens a real shell.
 
 - It shows a login prompt for your admin user: type your own password.
 - It is served by a separate service (`woody-term`) on a local socket that only the HUD gateway can open. It is not a network service, and Woody's user cannot reach it.
@@ -82,10 +104,15 @@ On the VM's own screen, **TERMINAL** opens a real shell.
 - While it is open, the executor refuses Woody's screenshots, so what you type and see there stays yours.
 - Change your admin password if it is still the initial one from the installation: it is written in the repository.
 
+## What the kiosk's browser can reach
+
+Nothing but this machine. The browser on the VM's screen is started so that it resolves no outside name and cannot use WebRTC, and a firewall rule lets the `kiosk` user reach the loopback address only. This matters from Phase 7c on, when the screen will run code written by Woody.
+
 ## Parts
 
 - **Gateway** (`hud/server/gateway.ts`, service `woody-hud`, user `woody-hud`): serves the page on `127.0.0.1:7800`, relays chat to the agent's socket, and sends your approve/deny decisions to the executor's approval socket.
-- **Web app** (`hud/web/`, React): the page itself.
+- **Web app** (`hud/web/`, React): the page itself. `hud/web/src/frame/` is the frame; the canvas will sit beside it.
+- **Mock** (`hud/dev/mock.cjs`): a stand-in for the gateway and the agent with sample data, to look at the frame in a browser without the VM.
 - **Kiosk** (`nix/modules/kiosk.nix`): Chromium in app mode under `cage`, opening the gateway's bootstrap page.
 
 - **Terminal** (`woody-term`, in `nix/locked/hud.nix`): `ttyd` running `login`, on `/run/woody-term/term.sock`.
@@ -105,12 +132,12 @@ Each approval click carries the hash of the exact action shown in the prompt; th
 
 ## Using it
 
-- Type in the box at the bottom. Enter sends, Shift+Enter adds a line. You can send while Woody is working; it reads the message at its next step.
-- Add a goal with **+ NEW** or `F2`. Click a goal to see Woody's review, accept the plan, drop it, or write to Woody about it.
-- Tool calls appear as collapsed lines; click one to see what came back.
+- Type anywhere to write to Woody.
+- Add a goal with `F2`, or from the goals record (`F3`). Click a goal to see Woody's review, accept the plan, drop it, or write to Woody about it.
+- In the conversation record, tool calls appear as collapsed lines; click one to see what came back.
 - When Woody requests an approval-tier action, a red prompt appears. Keyboard focus starts on **Deny**.
-- **Pause** stops everything Woody does on its own until you resume. **Stop** interrupts what it is doing now.
-- The model, the daily brief, the small-goal limit and the expressions are under Settings.
+- **Pause** (in the lattice menu) stops everything Woody does on its own until you resume. **Stop** (in the menu, or `Esc` with nothing open) interrupts what it is doing now.
+- The model, the daily brief, the small-goal limit and the expressions are under Settings (`F8`).
 
 ## If the screen is blank or stuck
 

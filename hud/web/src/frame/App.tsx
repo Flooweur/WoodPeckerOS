@@ -1,8 +1,10 @@
-// The WoodPecker HUD.
+// The frame: the part of the screen Woody cannot change.
 //
-// Left: Woody's mind in records (what needs you, the goals, the standing
-// duties). Centre: the conversation, on a time spine. Right: the mind panel,
-// the activity stream and the machine. The top bar says what Woody is doing.
+// A black canvas (Woody's, empty until Phase 7c) and, fixed in the top right
+// corner, the lattice. Clicking the lattice opens its menu: Pause, Stop and the
+// records. Beside the lattice, the voice line shows what Woody is doing and
+// what it last said. Typing anywhere opens a line to write to Woody. A record
+// opens below the lattice; an approval prompt is drawn above everything.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApprovalModal } from "./Approval";
 import { Lattice, type MindStateName, type Overlay, type Play } from "./Lattice";
@@ -12,6 +14,8 @@ import type {
 } from "./types";
 import { TOOL_PREFIX, clock, money, until, usd } from "./types";
 
+/** The lines of the conversation that are speech: yours, Woody's, and a failure to answer. */
+type Said = Extract<Item, { kind: "user" | "assistant" | "error" }>;
 type Notice = { key: number; title: string; body: string; level: "info" | "warn" | "alert"; copy?: string; copied?: boolean };
 type Link = "connecting" | "open" | "closed" | "no-token";
 /** Which door the page came through: the VM's own screen, or the operator's browser on the host. */
@@ -83,19 +87,6 @@ function Bar({ fraction, tone = "amber", small = false }: { fraction: number; to
   );
 }
 
-function PanelHead({ code, title, alert = false, children }: { code?: string; title: string; alert?: boolean; children?: React.ReactNode }) {
-  return (
-    <header className="panel-head">
-      <span className={`tab ${alert ? "alert" : ""}`}>
-        {code && <span className="code">{code} </span>}
-        {title}
-      </span>
-      <span className="leader" />
-      {children}
-    </header>
-  );
-}
-
 function goalMark(g: Goal): string {
   if (g.status === "active") return "filled";
   if (g.status === "review" || g.status === "waiting" || g.status === "proposed") return "half";
@@ -131,6 +122,9 @@ export function App() {
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [session, setSession] = useState<{ steps: number; cost: number | null }>({ steps: 0, cost: null });
   const [typing, setTyping] = useState(false);
+  const [menu, setMenu] = useState(false);
+  /** Lines of the conversation older than this are no longer shown by the voice line. */
+  const [voiceFloor, setVoiceFloor] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [expressions, setExpressionsState] = useState(() => {
     try {
@@ -149,6 +143,7 @@ export function App() {
   const stick = useRef(true);
   const refresh = useRef<number | undefined>(undefined);
   const typingTimer = useRef<number | undefined>(undefined);
+  const lineRef = useRef<HTMLTextAreaElement | null>(null);
 
   const tx = useCallback((message: Record<string, unknown>) => {
     if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(message));
@@ -236,6 +231,7 @@ export function App() {
               ...(it.kind === "assistant" ? { streaming: false } : {}),
             })) as Item[],
           );
+          setVoiceFloor(nextKey.current);
           break;
         case "mind_result": {
           setMindResult({ seq: ++mindSeq.current, op: String(msg.op), ok: Boolean(msg.ok), result: msg.result, error: msg.error });
@@ -389,29 +385,59 @@ export function App() {
 
   const busy = state?.busy ?? false;
 
-  // keys: F5 to F8 open the records, Escape closes a panel or stops Woody
+  // Keys. The F keys open the records. Escape lets go of one thing at a time:
+  // the line being typed, the menu, the open record, and last, Woody's work.
+  // Any other key typed outside a field goes to the typing line.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const open: Record<string, Panel> = {
-        F2: { kind: "new-goal" }, F5: { kind: "memory" }, F6: { kind: "journal" }, F7: { kind: "identity" }, F8: { kind: "settings" },
+        F1: { kind: "needs" }, F2: { kind: "new-goal" }, F3: { kind: "goals" }, F4: { kind: "talk" }, F5: { kind: "memory" },
+        F6: { kind: "journal" }, F7: { kind: "identity" }, F8: { kind: "settings" }, F9: { kind: "machine" }, F10: { kind: "activity" },
       };
       if (open[e.key]) {
         e.preventDefault();
+        setMenu(false);
         setPanel(open[e.key]!);
-      } else if (e.key === "Escape") {
-        if (panel) setPanel(null);
-        else if (busy && approvals.length === 0) tx({ type: "interrupt" });
+        return;
       }
+      if (e.key === "Escape") {
+        if (document.activeElement === lineRef.current) lineRef.current?.blur();
+        if (draft) setDraft("");
+        else if (menu) setMenu(false);
+        else if (panel) setPanel(null);
+        else if (busy && approvals.length === 0) tx({ type: "interrupt" });
+        return;
+      }
+      // Hand the keystroke to the typing line by focusing it now: the
+      // character (or the paste, or an accent being composed) lands there.
+      const t = e.target as HTMLElement | null;
+      const inField = t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || Boolean(t?.isContentEditable);
+      if (inField || approvals.length > 0 || e.altKey || e.metaKey) return;
+      const paste = e.ctrlKey && e.key.toLowerCase() === "v";
+      if (e.ctrlKey && !paste) return;
+      const onButton = t instanceof HTMLButtonElement || t instanceof HTMLAnchorElement || t?.tagName === "SUMMARY";
+      if (onButton && (e.key === " " || e.key === "Enter")) return;
+      if (e.key.length === 1 || e.key === "Dead" || e.key === "Process" || paste) lineRef.current?.focus();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [panel, busy, approvals.length, tx]);
+  }, [panel, menu, draft, busy, approvals.length, tx]);
 
   // keep the conversation pinned to the bottom unless the reader scrolled up
   useEffect(() => {
     const el = scroller.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [items]);
+  }, [items, panel]);
+
+  // What was said stays beside the lattice for a while (longer for a longer
+  // reply), then lets go. It remains in the conversation record.
+  useEffect(() => {
+    const said = [...items].reverse().find((it) => it.kind === "assistant" || it.kind === "error" || it.kind === "user");
+    if (!said || said.key < voiceFloor || busy) return;
+    if (said.kind === "assistant" && said.streaming) return;
+    const timer = window.setTimeout(() => setVoiceFloor(nextKey.current), Math.min(180_000, 20_000 + said.text.length * 60));
+    return () => window.clearTimeout(timer);
+  }, [items, voiceFloor, busy]);
 
   const setExpressions = (on: boolean) => {
     setExpressionsState(on);
@@ -463,317 +489,412 @@ export function App() {
   const memUsed = meters.mem_used_kb !== undefined && meters.mem_total_kb ? meters.mem_used_kb / meters.mem_total_kb : undefined;
   const diskUsed = meters.disk_free_pct !== undefined ? 1 - meters.disk_free_pct / 100 : undefined;
   const failed = mind?.failed_units ?? [];
+  const alertState = ALERT_STATES.includes(mindName);
+  const headline = `${STATE_LABEL[mindName]}${mind?.focus && (mindName === "working" || mindName === "attending") ? ` · ${mind.focus.toUpperCase()}` : ""}`;
+  const sub =
+    mindName === "paused"
+      ? "You paused Woody. Only read-only actions run until you resume."
+      : mindName === "working" || mindName === "attending"
+        ? `since ${mind ? clock(mind.since) : ""}${mind?.tainted ? " · read web content: observing only" : ""}`
+        : mind?.focus || "";
+  const trouble =
+    link !== "open" ? "connecting to the HUD gateway…"
+    : !agentUp ? "the agent is not reachable"
+    : !executorUp ? "the executor is not reachable"
+    : state && !state.has_credential ? "No Claude API key is configured for the agent. See docs/AGENT.md."
+    : "";
+
+  // ---- the voice line: what was just said, for as long as it is fresh ----
+  const voiced = items.filter((it): it is Said => it.key >= voiceFloor && (it.kind === "user" || it.kind === "assistant" || it.kind === "error"));
+  const lastYou = [...voiced].reverse().find((it) => it.kind === "user");
+  const lastSaid = voiced[voiced.length - 1];
+  const reply = lastSaid && lastSaid.kind !== "user" ? lastSaid : null;
+  const you = lastYou && (!reply || lastYou.key < reply.key || lastSaid === lastYou) ? lastYou : null;
+  const showState = mindName !== "resting" || Boolean(trouble);
+
+  const openRecord = (p: Panel) => {
+    setMenu(false);
+    setPanel(p);
+  };
+
+  // ---- records whose data the frame holds ----
+  const needsBody = (
+    <div className="stack wide">
+      {needs === 0 && <p className="dim">Nothing needs you.</p>}
+      {approvals.map((a) => (
+        <div key={a.approval_id} className="entry static">
+          <MarkIcon mark="problem" />
+          <span className="entry-text">
+            <span className="one">approve or deny: {a.action}</span>
+            <span className="two">shown as a prompt</span>
+          </span>
+        </div>
+      ))}
+      {(identity?.pending ?? []).map((p) => (
+        <button key={`id${p.id}`} className="entry" onClick={() => openRecord({ kind: "identity" })}>
+          <MarkIcon mark="saved" tone="red" />
+          <span className="entry-text">
+            <span className="one">Woody proposes a change to who it is</span>
+            <span className="two">{p.reason}</span>
+          </span>
+        </button>
+      ))}
+      {inbox.map((item) => (
+        <button key={item.goal.id} className="entry" onClick={() => openRecord({ kind: "goal", id: item.goal.id })}>
+          <MarkIcon mark={item.kind === "plan" ? "saved" : "said"} tone="red" />
+          <span className="entry-text">
+            <span className="one">
+              {String(item.goal.id).padStart(2, "0")} {item.goal.title}
+            </span>
+            <span className="two">
+              {item.kind === "plan" && item.goal.review
+                ? `plan to accept · ${money(item.goal.review.estimate_usd)} · ${item.goal.review.changes_system ? "changes the system" : "read-only"}`
+                : item.kind === "blocked"
+                  ? item.goal.waiting_reason
+                  : `Woody proposes · ${item.goal.reasoning}`}
+            </span>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+
+  const goalsBody = (
+    <div className="stack wide">
+      <div className="row-actions">
+        <button className="primary" onClick={() => openRecord({ kind: "new-goal" })}>
+          + new goal
+        </button>
+        <span className="dim small">Your order is the priority. A read-only plan under {money(smallLimit)} starts by itself.</span>
+      </div>
+      <h4>Goals</h4>
+      {open.length === 0 && <p className="dim">No goals yet. Give Woody something to work towards.</p>}
+      {open.map((g) => (
+        <button key={g.id} className="entry goal" onClick={() => openRecord({ kind: "goal", id: g.id })}>
+          <span className={`goal-mark ${goalMark(g)}`} role="img" aria-label={g.status} />
+          <span className="num">{String(g.id).padStart(2, "0")}</span>
+          <span className="entry-text">
+            <span className="one">{g.title}</span>
+            <Bar fraction={g.budget_usd > 0 ? g.spent_usd / g.budget_usd : 0} small />
+          </span>
+          <span className="side">
+            <span className={goalMark(g) === "half" ? "word alert" : g.status === "active" ? "word amber" : "word"}>{GOAL_WORD[g.status] ?? g.status}</span>
+            <span className="dim">
+              {g.budget_usd > 0 ? `${money(g.spent_usd)}/${g.budget_usd.toFixed(2)}` : g.review ? `est. ${money(g.review.estimate_usd)}` : ""}
+            </span>
+          </span>
+        </button>
+      ))}
+      <h4>Standing duties · next run · share of the week's budget used</h4>
+      {duties.map((d) => {
+        const s = d.standing!;
+        const due = d.last_worked + s.cadence_minutes * 60_000;
+        return (
+          <button key={d.id} className={`entry duty ${s.enabled ? "" : "off"}`} onClick={() => openRecord({ kind: "goal", id: d.id })}>
+            <span className="one">{d.title}</span>
+            <span className="when">{!s.enabled ? "off" : due <= now ? "due" : until(due, now).replace("in ", "")}</span>
+            <span className="when">{s.enabled && s.weekly_usd > 0 ? `${Math.round((s.week_spent_usd / s.weekly_usd) * 100)} %` : ""}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const activityBody = (
+    <div className="stack wide">
+      {activity.length === 0 && <p className="dim">Nothing yet.</p>}
+      {activity.map((a, i) => (
+        <div key={`${a.ts}-${i}`} className="act">
+          <span className="dim">{new Date(a.ts).toLocaleTimeString(undefined, { hourCycle: "h23" })}</span>
+          <MarkIcon mark={a.mark} tone={a.text.startsWith("you") ? "amber" : "dim"} size={10} />
+          <span className="one">{a.text}</span>
+        </div>
+      ))}
+    </div>
+  );
+
+  const machineBody = (
+    <div className="stack wide">
+      <h4>Woody</h4>
+      <div className="readouts">
+        <div className="readout">
+          <div className="label">STATE</div>
+          <div className={`value ${alertState ? "problem" : ""}`}>{STATE_LABEL[mindName]}</div>
+          <div className="note">{sub || trouble || (mind ? `since ${clock(mind.since)}` : "")}</div>
+        </div>
+        <div className="readout">
+          <div className="label">NEXT ALARM</div>
+          <div className="value">{mind?.next_alarm ? clock(mind.next_alarm.due) : "none"}</div>
+          <div className="note">{mind?.next_alarm ? `${until(mind.next_alarm.due, now)} · ${mind.next_alarm.reason}` : "nothing scheduled"}</div>
+        </div>
+        <div className="readout">
+          <div className="label">QUEUE</div>
+          <div className="value">{String((mind?.queue.operator ?? 0) + (mind?.queue.autonomous ?? 0)).padStart(2, "0")}</div>
+          <div className="note">
+            {mind?.queue.operator ?? 0} from you · {mind?.queue.autonomous ?? 0} its own
+          </div>
+        </div>
+        <div className="readout">
+          <div className="label">ALLOWANCE</div>
+          <div className="value">
+            {budget ? money(budget.autonomous_usd ?? 0) : "…"} <span className="unit">free today</span>
+          </div>
+          {budget && <Bar fraction={budget.cap_usd > 0 ? budget.spent_usd / budget.cap_usd : 0} tone={budget.spent_usd / budget.cap_usd > 0.85 ? "red" : "amber"} small />}
+          <div className="note">{budget ? `${money(budget.spent_usd)} of $${budget.cap_usd} this month` : ""}</div>
+        </div>
+      </div>
+      <div className="readouts">
+        <div className="readout">
+          <div className="label">MODEL</div>
+          <div className="value">{state?.models.find((m) => m.id === state.model)?.label ?? "–"}</div>
+        </div>
+        <div className="readout">
+          <div className="label">STEP</div>
+          <div className="value">{busy ? `${String(session.steps).padStart(2, "0")}/40` : "–"}</div>
+        </div>
+        <div className="readout">
+          <div className="label">COST OF THIS SESSION</div>
+          <div className="value">{session.cost === null ? "–" : usd(session.cost)}</div>
+        </div>
+        <div className="readout">
+          <div className="label">MODE</div>
+          <div className="value">{mind?.tainted ? "notes only" : mind?.mode ?? "–"}</div>
+        </div>
+      </div>
+      <h4>
+        The machine
+        {meters.generation ? ` · generation ${meters.generation}` : ""}
+        {meters.uptime_s ? ` · up ${meters.uptime_s > 172_800 ? `${Math.floor(meters.uptime_s / 86_400)} d` : `${Math.floor(meters.uptime_s / 3600)} h`}` : ""}
+      </h4>
+      <div className="meters">
+        <Meter label="CPU" fraction={meters.cpu_pct !== undefined ? meters.cpu_pct / 100 : undefined} value={meters.cpu_pct !== undefined ? `${meters.cpu_pct} %` : "–"} />
+        <Meter
+          label="MEM"
+          fraction={memUsed}
+          value={meters.mem_used_kb !== undefined ? `${(meters.mem_used_kb / 1_048_576).toFixed(1)} GB` : "–"}
+          alert={memUsed !== undefined && memUsed > 0.9}
+        />
+        <Meter
+          label="DISK"
+          fraction={diskUsed}
+          value={meters.disk_free_pct !== undefined ? `${meters.disk_free_pct.toFixed(0)} % free` : "–"}
+          alert={meters.disk_free_pct !== undefined && meters.disk_free_pct < 10}
+        />
+        <Meter label="NET" fraction={meters.net_kbps !== undefined ? Math.min(1, meters.net_kbps / 1024) : undefined} value={meters.net_kbps !== undefined ? `${meters.net_kbps} kB/s` : "–"} />
+      </div>
+      <p className={failed.length ? "problem" : "dim"}>
+        {failed.length ? `${failed.length} failed: ${failed.join(", ")}` : "No failed services."}
+      </p>
+      <h4>Services</h4>
+      <p className="links-row">
+        <span className={link === "open" ? "up" : "down"}>HUD gateway</span>
+        <span className={agentUp ? "up" : "down"}>agent</span>
+        <span className={executorUp ? "up" : "down"}>executor</span>
+      </p>
+    </div>
+  );
+
+  const talkBody = (
+    <>
+      <div
+        className="talk"
+        ref={scroller}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+        }}
+      >
+        {items.length === 0 && <div className="line dim empty">Nothing has been said yet. Type anywhere to write to Woody.</div>}
+        {items.map((it) => (
+          <TalkRow key={it.key} item={it} />
+        ))}
+        {busy && <div className="line dim working">{mindName === "working" ? "working on its own…" : "working…"}</div>}
+      </div>
+      <div className="legend">
+        <span><MarkIcon mark="said" size={9} /> said</span>
+        <span><MarkIcon mark="tool" size={9} /> tool</span>
+        <span><MarkIcon mark="woke" size={9} /> woke</span>
+        <span><MarkIcon mark="saved" size={9} /> saved</span>
+        <span><MarkIcon mark="problem" size={9} /> problem</span>
+      </div>
+    </>
+  );
+
+  const frameBody: Partial<Record<Panel["kind"], React.ReactNode>> = { needs: needsBody, goals: goalsBody, activity: activityBody, machine: machineBody, talk: talkBody };
+  const count = (n: number, width = 2) => String(n).padStart(width, "0");
 
   return (
-    <div className="hud">
-      {/* ---- presence: one sentence, then four readouts ---- */}
-      <header className="presence">
-        <div className={`notch sentence ${ALERT_STATES.includes(mindName) ? "alert" : ""}`}>
-          <div className="notch-in">
-            <span className="tab">WOODY</span>
-            <StateMark state={mindName} />
-            <div className="sentence-text">
-              <div className="headline">
-                {STATE_LABEL[mindName]}
-                {mind?.focus && (mindName === "working" || mindName === "attending") ? ` · ${mind.focus.toUpperCase()}` : ""}
-              </div>
-              <div className="sub">
-                {mindName === "paused"
-                  ? "You paused Woody. Only read-only actions run until you resume."
-                  : mindName === "working" || mindName === "attending"
-                    ? `since ${mind ? clock(mind.since) : ""}${mind?.tainted ? " · read web content: observing only" : ""}`
-                    : mind?.focus || (link !== "open" ? "connecting to the HUD gateway…" : !agentUp ? "the agent is not reachable" : "")}
-              </div>
-            </div>
-            <div className="links" title="hud gateway · agent · executor">
-              <span className={link === "open" ? "up" : "down"}>HUD</span>
-              <span className={agentUp ? "up" : "down"}>AGENT</span>
-              <span className={executorUp ? "up" : "down"}>EXEC</span>
-            </div>
-          </div>
-        </div>
-        <div className="readouts">
-          <div className="readout">
-            <div className="label">NEXT ALARM</div>
-            <div className="value">{mind?.next_alarm ? clock(mind.next_alarm.due) : "none"}</div>
-            <div className="note">{mind?.next_alarm ? `${until(mind.next_alarm.due, now)} · ${mind.next_alarm.reason}` : "nothing scheduled"}</div>
-          </div>
-          <div className="readout">
-            <div className="label">QUEUE</div>
-            <div className="value">{String((mind?.queue.operator ?? 0) + (mind?.queue.autonomous ?? 0)).padStart(2, "0")}</div>
-            <div className="note">
-              {mind?.queue.operator ?? 0} from you · {mind?.queue.autonomous ?? 0} its own
-            </div>
-          </div>
-          <div className="readout">
-            <div className="label">ALLOWANCE</div>
-            <div className="value">
-              {budget ? money(budget.autonomous_usd ?? 0) : "…"} <span className="unit">free today</span>
-            </div>
-            {budget && <Bar fraction={budget.cap_usd > 0 ? budget.spent_usd / budget.cap_usd : 0} tone={budget.spent_usd / budget.cap_usd > 0.85 ? "red" : "amber"} small />}
-            <div className="note">{budget ? `${money(budget.spent_usd)} of $${budget.cap_usd} this month` : ""}</div>
-          </div>
-          <div className="switches">
-            <button className={paused ? "on-alert" : ""} disabled={!executorUp} onClick={() => tx({ type: "pause", on: !paused })}>
-              {paused ? "RESUME" : "PAUSE"}
-            </button>
-            <button className="stop" disabled={!busy} onClick={() => tx({ type: "interrupt" })}>
-              STOP
-            </button>
-          </div>
-        </div>
-      </header>
+    <div className={`frame ${panel ? "with-record" : ""}`}>
+      {/* ---- the canvas: Woody's. Things arrive in Phase 7c. ---- */}
+      <div className="canvas" aria-label="Woody's canvas">
+        {items.length === 0 && !panel && !draft && (
+          <p className="canvas-hint">Woody is here. Start typing to talk to it. Click the lattice for its records.</p>
+        )}
+      </div>
 
-      <div className="columns">
-        {/* ---- left: Woody's mind in records ---- */}
-        <aside className="col">
-          <section className={`panel notch-tr ${needs ? "alert" : ""}`}>
-            <PanelHead code="F1" title="NEEDS YOU" alert={needs > 0}>
-              <span className={needs ? "count alert" : "count"}>{String(needs).padStart(2, "0")}</span>
-            </PanelHead>
-            {needs === 0 && <div className="line dim">Nothing needs you.</div>}
-            {approvals.map((a) => (
-              <div key={a.approval_id} className="entry static">
-                <MarkIcon mark="problem" />
-                <span className="entry-text">
-                  <span className="one">approve or deny: {a.action}</span>
-                  <span className="two">shown as a prompt</span>
-                </span>
-              </div>
-            ))}
-            {(identity?.pending ?? []).map((p) => (
-              <button key={`id${p.id}`} className="entry" onClick={() => setPanel({ kind: "identity" })}>
-                <MarkIcon mark="saved" tone="red" />
-                <span className="entry-text">
-                  <span className="one">Woody proposes a change to who it is</span>
-                  <span className="two">{p.reason}</span>
-                </span>
-              </button>
-            ))}
-            {inbox.map((item) => (
-              <button key={item.goal.id} className="entry" onClick={() => setPanel({ kind: "goal", id: item.goal.id })}>
-                <MarkIcon mark={item.kind === "plan" ? "saved" : "said"} tone="red" />
-                <span className="entry-text">
-                  <span className="one">
-                    {String(item.goal.id).padStart(2, "0")} {item.goal.title}
-                  </span>
-                  <span className="two">
-                    {item.kind === "plan" && item.goal.review
-                      ? `plan to accept · ${money(item.goal.review.estimate_usd)} · ${item.goal.review.changes_system ? "changes the system" : "read-only"}`
-                      : item.kind === "blocked"
-                        ? item.goal.waiting_reason
-                        : `Woody proposes · ${item.goal.reasoning}`}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </section>
-
-          <section className="panel notch-tr">
-            <PanelHead code="F2" title="GOALS">
-              <button className="ghost mini" onClick={() => setPanel({ kind: "new-goal" })}>
-                + NEW
-              </button>
-            </PanelHead>
-            {open.length === 0 && <div className="line dim">No goals yet. Give Woody something to work towards.</div>}
-            {open.map((g) => (
-              <button key={g.id} className="entry goal" onClick={() => setPanel({ kind: "goal", id: g.id })}>
-                <span className={`goal-mark ${goalMark(g)}`} role="img" aria-label={g.status} />
-                <span className="num">{String(g.id).padStart(2, "0")}</span>
-                <span className="entry-text">
-                  <span className="one">{g.title}</span>
-                  <Bar fraction={g.budget_usd > 0 ? g.spent_usd / g.budget_usd : 0} small />
-                </span>
-                <span className="side">
-                  <span className={goalMark(g) === "half" ? "word alert" : g.status === "active" ? "word amber" : "word"}>{GOAL_WORD[g.status] ?? g.status}</span>
-                  <span className="dim">
-                    {g.budget_usd > 0 ? `${money(g.spent_usd)}/${g.budget_usd.toFixed(2)}` : g.review ? `est. ${money(g.review.estimate_usd)}` : ""}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </section>
-
-          <section className="panel">
-            <PanelHead code="F3" title="DUTIES">
-              <span className="dim mini">NEXT · WEEK</span>
-            </PanelHead>
-            {duties.map((d) => {
-              const s = d.standing!;
-              const due = d.last_worked + s.cadence_minutes * 60_000;
-              return (
-                <button key={d.id} className={`entry duty ${s.enabled ? "" : "off"}`} onClick={() => setPanel({ kind: "goal", id: d.id })}>
-                  <span className="one">{d.title}</span>
-                  <span className="when">{!s.enabled ? "off" : due <= now ? "due" : until(due, now).replace("in ", "")}</span>
-                  <span className="when">{s.enabled && s.weekly_usd > 0 ? `${Math.round((s.week_spent_usd / s.weekly_usd) * 100)} %` : ""}</span>
-                </button>
-              );
-            })}
-          </section>
-
-          <nav className="doors" aria-label="Woody's records">
-            <button onClick={() => setPanel({ kind: "memory" })}>
-              <span className="code">F5</span> MEMORY <span className="dim">{String(state?.mind?.memories ?? 0).padStart(3, "0")}</span>
-            </button>
-            <button onClick={() => setPanel({ kind: "journal" })}>
-              <span className="code">F6</span> JOURNAL <span className="dim">{String(state?.mind?.journal ?? 0).padStart(3, "0")}</span>
-            </button>
-            <button onClick={() => setPanel({ kind: "identity" })}>
-              <span className="code">F7</span> IDENTITY <span className="dim">v{String(identity?.current.version ?? state?.mind?.identity_version ?? 1).padStart(2, "0")}</span>
-            </button>
-            <button onClick={() => setPanel({ kind: "settings" })}>
-              <span className="code">F8</span> SETTINGS
-            </button>
-          </nav>
-        </aside>
-
-        {/* ---- centre: the conversation on a time spine, or an open panel ---- */}
-        <main className="centre">
-          {panel ? (
-            <PanelView
-              panel={panel}
-              setPanel={setPanel}
-              tx={tx}
-              incoming={mindResult}
-              gateway={gatewayResult}
-              door={door}
-              version={version}
-              state={state}
-              identity={identity}
-              smallLimit={smallLimit}
-              expressions={expressions}
-              setExpressions={setExpressions}
-            />
-          ) : (
-            <div
-              className="talk"
-              ref={scroller}
-              onScroll={(e) => {
-                const el = e.currentTarget;
-                stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-              }}
-            >
-              {items.length === 0 && (
-                <div className="line dim empty">
-                  Woody is here. Write to it below, or give it a goal on the left. Actions that change the system wait for your approval.
-                </div>
-              )}
-              {state && !state.has_credential && <div className="line problem">No Claude API key is configured for the agent. See docs/AGENT.md.</div>}
-              {items.map((it) => (
-                <TalkRow key={it.key} item={it} />
-              ))}
-              {busy && <div className="line dim working">{mindName === "working" ? "working on its own…" : "working…"}</div>}
+      {/* ---- the voice line ---- */}
+      {(showState || you || reply || needs > 0) && (
+        <div className="voice" aria-live="polite">
+          {showState && (
+            <div className={`voice-state ${alertState || trouble ? "alert" : ""}`}>
+              <StateMark state={mindName} />
+              <span>{trouble || headline}</span>
             </div>
           )}
-          <form
-            className="composer"
-            onSubmit={(e) => {
+          {needs > 0 && (
+            <button className="voice-needs" onClick={() => openRecord({ kind: "needs" })}>
+              needs you · {count(needs)}
+            </button>
+          )}
+          {(you || reply) && (
+            <button className="voice-said" title="Open the conversation" onClick={() => openRecord({ kind: "talk" })}>
+              {you && <span className="voice-you">{you.text}</span>}
+              {reply && (
+                <span className={reply.kind === "error" ? "voice-reply problem" : "voice-reply"}>
+                  {reply.text}
+                  {reply.kind === "assistant" && reply.streaming && <span className="caret">▍</span>}
+                </span>
+              )}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ---- the lattice and its menu ---- */}
+      <button
+        className={`lattice-button ${needs > 0 ? "needs" : ""}`}
+        aria-haspopup="menu"
+        aria-expanded={menu}
+        title="Woody. Click for Pause, Stop and the records."
+        onClick={() => setMenu((m) => !m)}
+      >
+        <Lattice state={mindName} overlay={overlay} play={play} hold={hold} expressions={expressions} />
+        {needs > 0 && <span className="badge">{needs}</span>}
+      </button>
+      {menu && (
+        <>
+          <div className="menu-backdrop" onClick={() => setMenu(false)} />
+          <div className="menu" role="menu">
+            <div className={`menu-state ${alertState ? "alert" : ""}`}>
+              <div className="headline">{headline}</div>
+              <div className="sub">{trouble || sub || (mind?.next_alarm ? `next alarm ${until(mind.next_alarm.due, now)}` : "nothing scheduled")}</div>
+              {budget && (
+                <div className="sub dim">
+                  {money(budget.autonomous_usd ?? 0)} free today · {money(budget.spent_usd)} of ${budget.cap_usd} this month
+                </div>
+              )}
+            </div>
+            <div className="switches">
+              <button className={paused ? "on-alert" : ""} disabled={!executorUp} onClick={() => tx({ type: "pause", on: !paused })}>
+                {paused ? "RESUME" : "PAUSE"}
+              </button>
+              <button className="stop" disabled={!busy} onClick={() => tx({ type: "interrupt" })}>
+                STOP
+              </button>
+            </div>
+            <nav className="menu-list" aria-label="Records">
+              <button className={needs ? "alert" : ""} onClick={() => openRecord({ kind: "needs" })}>
+                <span className="code">F1</span> NEEDS YOU <span className="n">{count(needs)}</span>
+              </button>
+              <button onClick={() => openRecord({ kind: "new-goal" })}>
+                <span className="code">F2</span> NEW GOAL
+              </button>
+              <button onClick={() => openRecord({ kind: "goals" })}>
+                <span className="code">F3</span> GOALS <span className="n">{count(open.length)}</span>
+              </button>
+              <button onClick={() => openRecord({ kind: "talk" })}>
+                <span className="code">F4</span> CONVERSATION
+              </button>
+              <button onClick={() => openRecord({ kind: "memory" })}>
+                <span className="code">F5</span> MEMORY <span className="n">{count(state?.mind?.memories ?? 0, 3)}</span>
+              </button>
+              <button onClick={() => openRecord({ kind: "journal" })}>
+                <span className="code">F6</span> JOURNAL <span className="n">{count(state?.mind?.journal ?? 0, 3)}</span>
+              </button>
+              <button onClick={() => openRecord({ kind: "identity" })}>
+                <span className="code">F7</span> IDENTITY <span className="n">v{count(identity?.current.version ?? state?.mind?.identity_version ?? 1)}</span>
+              </button>
+              <button onClick={() => openRecord({ kind: "machine" })}>
+                <span className="code">F9</span> MACHINE
+              </button>
+              <button onClick={() => openRecord({ kind: "activity" })}>
+                <span className="code">F10</span> ACTIVITY
+              </button>
+              <button onClick={() => openRecord({ kind: "logs" })}>
+                <span className="code" /> SYSTEM LOG
+              </button>
+              <button onClick={() => openRecord({ kind: "web" })}>
+                <span className="code" /> WEB LIST
+              </button>
+              {door.terminal && (
+                <button onClick={() => openRecord({ kind: "terminal" })}>
+                  <span className="code" /> TERMINAL
+                </button>
+              )}
+              <button onClick={() => openRecord({ kind: "settings" })}>
+                <span className="code">F8</span> SETTINGS
+              </button>
+            </nav>
+            <div className="menu-foot">ESC lets go: the line, the record, this menu, then Woody's work</div>
+          </div>
+        </>
+      )}
+
+      {/* ---- a record, below the lattice ---- */}
+      {panel && (
+        <div className="record-layer">
+          <PanelView
+            panel={panel}
+            setPanel={setPanel}
+            tx={tx}
+            incoming={mindResult}
+            gateway={gatewayResult}
+            door={door}
+            version={version}
+            state={state}
+            identity={identity}
+            smallLimit={smallLimit}
+            expressions={expressions}
+            setExpressions={setExpressions}
+          >
+            {frameBody[panel.kind]}
+          </PanelView>
+        </div>
+      )}
+
+      {/* ---- the typing line: always there to catch keystrokes, visible once something is typed ---- */}
+      <form
+        className={`typing ${draft ? "shown" : ""}`}
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <label htmlFor="message">&gt;</label>
+        <textarea
+          id="message"
+          ref={lineRef}
+          value={draft}
+          rows={1}
+          tabIndex={draft ? 0 : -1}
+          aria-label="Write to Woody"
+          placeholder={!agentUp ? "Agent offline…" : "Write to Woody"}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setTyping(true);
+            window.clearTimeout(typingTimer.current);
+            typingTimer.current = window.setTimeout(() => setTyping(false), 2500);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               submit();
-            }}
-          >
-            <label htmlFor="message">&gt;</label>
-            <textarea
-              id="message"
-              value={draft}
-              rows={1}
-              autoFocus
-              placeholder={
-                !agentUp ? "Agent offline…" : busy ? "Woody is working. Your message reaches it at its next step." : "Message Woody (Enter to send, Shift+Enter for a new line)"
-              }
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setTyping(true);
-                window.clearTimeout(typingTimer.current);
-                typingTimer.current = window.setTimeout(() => setTyping(false), 2500);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  submit();
-                }
-              }}
-            />
-            <button disabled={!canSend}>SEND</button>
-          </form>
-          <div className="legend">
-            <span><MarkIcon mark="said" size={9} /> said</span>
-            <span><MarkIcon mark="tool" size={9} /> tool</span>
-            <span><MarkIcon mark="woke" size={9} /> woke</span>
-            <span><MarkIcon mark="saved" size={9} /> saved</span>
-            <span><MarkIcon mark="problem" size={9} /> problem</span>
-            <span className="keys">ESC {panel ? "close" : "stop"} · F2 new goal · F5 to F8 records</span>
-          </div>
-        </main>
-
-        {/* ---- right: the mind, then the machine ---- */}
-        <aside className="col">
-          <section className="panel notch-br strong">
-            <PanelHead code="F9" title="MIND">
-              <span className="dim mini">{state?.models.find((m) => m.id === state.model)?.label ?? ""}</span>
-            </PanelHead>
-            <div className="mind">
-              <Lattice state={mindName} overlay={overlay} play={play} hold={hold} expressions={expressions} />
-              <dl>
-                <dt>STEP</dt>
-                <dd>{busy ? `${String(session.steps).padStart(2, "0")}/40` : "–"}</dd>
-                <dt>COST</dt>
-                <dd>{session.cost === null ? "–" : usd(session.cost)}</dd>
-                <dt>MODE</dt>
-                <dd>{mind?.tainted ? "notes" : mind?.mode ?? "–"}</dd>
-              </dl>
-            </div>
-          </section>
-
-          <section className="panel">
-            <PanelHead code="F10" title="ACTIVITY">
-              <span className="dim mini">live</span>
-            </PanelHead>
-            {activity.length === 0 && <div className="line dim">Nothing yet.</div>}
-            {activity.slice(0, 8).map((a, i) => (
-              <div key={`${a.ts}-${i}`} className="act">
-                <span className="dim">{new Date(a.ts).toLocaleTimeString(undefined, { hourCycle: "h23" })}</span>
-                <MarkIcon mark={a.mark} tone={a.text.startsWith("you") ? "amber" : "dim"} size={10} />
-                <span className="one">{a.text}</span>
-              </div>
-            ))}
-          </section>
-
-          <section className="panel">
-            <PanelHead title="MACHINE">
-              <span className="dim mini">
-                {meters.generation ? `gen ${String(meters.generation).padStart(3, "0")}` : ""}
-                {meters.uptime_s ? ` · up ${meters.uptime_s > 172_800 ? `${Math.floor(meters.uptime_s / 86_400)} d` : `${Math.floor(meters.uptime_s / 3600)} h`}` : ""}
-              </span>
-            </PanelHead>
-            <div className="meters">
-              <Meter label="CPU" fraction={meters.cpu_pct !== undefined ? meters.cpu_pct / 100 : undefined} value={meters.cpu_pct !== undefined ? `${meters.cpu_pct} %` : "–"} />
-              <Meter
-                label="MEM"
-                fraction={memUsed}
-                value={meters.mem_used_kb !== undefined ? `${(meters.mem_used_kb / 1_048_576).toFixed(1)} GB` : "–"}
-                alert={memUsed !== undefined && memUsed > 0.9}
-              />
-              <Meter
-                label="DISK"
-                fraction={diskUsed}
-                value={meters.disk_free_pct !== undefined ? `${meters.disk_free_pct.toFixed(0)} % free` : "–"}
-                alert={meters.disk_free_pct !== undefined && meters.disk_free_pct < 10}
-              />
-              <Meter label="NET" fraction={meters.net_kbps !== undefined ? Math.min(1, meters.net_kbps / 1024) : undefined} value={meters.net_kbps !== undefined ? `${meters.net_kbps} kB/s` : "–"} />
-            </div>
-            <div className={`line small ${failed.length ? "problem" : "dim"}`}>
-              {failed.length ? `${String(failed.length).padStart(2, "0")} failed · ${failed.slice(0, 3).join(", ")}` : "no failed services"}
-            </div>
-          </section>
-
-          <nav className={`doors ${door.terminal ? "three" : ""}`} aria-label="The machine">
-            <button onClick={() => setPanel({ kind: "logs" })}>LOGS</button>
-            <button onClick={() => setPanel({ kind: "web" })}>WEB LIST</button>
-            {door.terminal && <button onClick={() => setPanel({ kind: "terminal" })}>TERMINAL</button>}
-          </nav>
-        </aside>
-      </div>
+            }
+          }}
+        />
+        <button disabled={!canSend}>SEND</button>
+        <span className="typing-note">{!agentUp ? "agent offline" : busy ? "Woody is working: it reads this at its next step" : "enter sends · shift+enter new line · esc clears"}</span>
+      </form>
 
       {notices.length > 0 && (
         <div className="notices" aria-live="polite">
@@ -804,6 +925,7 @@ export function App() {
         </div>
       )}
 
+      {/* ---- the approval prompt: drawn by the frame, above everything ---- */}
       {pending && (
         <ApprovalModal approval={pending} more={approvals.length - 1} deciding={deciding === pending.approval_id} onDecide={(d) => decide(pending, d)} />
       )}

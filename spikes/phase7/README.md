@@ -64,19 +64,33 @@ Run headless, so the frame rates mean nothing there; isolation and the runner it
 
 The same summary is in "Phase 7a results" in [PLAN.md](../../docs/PLAN.md).
 
-### In the VM
+### In the VM (2026-11-12)
 
-To be filled in after the run.
+Screen 1718 by 920, software-rendered, Chromium 157.
 
 | Question | Result |
 |---|---|
-| Frame rate, frame page alone | |
-| Frame rate, 5 / 10 / 20 things (1 animated) | |
-| Frame rate, 20 things, 5 animated | |
-| Things served from another site: any difference? | |
-| Isolation, in the kiosk | |
-| Kit part: seconds and cost per model | |
-| Small thing: seconds and cost per model | |
-| Complex thing: seconds and cost per model | |
-| Made things that started cleanly | |
-| How the made things looked | |
+| Frame rate, frame page alone | 59 fps average, 47 at the slowest 1% |
+| Frame rate, 5 / 10 / 20 things (1 animated) | 69 / 65 / 67 average; 43 / 41 / 41 slowest. No loss as things are added |
+| Frame rate, 20 things, 5 animated | 70 average, 46 slowest |
+| Things served from another site: any difference? | None (66 to 68 average) |
+| Isolation, in the kiosk | 34 of 34 as wanted, no leak seen by the server |
+| A thing that burns the processor for 3 s | The frame page stalled 22 ms |
+| Kit part: seconds and cost per model | 1.1 to 1.4 s for every model. Haiku $0.0001, Sonnet $0.0011, Opus $0.0022, Fable $0.0042 |
+| Small thing: seconds and cost per model | Haiku 5.4 s, $0.0007. Sonnet 8 s, $0.014. Opus 15 s, $0.037. Fable 21.5 s, $0.094 |
+| Complex thing: seconds and cost per model | Sonnet 10.8 s, $0.019. Opus 18.4 s, $0.048. Haiku 20 s, $0.002. Fable 62.8 s, $0.26 |
+| Made things that started cleanly | 8 of 8, in 22 to 136 ms |
+| How the made things looked | All worked well, better with each stronger model (operator's judgement) |
+| Whole benchmark | $0.48 |
+
+Notes:
+
+- The per-thing frame rate printed for five animated things (about 350) is a counting fault of the spike. The frame page's own figure is the one to trust.
+- Haiku thought for 12.7 s before writing the complex thing; Fable for 38.8 s. Sonnet and Opus started writing within about a second.
+
+What this decides for Phase 7:
+
+- The software-rendered screen is not the limit we feared: 20 isolated things cost nothing measurable at this size.
+- Things are served from the gateway's own address, as their own documents.
+- The default maker is Sonnet 5.5 (about ten seconds and two cents for a new thing). Haiku 5.5 does kit parts and small things (one to five seconds, a fraction of a cent). Opus 5.5 is the second attempt. Fable 5.2 is for when it is asked for: a minute and a quarter of a dollar per complex thing.
+- At these prices making is not what the budget will be spent on: $1 buys about fifty new things from Sonnet.

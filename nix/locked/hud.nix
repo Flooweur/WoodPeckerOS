@@ -135,11 +135,36 @@ in
     };
   };
 
-  # The host door: HTTPS, from the Windows host's own address only. The lab's
-  # target machines share that network and must not reach the HUD.
+  # The host door: HTTPS, from the Windows host's own address only. Nothing
+  # else on that network may reach the HUD.
   networking.firewall.extraInputRules = ''
     ip saddr ${settings.hostAddress} tcp dport ${toString settings.hudHostPort} accept
   '';
+
+  # The kiosk's browser shows the frame and, from Phase 7c, things written by
+  # Woody. It needs nothing but this machine, so whatever runs as the kiosk
+  # user can reach the loopback address and nothing else. The browser's own
+  # flags (nix/modules/kiosk.nix) are the first barrier; this is the second.
+  networking.nftables.tables.woody_kiosk = {
+    family = "inet";
+    content = ''
+      chain output {
+        type filter hook output priority filter; policy accept;
+        meta skuid != "kiosk" accept
+        oifname "lo" accept
+        limit rate 6/minute log prefix "woody-kiosk-drop: "
+        counter drop
+      }
+    '';
+  };
+  # The build checks the rules in a place where no "kiosk" user exists. Give
+  # the check a user list that has one (the number does not matter there).
+  networking.nftables.checkRulesetRedirects = {
+    "/etc/hosts" = config.environment.etc.hosts.source;
+    "/etc/protocols" = config.environment.etc.protocols.source;
+    "/etc/services" = config.environment.etc.services.source;
+    "/etc/passwd" = pkgs.writeText "passwd-for-the-ruleset-check" "kiosk:x:1001:100::/var/empty:/bin/sh\n";
+  };
 
   # For `sudo -u woody-hud woody-hud set-password`.
   environment.systemPackages = [ woody-hud ];
