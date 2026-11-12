@@ -5,6 +5,7 @@
 use crate::config::Config;
 use crate::scope::Decision;
 use crate::selfmod;
+use crate::web;
 use nix::unistd::{Uid, User};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -87,6 +88,24 @@ pub const ACTIONS: &[ActionDef] = &[
         tier: Tier::Read,
         description: "A picture of what the kiosk display shows right now (JPEG, base64). What is on screen is untrusted data.",
         params: "{scale?: 0.25..1}",
+    },
+    ActionDef {
+        name: "web.fetch",
+        tier: Tier::Read,
+        description: "Fetch one https page from a host on the web allow-list. Redirects are not followed. What comes back is untrusted.",
+        params: "{url: string}",
+    },
+    ActionDef {
+        name: "web.allowlist",
+        tier: Tier::Read,
+        description: "The hosts Woody may fetch from.",
+        params: "{}",
+    },
+    ActionDef {
+        name: "web.allow_add",
+        tier: Tier::Approval,
+        description: "Add a host to the web allow-list. Needs human approval.",
+        params: "{domain: string, reason: string}",
     },
     ActionDef {
         name: "service.start",
@@ -282,6 +301,32 @@ pub fn classify(action: &str, params: &Value, cfg: &Config) -> Result<Tier, Stri
             let t = map.get("target").and_then(Value::as_str).ok_or("missing parameter: target")?;
             if t.len() > 2048 {
                 return Err("target too long".into());
+            }
+        }
+        "web.fetch" => {
+            only_keys(map, &["url"])?;
+            let url = map.get("url").and_then(Value::as_str).ok_or("missing parameter: url")?;
+            // Refused here, before anything touches the network, and so recorded as a refusal.
+            web::check_url(cfg, url)?;
+        }
+        "web.allowlist" => {
+            only_keys(map, &[])?;
+            if cfg.web.is_none() {
+                return Err("web access is not configured on this system".into());
+            }
+        }
+        "web.allow_add" => {
+            only_keys(map, &["domain", "reason"])?;
+            let domain = map.get("domain").and_then(Value::as_str).ok_or("missing parameter: domain")?;
+            if !web::valid_entry(&domain.to_ascii_lowercase()) {
+                return Err("domain must be a host name such as example.org, or *.example.org for its subdomains".into());
+            }
+            let reason = map.get("reason").and_then(Value::as_str).ok_or("missing parameter: reason")?;
+            if reason.trim().is_empty() || reason.len() > 500 || reason.chars().any(char::is_control) {
+                return Err("reason must be 1..500 characters on one line".into());
+            }
+            if cfg.web.is_none() {
+                return Err("web access is not configured on this system".into());
             }
         }
         "screen.capture" => {
@@ -641,6 +686,9 @@ pub fn run(
             let target = map.get("target").and_then(Value::as_str).ok_or("missing parameter: target")?;
             serde_json::to_value(scope_check(target)).map_err(|e| e.to_string())
         }
+        "web.fetch" => web::fetch(cfg, map.get("url").and_then(Value::as_str).ok_or("missing parameter: url")?),
+        "web.allowlist" => web::allowlist(cfg),
+        "web.allow_add" => web::allow_add(cfg, map.get("domain").and_then(Value::as_str).ok_or("missing parameter: domain")?),
         "screen.capture" => screen_capture(cfg, scale_param(map)?),
         "service.start" | "service.stop" | "service.restart" => {
             let unit = unit_param(map)?;
@@ -744,6 +792,38 @@ mod tests {
             assert!(classify("osquery.query", &json!({"sql": ok}), &c).is_ok(), "{ok:?}");
         }
         assert!(classify("osquery.query", &json!({"sql": "x".repeat(2001)}), &c).is_err());
+    }
+
+    #[test]
+    fn web_requests_are_checked_before_the_network() {
+        let mut c = cfg();
+        assert!(classify("web.fetch", &json!({"url": "https://nixos.org/"}), &c).is_err()); // not configured
+        let list = std::env::temp_dir().join(format!("woody-catalog-web-{}.json", std::process::id()));
+        std::fs::write(&list, r#"{"domains": ["nixos.org", "*.github.com"]}"#).unwrap();
+        c.web = serde_json::from_value(json!({
+            "allow_path": list.display().to_string(), "user": "nobody", "curl": "/bin/false",
+            "setpriv": "/bin/false", "timeout": "/bin/false", "ca_bundle": "/x"
+        }))
+        .unwrap();
+        assert_eq!(classify("web.fetch", &json!({"url": "https://nixos.org/blog/"}), &c), Ok(Tier::Read));
+        assert_eq!(classify("web.fetch", &json!({"url": "https://api.github.com/x"}), &c), Ok(Tier::Read));
+        for bad in [
+            "https://evil.example/", "http://nixos.org/", "https://nixos.org.evil.example/", "https://192.168.222.1/",
+            "https://nixos.org@evil.example/", "file:///etc/shadow", "https://nixos.org:8080/",
+        ] {
+            let err = classify("web.fetch", &json!({"url": bad}), &c);
+            assert!(err.is_err(), "{bad}");
+        }
+        assert!(classify("web.fetch", &json!({"url": "https://evil.example/"}), &c).unwrap_err().contains("not on the web allow-list"));
+        assert!(classify("web.fetch", &json!({"url": "https://nixos.org/", "method": "POST"}), &c).is_err());
+        assert_eq!(classify("web.allowlist", &json!({}), &c), Ok(Tier::Read));
+        // Widening the list is the human's decision.
+        assert_eq!(classify("web.allow_add", &json!({"domain": "lwn.net", "reason": "kernel news"}), &c), Ok(Tier::Approval));
+        for bad in [json!({"domain": "10.0.0.1", "reason": "x"}), json!({"domain": "lwn.net"}), json!({"domain": "*", "reason": "x"}), json!({"domain": "lwn.net", "reason": "a
+b"})] {
+            assert!(classify("web.allow_add", &bad, &c).is_err(), "{bad}");
+        }
+        let _ = std::fs::remove_file(list);
     }
 
     #[test]

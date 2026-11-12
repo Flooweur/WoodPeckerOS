@@ -58,6 +58,18 @@ let
       "users" "groups" "logged_in_users" "last" "systemd_units"
     ];
 
+    # Read-only web access. Woody can only fetch https pages from hosts in
+    # the allow-list file, which is root-owned and seeded from the list
+    # below on first start. Woody can ask to add a host; a human approves.
+    web = {
+      allow_path = "/var/lib/woody-execd/web-allow.json";
+      user = "woody-web";
+      curl = "${pkgs.curl}/bin/curl";
+      setpriv = "${pkgs.util-linux}/bin/setpriv";
+      timeout = "${pkgs.coreutils}/bin/timeout";
+      ca_bundle = "/etc/ssl/certs/ca-certificates.crt";
+    };
+
     # Screenshots of the kiosk display, taken as the kiosk user.
     screen = {
       user = "kiosk";
@@ -94,8 +106,22 @@ let
     };
   });
 
+  # The hosts Woody may read from, until the human edits the list.
+  defaultWebAllow = pkgs.writeText "web-allow.json" (builtins.toJSON {
+    domains = [
+      "nixos.org" "*.nixos.org"
+      "github.com" "api.github.com" "raw.githubusercontent.com"
+      "docs.anthropic.com" "www.anthropic.com" "docs.claude.com" "platform.claude.com" "code.claude.com"
+      "nvd.nist.gov" "www.cisa.gov" "cve.mitre.org" "www.cve.org"
+      "www.kernel.org" "lwn.net"
+    ];
+  });
+
   prepareAudit = pkgs.writeShellScript "woody-execd-prepare" ''
     set -eu
+    if [ ! -e /var/lib/woody-execd/web-allow.json ]; then
+      install -m 0644 ${defaultWebAllow} /var/lib/woody-execd/web-allow.json
+    fi
     if [ ! -e ${auditPath} ]; then
       install -m 0640 /dev/null ${auditPath}
     fi
@@ -114,6 +140,14 @@ in
     home = "/var/lib/woody";
     createHome = true;
     description = "Woody agent (unprivileged reasoning process)";
+  };
+
+  # The identity web requests are made under: no home, no groups, no rights.
+  users.groups.woody-web = { };
+  users.users.woody-web = {
+    isSystemUser = true;
+    group = "woody-web";
+    description = "Woody's read-only web fetches";
   };
 
   # The HUD gateway's identity: the only non-root uid allowed to approve.

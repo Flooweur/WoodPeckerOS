@@ -24,6 +24,9 @@ The only root component Woody can talk to. Source in `executor/`, NixOS module i
 | `osquery.query` | read | `sql`: one SELECT over an allow-listed set of tables |
 | `scope.check` | read | `target` |
 | `screen.capture` | read | `scale` (0.25–1, default 0.5) |
+| `web.fetch` | read | `url` (https, port 443, a host on the allow-list) |
+| `web.allowlist` | read | none |
+| `web.allow_add` | approval | `domain`, `reason` |
 | `service.start` / `service.stop` / `service.restart` | approval | `unit` (locked-core units are forbidden) |
 | `config.propose` | reversible | `summary`, `files` (`path`, `content`), `delete` |
 | `config.apply` | approval if the locked core is touched, otherwise reversible | `candidate` |
@@ -32,6 +35,8 @@ The only root component Woody can talk to. Source in `executor/`, NixOS module i
 **Configuration changes.** See [SELFMOD.md](SELFMOD.md). The audit log records the hash and size of each proposed file, not its content, and the final outcome of each change.
 
 **osquery.** The query must be a single SELECT. Which tables it can read is enforced by osquery itself (`--enable_tables`), set in `nix/locked/executor.nix`. Tables that expose secrets or reach the network (`shadow`, `process_envs`, `curl`, `file`, `shell_history`, `augeas` and others) are not in the list, so they do not exist for a query. Queries are stopped after 20 seconds and results capped at 500 rows.
+
+**Web.** `web.fetch` reads one page from an allow-listed host: it resolves the name itself, refuses non-public addresses, pins the connection, does not follow redirects, and runs `curl` as the unprivileged user `woody-web`. The allow-list is `/var/lib/woody-execd/web-allow.json`, root-owned; edit it as root, or approve Woody's requests. See MIND.md for how the agent handles what comes back.
 
 **Screenshots.** `screen.capture` runs `grim` as the kiosk user against that user's display and returns a JPEG. The audit log records its size and hash, not the picture.
 
@@ -128,4 +133,4 @@ sudo woodyctl audit-verify
 
 ## Tests
 
-`cargo test` runs in the Nix build (49 tests: scope rules, audit chain, parameter validation, configuration changes). The build fails if any test fails.
+`cargo test` runs in the Nix build (55 tests: scope rules, audit chain, parameter validation, configuration changes). The build fails if any test fails.

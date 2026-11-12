@@ -38,7 +38,7 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 | 1 | Base system and rollback | Done |
 | 2 | Privileged core, agent, thin HUD | Done |
 | 3 | System hands (3a observe and operate; 3b self-modification; 3c screenshots and clipboard) | Done |
-| 4 | **Mind loop**: events, state, memory, goals, journal, alarms, pacer, web access | 4a and 4b done, 4c and 4d built (VM test pending), 4e next |
+| 4 | **Mind loop**: events, state, memory, goals, journal, alarms, pacer, web access | Built; 4c, 4d and 4e await the VM test |
 | 5 | **Full HUD**, designed around the loop | Planned |
 | 6 | **Security toolkit** | Planned |
 
@@ -109,6 +109,12 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 - Daily reflection (store, merge, correct, optionally propose an identity change), identity versions with operator approval, the daily brief and the catch-up on return. Details in [MIND.md](MIND.md).
 - Changed from the design: "on arrival" cannot be detected from a connection, because the kiosk HUD is always connected. The HUD sends a sign of life on key presses and clicks instead.
 - A real reflection, brief and catch-up are untested outside the VM.
+
+## Phase 4e results (2026-11-12)
+
+- Read-only web access: an allow-listed, pinned, redirect-free fetch in the executor; search and reading done by a quarantined model with no way to act; sessions that read the web restricted to observing and taking notes; web-origin memory. "Stay up to date" is on. Details in [MIND.md](MIND.md).
+- The fetch was tested live against the built executor. Search and the reader need the API and are untested outside the VM.
+- Phase 4 is complete in code. Next is Phase 5, the full HUD designed around the loop.
 
 ## Review of the original brief: what changes and why
 

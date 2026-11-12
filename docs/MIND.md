@@ -1,6 +1,6 @@
 # The mind (design)
 
-Status: **4a to 4d are built**; 4e (web access) is design (the store, journal, memory and context assembly; then the loop, alarms, system events, Pause and the pacer; then the goals board; see the "What 4x built" sections at the end). The rest is design. This is the specification for Phase 4 (the mind loop) and the base that Phase 5 (HUD) and Phase 6 (security toolkit) build on.
+Status: **Phase 4 (4a to 4e) is built** (the store, journal, memory and context assembly; then the loop, alarms, system events, Pause and the pacer; then the goals board; see the "What 4x built" sections at the end). The rest is design. This is the specification for Phase 4 (the mind loop) and the base that Phase 5 (HUD) and Phase 6 (security toolkit) build on.
 
 Woody stops being a chat that runs when you type. It becomes a process that is always present: it wakes on its own, works towards goals, rests, and treats your messages as one kind of event among others.
 
@@ -387,3 +387,33 @@ Limits to know:
 | Identity proposal, approval, rejection, history | Store tests (30 in total) and a socket smoke test | To do with the HUD |
 | Merge rules; what reflection reads; brief material | Store tests | |
 | A real reflection, brief and catch-up | | To do |
+
+## What 4e built
+
+Code: `executor/src/web.rs` (the fetch), `agent/src/web.ts` (the quarantined reader), the web tools in `agent/src/tools.ts`, the taint rule in `agent/src/server.ts`.
+
+- **Fetch** is an executor action. It accepts only `https://` URLs on port 443 to hosts on the allow-list, a root-owned file (`/var/lib/woody-execd/web-allow.json`) seeded with NixOS, GitHub, Anthropic's documentation and a few security sources. The executor resolves the host itself, refuses any address that is not public (so never the VM, the host or the lab), and pins the connection to the address it checked. Redirects are not followed. The request is made by `curl` running as a user with no rights (`woody-web`).
+- **A refused fetch is recorded** in the audit log with its reason, before anything touches the network.
+- **Adding a site** is an approval-tier action: Woody asks with a reason, you approve in the HUD. You can also edit the file as root.
+- **Search** uses Claude's web search, run by a separate small model whose only tool is the search.
+- **Quarantined reading.** Woody never sees a page or a search result. A small model with no tools reads it and writes notes answering Woody's question; Woody gets the notes, labelled as untrusted. The reader is told to report instruction-like text instead of relaying it.
+- **Tainted sessions.** Once a session has received web notes, it may only observe and take notes for the rest of that session. Refused from then on: service and configuration changes, alarms, identity proposals, corrections, merges and deletions of memory, goal reviews, clipboard offers, and requests to widen the allow-list. This is enforced in code, not left to the model. If it was the main conversation, the model's working context is dropped afterwards, so the next session starts from the store.
+- **What may still be written in a tainted session** is marked: a memory is stored as a fact from the web whatever origin Woody claims (so never a preference or a method, and never in the always-on core); a goal checkpoint or proposal carries a line saying it was written after reading the web.
+- **"Stay up to date"** is now on: once a day, $2 a week.
+
+Limits to know:
+
+- The reader is a model, and a model can be fooled into writing misleading notes. The design does not rely on the reader being right: it relies on notes not being able to *do* anything, and on nothing trusted being written from them without a mark or your approval.
+- Search results can come from any site; only fetching is restricted to the allow-list.
+- The fetch user is not yet confined by a firewall rule of its own; the allow-list is enforced by the executor. A per-user rule is a later hardening step.
+- A session that read the web cannot act even if you ask it to in the same message. Ask again in your next message; Woody then works from what it noted.
+
+### Test status
+
+| Test | Automated | By hand in the VM |
+|---|---|---|
+| URL rules, allow-list matching, public-address check, reply parsing | 6 executor tests (55 in total) | |
+| Fetch end to end | Live against the built executor with real network: an allowed page, an off-list host, plain http, an address, a redirect, a wildcard subdomain, an approved addition, the audit log | |
+| Poison: a page cannot create a preference or a method | Agent test at the tool level (34 in total) | To do with a real page |
+| Tainted session refuses to act | Rule in code; not exercised with a model | To do |
+| Search | Not exercised: it needs the API | To do |

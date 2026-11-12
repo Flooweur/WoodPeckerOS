@@ -36,6 +36,9 @@ pub struct Config {
     /// that is not read-only is refused until it is removed.
     #[serde(default = "default_pause_path")]
     pub pause_path: String,
+    /// Read-only web access through an allow-list. The web.* actions are refused when unset.
+    #[serde(default)]
+    pub web: Option<Web>,
     /// Screenshots of the kiosk display. screen.capture is refused when unset.
     #[serde(default)]
     pub screen: Option<Screen>,
@@ -43,6 +46,18 @@ pub struct Config {
     /// are refused when unset.
     #[serde(default)]
     pub selfmod: Option<SelfMod>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Web {
+    /// Root-owned JSON file: {"domains": ["example.org", "*.example.org"]}.
+    pub allow_path: String,
+    /// The unprivileged user curl runs as.
+    pub user: String,
+    pub curl: String,
+    pub setpriv: String,
+    pub timeout: String,
+    pub ca_bundle: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

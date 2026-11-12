@@ -12,3 +12,4 @@ pub mod scope;
 pub mod selfmod;
 pub mod server;
 pub mod util;
+pub mod web;

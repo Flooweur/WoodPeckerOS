@@ -29,7 +29,7 @@ function describe(m: Memory): string {
  * `currentSources` returns the event ids of the turn in progress, so each
  * memory records what it was derived from.
  */
-export function createMemoryTools(store: Store, currentSources: () => number[]) {
+export function createMemoryTools(store: Store, currentSources: () => number[], tainted: () => boolean = () => false) {
   const kind = z.enum(MEMORY_KINDS as unknown as [string, ...string[]]);
   // The web origin is reserved for the quarantined reader (Phase 4e).
   const origin = z
@@ -49,11 +49,14 @@ export function createMemoryTools(store: Store, currentSources: () => number[]) 
       },
       async (args) =>
         guarded(() => {
+          // In a session that has read web content, whatever is remembered is
+          // recorded as coming from the web, whatever origin was claimed. The
+          // store then refuses anything but a fact.
           const r = store.remember({
             kind: args.kind as Memory["kind"],
             statement: args.statement,
             subject: args.subject,
-            origin: args.origin,
+            origin: tainted() ? "web" : args.origin,
             importance: args.importance,
             sources: currentSources(),
           });
