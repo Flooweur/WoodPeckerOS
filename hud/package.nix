@@ -17,6 +17,14 @@ buildNpmPackage {
   # change, set this to lib.fakeHash, build, and copy the hash Nix reports.
   npmDepsHash = "sha256-f4yu4o81lXKAbPBrCKfOZ/cy0M13LF4ZNkehCT2dxbc=";
 
+  # The rules of the canvas store (server/canvas.test.ts) must hold.
+  doCheck = true;
+  checkPhase = ''
+    runHook preCheck
+    npm test
+    runHook postCheck
+  '';
+
   meta = {
     description = "WoodPecker-OS HUD web app and approval gateway";
     mainProgram = "woody-hud";

@@ -2,7 +2,7 @@
 
 What you see when the VM boots: a black screen with the lattice in its top right corner. Source in `hud/`, NixOS module in `nix/locked/hud.nix`.
 
-This is the frame of the redesign ([VISION.md](VISION.md)): the small part of the screen that Woody cannot change. The rest of the screen is Woody's canvas. It is empty until Phase 7c gives Woody the means to put things on it ([PLAN.md](PLAN.md)).
+This is the frame of the redesign ([VISION.md](VISION.md)): the small part of the screen that Woody cannot change. The rest of the screen is Woody's canvas, where its things are shown. Woody itself cannot put a thing there yet: that is Phase 7d ([PLAN.md](PLAN.md)). Until then a thing is made by hand, as described under "The canvas".
 
 The frame can be used from two places: the VM's own screen, and your browser on the Windows host.
 
@@ -39,7 +39,50 @@ Everything the three-column HUD showed is still there, one click or one key away
 
 `Esc` lets go of one thing at a time: the line being typed, the menu, the open record and, with nothing open, Woody's current work.
 
-Two records of the design are not there yet, because they need the canvas: **changes** (every change with its reason and an undo) and **things**. They come with Phase 7c.
+Two more records, also in the lattice menu, belong to the canvas: **Things** (every thing, on the canvas or put away: who made it, why, its versions and its source) and **Changes** (every change to the canvas with who made it and why, the attempts that were refused, and undo).
+
+## The canvas
+
+A thing is a small live program Woody put on the canvas: a clock, a list, a chart. Each one runs sealed in its own frame, with no network and no access to the rest of the screen. It keeps working without Woody.
+
+- **The band.** Every thing has a thin band along its top edge. Put the pointer on it and it opens into a strip: drag it to move the thing, **pin**, **why** (opens its record), and **×** to take it off the canvas. A corner grip resizes it.
+- **Pinning.** A pinned thing has an amber band. Woody cannot change, move or remove it; you still can. Only you pin and unpin.
+- **Nothing is lost.** A thing taken off the canvas is kept with all its versions and can be put back from the Things record. Every version of a thing is kept and any of them can be shown again.
+- **Undo.** The lattice menu shows the last change and takes it back; again for the one before, and so on. Only you undo.
+- **Pretend.** A thing Woody declared as invented content has a dashed edge and a `PRETEND` mark drawn by the frame.
+- **A thing that does not work is not shown.** A thing appears once it says it is running. One that never does, or that tries to leave its frame, is covered with the reason.
+- The canvas is the same on the VM's screen and in your Windows browser, and survives restarts.
+
+### Making a thing by hand
+
+Until Woody can make things itself, or to try one, use the command line on the VM. A thing's source is an HTML fragment (markup, a `<style>` and a `<script>`). The samples of the Phase 7a spike are ready to use: `clock`, `backclock`, `list`, `meters` and `note` in `/etc/woodpecker/source/spikes/phase7/canvas/things/` (the system's own copy of the repository).
+
+```bash
+sudo -u woody-hud woody-hud canvas make "Backwards clock" /etc/woodpecker/source/spikes/phase7/canvas/things/backclock.html --why "trying the canvas"
+```
+
+```bash
+sudo -u woody-hud woody-hud canvas list
+```
+
+| Command | What it does |
+|---|---|
+| `canvas make <title> <file> [--why text] [--pretend] [--for woody] [--at x,y,w,h]` | Puts a new thing on the canvas |
+| `canvas change <id> <file> [--why text] [--title text]` | A new version of a thing |
+| `canvas place <id> <x> <y> [w] [h]` | Moves or resizes it |
+| `canvas remove <id>` and `canvas bring_back <id>` | Takes it off the canvas, puts it back |
+| `canvas pin <id> [off]` | Pins or unpins it (as you) |
+| `canvas undo` | Takes back the last change (as you) |
+| `canvas list`, `canvas get <id>`, `canvas history [n]` | What is there, one thing with its source, the latest changes |
+
+These requests are made the way Woody will make them, so a pinned thing refuses them. Add `--as you` to act as yourself. The file must be readable by the `woody-hud` user, which your home directory is not: use the system's copy as above, or copy your own file to `/tmp` first.
+
+### How a thing is kept and served
+
+- The gateway keeps the things under `/var/lib/woody-hud/canvas/`: each version's source, each thing's saved state, the layout, and `changes.jsonl`, the append-only record of changes. Woody's user cannot write there.
+- A thing is served at `/thing/<key>`, where the key is an unguessable name for that one thing. The page is sent with a policy that allows inline code only and forbids every network use, and the frame shows it with `sandbox="allow-scripts"`. The WebRTC interfaces are removed before the thing's code runs.
+- The frame page may only show frames from `/thing/` and `/term/`, so a thing cannot take its frame anywhere else.
+- A thing talks to the frame through the bridge (`window.woody`): `ready()`, `state.get()` and `state.set(value)` for its own saved state, `subscribe("meters", fn)` for the machine's readings. The frame knows which thing is speaking from the window the message came from.
 
 ### The lattice
 
@@ -106,13 +149,14 @@ On the VM's own screen, **Terminal** in the lattice menu opens a real shell.
 
 ## What the kiosk's browser can reach
 
-Nothing but this machine. The browser on the VM's screen is set by policy to look up no outside name and to keep WebRTC off the network, and a firewall rule lets the `kiosk` user reach the loopback address only. This matters from Phase 7c on, when the screen will run code written by Woody.
+Nothing but this machine. The browser on the VM's screen is set by policy to look up no outside name and to keep WebRTC off the network, and a firewall rule lets the `kiosk` user reach the loopback address only. This matters because the screen runs code written by Woody.
 
 ## Parts
 
-- **Gateway** (`hud/server/gateway.ts`, service `woody-hud`, user `woody-hud`): serves the page on `127.0.0.1:7800`, relays chat to the agent's socket, and sends your approve/deny decisions to the executor's approval socket.
-- **Web app** (`hud/web/`, React): the page itself. `hud/web/src/frame/` is the frame; the canvas will sit beside it.
+- **Gateway** (`hud/server/gateway.ts`, service `woody-hud`, user `woody-hud`): serves the page on `127.0.0.1:7800`, relays chat to the agent's socket, sends your approve/deny decisions to the executor's approval socket, and keeps the canvas (`hud/server/canvas.ts`).
+- **Web app** (`hud/web/`, React): the page itself. `hud/web/src/frame/` is the frame; `hud/web/src/canvas/` shows the things.
 - **Mock** (`hud/dev/mock.cjs`): a stand-in for the gateway and the agent with sample data, to look at the frame in a browser without the VM.
+- **Canvas check** (`hud/dev/check/`): the real gateway and the VM's Chromium build driven by a script that acts like an operator and checks the canvas's promises, including a hostile thing (`hud/dev/probe.html`).
 - **Kiosk** (`nix/modules/kiosk.nix`): Chromium in app mode under `cage`, opening the gateway's bootstrap page.
 
 - **Terminal** (`woody-term`, in `nix/locked/hud.nix`): `ttyd` running `login`, on `/run/woody-term/term.sock`.

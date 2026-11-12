@@ -1,12 +1,15 @@
 // The frame: the part of the screen Woody cannot change.
 //
-// A black canvas (Woody's, empty until Phase 7c) and, fixed in the top right
-// corner, the lattice. Clicking the lattice opens its menu: Pause, Stop and the
+// A black canvas (Woody's: its things are shown by ../canvas/Canvas) and,
+// fixed in the top right corner, the lattice. Clicking the lattice opens its menu: Pause, Stop and the
 // records. Beside the lattice, the voice line shows what Woody is doing and
 // what it last said. Typing anywhere opens a line to write to Woody. A record
 // opens below the lattice; an approval prompt is drawn above everything.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Canvas } from "../canvas/Canvas";
+import type { CanvasResult, CanvasState } from "../canvas/types";
 import { ApprovalModal } from "./Approval";
+import { ChangesRecord, ThingsRecord } from "./CanvasRecords";
 import { Lattice, type MindStateName, type Overlay, type Play } from "./Lattice";
 import { PanelView, type Panel } from "./Panels";
 import type {
@@ -123,6 +126,8 @@ export function App() {
   const [session, setSession] = useState<{ steps: number; cost: number | null }>({ steps: 0, cost: null });
   const [typing, setTyping] = useState(false);
   const [menu, setMenu] = useState(false);
+  const [canvas, setCanvas] = useState<CanvasState>({ things: [], undo: null });
+  const [canvasResult, setCanvasResult] = useState<CanvasResult | null>(null);
   /** Lines of the conversation older than this are no longer shown by the voice line. */
   const [voiceFloor, setVoiceFloor] = useState(0);
   const [now, setNow] = useState(Date.now());
@@ -295,6 +300,19 @@ export function App() {
         case "meters":
           setMeters(msg as Meters);
           break;
+        case "canvas":
+          setCanvas({ things: Array.isArray(msg.things) ? msg.things : [], undo: msg.undo ?? null });
+          break;
+        case "canvas_result": {
+          setCanvasResult({ seq: ++mindSeq.current, rid: msg.rid ?? null, op: String(msg.op), ok: Boolean(msg.ok), result: msg.result, error: msg.error });
+          // A refusal of something the operator did on the canvas is said out loud.
+          if (!msg.ok && !String(msg.rid ?? "").startsWith("b")) {
+            const key = nextKey.current++;
+            setNotices((prev) => [...prev.slice(-3), { key, title: "The canvas refused that", body: String(msg.error ?? ""), level: "warn" }]);
+            window.setTimeout(() => setNotices((prev) => prev.filter((n) => n.key !== key)), 15000);
+          }
+          break;
+        }
         case "notify": {
           const key = nextKey.current++;
           const level = msg.level === "alert" || msg.level === "warn" ? msg.level : "info";
@@ -332,6 +350,8 @@ export function App() {
       ws.onopen = () => {
         refused = 0;
         setLink("open");
+        // The screen's size, so that new things are placed where they can be seen.
+        ws.send(JSON.stringify({ type: "canvas_op", op: "viewport", w: window.innerWidth, h: window.innerHeight, rid: "viewport" }));
       };
       ws.onmessage = (ev) => {
         try {
@@ -720,17 +740,25 @@ export function App() {
     </>
   );
 
-  const frameBody: Partial<Record<Panel["kind"], React.ReactNode>> = { needs: needsBody, goals: goalsBody, activity: activityBody, machine: machineBody, talk: talkBody };
+  const onCanvas = canvas.things.filter((t) => !t.removed);
+  const frameBody: Partial<Record<Panel["kind"], React.ReactNode>> = {
+    needs: needsBody,
+    goals: goalsBody,
+    activity: activityBody,
+    machine: machineBody,
+    talk: talkBody,
+    things: <ThingsRecord canvas={canvas} tx={tx} result={canvasResult} pick={panel?.kind === "things" ? panel.id : undefined} />,
+    changes: <ChangesRecord canvas={canvas} tx={tx} result={canvasResult} />,
+  };
   const count = (n: number, width = 2) => String(n).padStart(width, "0");
 
   return (
     <div className={`frame ${panel ? "with-record" : ""}`}>
-      {/* ---- the canvas: Woody's. Things arrive in Phase 7c. ---- */}
-      <div className="canvas" aria-label="Woody's canvas">
-        {items.length === 0 && !panel && !draft && (
-          <p className="canvas-hint">Woody is here. Start typing to talk to it. Click the lattice for its records.</p>
-        )}
-      </div>
+      {/* ---- the canvas: Woody's ---- */}
+      <Canvas things={canvas.things} meters={meters} tx={tx} result={canvasResult} onWhy={(id) => openRecord({ kind: "things", id })} />
+      {items.length === 0 && onCanvas.length === 0 && !panel && !draft && (
+        <p className="canvas-hint">Woody is here. Start typing to talk to it. Click the lattice for its records.</p>
+      )}
 
       {/* ---- the voice line ---- */}
       {(showState || you || reply || needs > 0) && (
@@ -792,6 +820,9 @@ export function App() {
                 STOP
               </button>
             </div>
+            <button className="undo" disabled={!canvas.undo} title="Take back the last change to the canvas" onClick={() => tx({ type: "canvas_op", op: "undo" })}>
+              {canvas.undo ? `UNDO · ${canvas.undo.by === "you" ? "you" : "Woody"} ${canvas.undo.text}` : "UNDO · nothing to undo"}
+            </button>
             <nav className="menu-list" aria-label="Records">
               <button className={needs ? "alert" : ""} onClick={() => openRecord({ kind: "needs" })}>
                 <span className="code">F1</span> NEEDS YOU <span className="n">{count(needs)}</span>
@@ -804,6 +835,12 @@ export function App() {
               </button>
               <button onClick={() => openRecord({ kind: "talk" })}>
                 <span className="code">F4</span> CONVERSATION
+              </button>
+              <button onClick={() => openRecord({ kind: "things" })}>
+                <span className="code" /> THINGS <span className="n">{count(onCanvas.length)}</span>
+              </button>
+              <button onClick={() => openRecord({ kind: "changes" })}>
+                <span className="code" /> CHANGES
               </button>
               <button onClick={() => openRecord({ kind: "memory" })}>
                 <span className="code">F5</span> MEMORY <span className="n">{count(state?.mind?.memories ?? 0, 3)}</span>

@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./frame/App";
 import "./frame/styles.css";
+import "./canvas/canvas.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

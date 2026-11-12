@@ -99,7 +99,7 @@ A thing is what Woody puts on the canvas: a clock, a drawing, a chart of the dis
 
 - **It is a small live program:** a page with its own script and style, plus a description (title, who it is for, why it was made, whether it is real or pretend, what data it reads, where it sits).
 - **It runs isolated.** Each thing lives in a sandboxed frame with no network access and no access to the rest of the screen. It reaches the machine only through a narrow bridge offered by the frame: the time, the machine's readings, its own saved state, files in its own folder, and read-only system queries it declared. Through the same bridge it can send Woody an event ("the button was pressed"), which is paced like any other wake-up.
-- **It is saved** in Woody's own storage, outside the system image, with every version kept. Making or changing a thing needs no system rebuild: it appears in seconds.
+- **It is saved** by the HUD gateway, outside the system image, with every version kept. The gateway keeps it, not Woody, so that pinning and the record of changes hold whatever Woody does. Making or changing a thing needs no system rebuild: it appears in seconds.
 - **It is tested before you see it.** A new or changed thing is loaded once in a hidden frame; if it fails to start, Woody fixes it or tells you, and the canvas does not show a broken thing.
 - **It keeps working without Woody.** A clock ticks, a tracker saves, a chart refreshes, with no model call.
 - **You can handle it directly:** move, resize, pin, close, look at its source, ask why it is there.

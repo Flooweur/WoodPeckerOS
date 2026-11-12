@@ -38,7 +38,7 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 | 4 | The mind loop: events, memory, goals, journal, alarms, pacer, web reading | Built; 4c, 4d and 4e await the VM test |
 | 5 | The first full HUD | Built; awaits the VM test |
 | 6 | Change of goal: security material removed, documents rewritten | Done (2026-11-12); awaits the VM rebuild |
-| 7 | **The canvas**: the frame, things, the kit, making | 7a (spikes) done. 7b (the frame) built; awaits the VM test. 7c (things) is next |
+| 7 | **The canvas**: the frame, things, the kit, making | 7a and 7b done. 7c (things) built; awaits the VM test. 7d (making) is next |
 | 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | Planned |
 | 9 | **Learning and showing**: open reading, studies, explainers, web pictures | Planned |
 | 10 | **Reshaping itself**: free change of its own program | Planned |
@@ -179,6 +179,23 @@ Built and run in a container with the VM's own Chromium build (157), headless, t
   - the resolver flag in the VM's Chromium build: an outside site no longer loads, the local page still works.
 - Not yet seen in the VM: the frame on the kiosk screen, typing with the French keyboard's dead keys, and the firewall rule on the real system.
 
+## Phase 7c results (2026-11-12): things
+
+- **The store** (`hud/server/canvas.ts`): things, every version of each, the layout, what is pinned, a thing's own saved state, and an append-only record of every change with its undo. Changed from the design: the gateway keeps it, not the agent. Otherwise Woody could write to the files directly and neither pinning nor the record would hold.
+- **The rules, enforced by the gateway:** Woody cannot change, move or remove a pinned thing, and the attempt is recorded; only the operator pins, unpins and undoes; no version is ever deleted; a removed thing is kept and can be put back.
+- **Serving:** each thing at `/thing/<key>` (an unguessable name), as a sealed document with the WebRTC interfaces removed. The frame page may frame nothing but things and the terminal.
+- **The frame's side** (`hud/web/src/canvas/`): things in sandboxed frames; the bridge (ready, saved state, the machine's readings); a band on each thing's top edge that opens into a strip (move, pin, why, close) and a corner grip; a thing is shown only once it says it runs, and is covered if it never does or tries to leave its frame.
+- **Two new records,** Things and Changes, and undo in the lattice menu.
+- **By hand:** `woody-hud canvas ...` makes, changes, places and removes things the way Woody will, for trying the canvas before 7d.
+- Changed while building: the strip first appeared when the pointer was anywhere on a thing. That relied on the pointer being tracked over a sealed frame and would have covered the thing's top row while using it. It is now a band of the frame's own.
+- Not in 7c: files in a thing's own folder (only one saved value per thing for now), and a thing telling Woody that something happened (it arrives with 7d, when Woody is connected to the canvas).
+- Tested:
+  - the store's rules: 7 tests that run in the build;
+  - a scripted browser run with the real gateway and the VM's Chromium build, 36 checks: things appear and start; a broken one is not shown; drag, resize, pin, close and undo work and are kept; Woody's attempts on a pinned thing are refused and recorded; a new version reloads; saved state survives a reload; the records show sources, versions, changes and refusals; everything survives a gateway restart;
+  - isolation under the real gateway: a hostile thing tried 15 ways out, all blocked, nothing reached a listener, and it could not write another thing's state.
+- Limit of that run: the scripted pointer does not enter a sealed frame, so clicking inside a thing was not exercised by pointer there. It was on the VM's screen during the 7a run.
+- Not yet seen in the VM.
+
 ## Architecture
 
 Today:
@@ -217,7 +234,7 @@ What the redesign adds (Phases 7 to 12):
 - **`woody-execd` (Rust, root, the locked core).** Typed actions from a fixed catalog with tiers; approvals on a separate socket bound to the exact action; hash-chained append-only audit; Pause; read-only web fetch; self-modification with snapshot, trial and rollback. See [EXECUTOR.md](EXECUTOR.md) and [SELFMOD.md](SELFMOD.md).
 - **`woody-agent` (TypeScript, Claude Agent SDK, user `woody`).** The loop over one event queue, the store, memory, goals, reflection, the pacer. See [MIND.md](MIND.md) and [AGENT.md](AGENT.md).
 - **HUD (React, TypeScript).** Today the three-column screen of [HUD.md](HUD.md). From Phase 7: a small locked frame and Woody's canvas.
-- **Things (from Phase 7).** Small live programs made by Woody, each in a sandboxed frame with no network, stored with their versions in Woody's storage outside the system image.
+- **Things (from Phase 7).** Small live programs made by Woody, each in a sandboxed frame with no network, kept with their versions by the HUD gateway outside the system image.
 
 ### Networking
 
@@ -243,8 +260,8 @@ The body. After this phase, "show me a clock that runs backwards" works.
   - The typing line and the voice line.
   - The approval prompt on the frame's own layer.
   - Today's panels become the records behind the lattice.
-- **7c. Things.**
-  - A store for things with every version kept, in Woody's storage.
+- **7c. Things.** Built: see "Phase 7c results".
+  - A store for things with every version kept, held by the gateway.
   - The sandboxed frame and the bridge: time, machine readings, a thing's own state and files, events to Woody.
   - The layout, saved and shared by both doors.
   - Direct handling: move, resize, pin, close, view source, ask why.

@@ -8,6 +8,8 @@
 //  * serves the same HUD to the operator's own browser on the host-only
 //    network, over HTTPS and behind a password (no terminal there)
 //  * relays the operator's terminal to the kiosk, and only to the kiosk
+//  * keeps the canvas: the things Woody makes, served as sealed documents,
+//    with their versions, what is pinned, and the record of changes (canvas.ts)
 //
 // Because it carries approvals, access is gated by a secret token. The token
 // reaches the kiosk browser through a bootstrap file only the kiosk user can
@@ -20,6 +22,7 @@ import https from "node:https";
 import net from "node:net";
 import path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
+import { Canvas, CanvasError, THING_POLICY, describe, wrapThing, type Actor } from "./canvas.js";
 
 const PORT = Number(process.env.WOODY_HUD_PORT ?? "7800");
 const BIND = process.env.WOODY_HUD_BIND ?? "127.0.0.1";
@@ -37,6 +40,8 @@ const PASSWORD_FILE = path.join(STATE_DIR, "host-password");
 const TERM_SOCKET = process.env.WOODY_TERM_SOCKET ?? "";
 const TERMINAL_FLAG = path.join(RUNTIME_DIR, "terminal-open");
 const JOURNALCTL = process.env.WOODY_JOURNALCTL ?? "journalctl";
+/** Where the operator's command line reaches the canvas of the running gateway. */
+const CANVAS_SOCKET = process.env.WOODY_CANVAS_SOCKET ?? path.join(RUNTIME_DIR, "canvas.sock");
 
 /** Messages the browser may send on to the agent unchanged. */
 const AGENT_BOUND = new Set(["chat", "set_model", "new_session", "interrupt", "get_state", "get_history", "mind", "presence"]);
@@ -128,6 +133,141 @@ function approvalCall(request: Record<string, unknown>): Promise<any> {
     });
     socket.on("error", (err) => finish(() => reject(new Error(`executor unreachable: ${err.message}`))));
     socket.on("close", () => finish(() => reject(new Error("executor closed the connection"))));
+  });
+}
+
+// ---- the canvas -----------------------------------------------------------
+//
+// The gateway owns the things on the canvas. The frame shows each one in a
+// sandboxed frame loaded from /thing/<key>. The key is an unguessable name
+// for one thing: knowing it lets a page read that thing's source and nothing
+// else, so a thing learning its own key learns nothing.
+
+/** Opened when the gateway starts serving (not for the command-line modes). */
+let canvas: Canvas;
+const THING_SECRET = crypto.randomBytes(32);
+const thingKey = (id: string): string => crypto.createHmac("sha256", THING_SECRET).update(id).digest("hex").slice(0, 32);
+
+function canvasSnapshot(): Record<string, unknown> {
+  const u = canvas.undoable();
+  return {
+    type: "canvas",
+    things: canvas.list().map((t) => ({ ...t, key: thingKey(t.id) })),
+    undo: u ? { seq: u.seq, by: u.by, text: describe(u) } : null,
+  };
+}
+
+function pushCanvas(): void {
+  const snapshot = canvasSnapshot();
+  for (const ws of browsers) send(ws, snapshot);
+}
+
+/** One canvas request, from the operator's frame ("you") or made on Woody's behalf ("woody"). */
+function canvasOp(by: Actor, m: Record<string, any>): unknown {
+  const changed = <T>(result: T): T => {
+    pushCanvas();
+    return result;
+  };
+  try {
+    switch (String(m.op ?? "")) {
+      case "make":
+        return changed(canvas.make(by, m));
+      case "change":
+        return changed(canvas.change(by, m));
+      case "restore":
+        return changed(canvas.restore(by, m));
+      case "place":
+        return changed(canvas.place(by, m));
+      case "remove":
+        return changed(canvas.remove(by, m));
+      case "bring_back":
+        return changed(canvas.bringBack(by, m));
+      case "pin":
+        return changed(canvas.pin(by, m));
+      case "undo":
+        return changed({ undone: describe(canvas.undo(by)) });
+      case "list":
+        return canvas.list();
+      case "get":
+        return { thing: canvas.get(String(m.id)), source: canvas.source(String(m.id), typeof m.version === "number" ? m.version : undefined) };
+      case "history":
+        return canvas.history(Math.min(Number(m.n) || 100, 500)).map((c) => ({ ...c, text: describe(c) }));
+      case "state_get":
+        return canvas.state(String(m.id));
+      case "state_set":
+        canvas.setState(String(m.id), m.value);
+        return true;
+      case "viewport":
+        if (by === "you" && Number(m.w) >= 600 && Number(m.h) >= 400) canvas.viewport = { w: Math.min(Math.round(m.w), 8000), h: Math.min(Math.round(m.h), 8000) };
+        return canvas.viewport;
+      default:
+        throw new CanvasError("unknown canvas request");
+    }
+  } catch (err) {
+    // A refused request (a pinned thing, say) is recorded: show it.
+    if (err instanceof CanvasError) pushCanvas();
+    throw err;
+  }
+}
+
+function serveThing(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
+  const plain = { "content-type": "text/plain", "Cache-Control": "no-store" };
+  const key = url.pathname.slice("/thing/".length);
+  const thing = /^[0-9a-f]{32}$/.test(key) ? canvas.list().find((t) => thingKey(t.id) === key) : undefined;
+  if (!thing || (req.method !== "GET" && req.method !== "HEAD")) {
+    res.writeHead(404, plain).end("not found\n");
+    return;
+  }
+  let source: string;
+  try {
+    const v = Number(url.searchParams.get("v"));
+    source = canvas.source(thing.id, Number.isInteger(v) && v > 0 ? v : undefined);
+  } catch {
+    res.writeHead(404, plain).end("not found\n");
+    return;
+  }
+  res.writeHead(200, {
+    "content-type": "text/html; charset=utf-8",
+    "Content-Security-Policy": THING_POLICY,
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store",
+  });
+  res.end(req.method === "HEAD" ? undefined : wrapThing(source));
+}
+
+/** The operator's command line (woody-hud canvas ...) talks to the running gateway here. */
+function serveCanvasSocket(): void {
+  fs.rmSync(CANVAS_SOCKET, { force: true });
+  const listener = net.createServer((socket) => {
+    let buffer = "";
+    socket.setEncoding("utf8");
+    socket.on("error", () => socket.destroy());
+    socket.on("data", (chunk: string) => {
+      buffer += chunk;
+      if (buffer.length > 2_000_000) return socket.destroy();
+      let i: number;
+      while ((i = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, i);
+        buffer = buffer.slice(i + 1);
+        let reply: Record<string, unknown>;
+        try {
+          const m = JSON.parse(line);
+          reply = { ok: true, result: canvasOp(m.by === "you" ? "you" : "woody", m) };
+        } catch (err) {
+          reply = { ok: false, error: err instanceof Error ? err.message : String(err) };
+        }
+        socket.write(JSON.stringify(reply) + "\n");
+      }
+    });
+  });
+  listener.on("error", (err) => console.error("woody-hud: the canvas socket is off:", err.message));
+  listener.listen(CANVAS_SOCKET, () => {
+    try {
+      fs.chmodSync(CANVAS_SOCKET, 0o600);
+    } catch {
+      /* the default mask already keeps others out */
+    }
   });
 }
 
@@ -225,12 +365,16 @@ const LOGIN_PAGE = `<!doctype html>
 
 function securityHeaders(req: http.IncomingMessage, host: boolean): Record<string, string> {
   const connect = host ? `'self' wss://${req.headers.host ?? ""}` : `'self' ws://127.0.0.1:${PORT} ws://localhost:${PORT}`;
+  // Frames may only show things and the terminal. A thing that navigates
+  // its own frame anywhere else is stopped here.
+  const self = `${host ? "https" : "http"}://${req.headers.host ?? `127.0.0.1:${PORT}`}`;
   return {
     "Content-Security-Policy": [
       "default-src 'self'",
       `connect-src ${connect}`,
       "img-src 'self' data:",
       "style-src 'self' 'unsafe-inline'",
+      `frame-src ${self}/thing/ ${self}/term/`,
       "frame-ancestors 'none'",
       "base-uri 'none'",
       "form-action 'none'",
@@ -385,6 +529,9 @@ function handle(req: http.IncomingMessage, res: http.ServerResponse, host: boole
     res.writeHead(200, { "content-type": "text/plain", "Cache-Control": "no-store" }).end("ok\n");
     return;
   }
+  // A thing is fetched by a sandboxed frame, which may carry no session: its
+  // key is what grants access, on both doors.
+  if (url.pathname.startsWith("/thing/")) return serveThing(req, res, url);
   if (host) {
     if (url.pathname === "/login") return handleLogin(req, res);
     if (url.pathname.startsWith("/term")) {
@@ -474,10 +621,11 @@ wss.on("connection", (browser: WebSocket, host: boolean) => {
   };
   connectAgent();
 
-  // Send the current approvals and meters straight away.
+  // Send the current approvals, meters and canvas straight away.
   lastApprovals = "";
   void pollApprovals();
   send(browser, readMeters());
+  send(browser, canvasSnapshot());
 
   browser.on("message", async (raw) => {
     let msg: Record<string, unknown>;
@@ -492,6 +640,16 @@ wss.on("connection", (browser: WebSocket, host: boolean) => {
     if (AGENT_BOUND.has(type)) {
       if (upstream?.readyState === WebSocket.OPEN) upstream.send(JSON.stringify(msg));
       else send(browser, { type: "error", error: "agent-unavailable" });
+      return;
+    }
+
+    if (type === "canvas_op") {
+      // What the operator does on the canvas, and what things ask of the bridge.
+      try {
+        send(browser, { type: "canvas_result", rid: msg.rid ?? null, op: msg.op, ok: true, result: canvasOp("you", msg) });
+      } catch (err) {
+        send(browser, { type: "canvas_result", rid: msg.rid ?? null, op: msg.op, ok: false, error: err instanceof Error ? err.message : String(err) });
+      }
       return;
     }
 
@@ -760,7 +918,86 @@ if (process.argv[2] === "set-password") {
   process.exit(0);
 }
 
+if (process.argv[2] === "canvas") {
+  // sudo -u woody-hud woody-hud canvas <request> ...   (see docs/HUD.md)
+  const [, , , op, ...rest] = process.argv;
+  const flags: Record<string, string> = {};
+  const words: string[] = [];
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i]!;
+    if (a.startsWith("--")) flags[a.slice(2)] = rest[i + 1]?.startsWith("--") || rest[i + 1] === undefined ? "yes" : rest[++i]!;
+    else words.push(a);
+  }
+  const file = (p: string | undefined): string => {
+    if (!p) throw new Error("a source file is needed");
+    return fs.readFileSync(p, "utf8");
+  };
+  const num = (v: string | undefined): number | undefined => (v === undefined ? undefined : Number(v));
+  let request: Record<string, unknown>;
+  try {
+    switch (op) {
+      case "list":
+      case "undo":
+        request = { op };
+        break;
+      case "history":
+        request = { op, n: num(words[0]) ?? 20 };
+        break;
+      case "make":
+        request = { op, title: words[0], source: file(words[1]), kind: flags.pretend ? "pretend" : "real", for: flags.for, why: flags.why,
+          box: flags.at ? Object.fromEntries(flags.at.split(",").map((v, i) => [["x", "y", "w", "h"][i]!, Number(v)])) : undefined };
+        break;
+      case "change":
+        request = { op, id: words[0], source: file(words[1]), why: flags.why, title: flags.title };
+        break;
+      case "place":
+        request = { op, id: words[0], box: { x: num(words[1]), y: num(words[2]), w: num(words[3]), h: num(words[4]) }, raise: true, why: flags.why };
+        break;
+      case "remove":
+      case "bring_back":
+      case "get":
+        request = { op, id: words[0], why: flags.why };
+        break;
+      case "pin":
+        request = { op, id: words[0], pinned: words[1] !== "off" };
+        break;
+      default:
+        console.error(
+          "usage: woody-hud canvas list | history [n] | undo\n" +
+            "       woody-hud canvas make <title> <file> [--why text] [--pretend] [--for woody] [--at x,y,w,h]\n" +
+            "       woody-hud canvas change <id> <file> [--why text] [--title text]\n" +
+            "       woody-hud canvas place <id> <x> <y> [w] [h] | remove <id> | bring_back <id> | get <id> | pin <id> [off]\n" +
+            "       add --as you to act as the operator; without it the request is made as Woody would make it",
+        );
+        process.exit(2);
+    }
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(2);
+  }
+  request.by = flags.as === "you" || op === "undo" || op === "pin" ? "you" : "woody";
+  const socket = net.createConnection(CANVAS_SOCKET);
+  let reply = "";
+  socket.setEncoding("utf8");
+  socket.on("connect", () => socket.write(JSON.stringify(request) + "\n"));
+  socket.on("data", (chunk: string) => {
+    reply += chunk;
+    if (!reply.includes("\n")) return;
+    const r = JSON.parse(reply);
+    if (r.ok) console.log(typeof r.result === "string" ? r.result : JSON.stringify(r.result, null, 2));
+    else console.error(`refused: ${r.error}`);
+    process.exit(r.ok ? 0 : 1);
+  });
+  socket.on("error", (err) => {
+    console.error(`The HUD gateway is not reachable (${err.message}). Run this as the woody-hud user.`);
+    process.exit(1);
+  });
+  await new Promise(() => {});
+}
+
 terminalFlag();
+canvas = new Canvas(path.join(STATE_DIR, "canvas"));
+serveCanvasSocket();
 
 server.listen(PORT, BIND, () => {
   writeBootstrap();
