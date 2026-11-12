@@ -69,7 +69,7 @@ Sources are listed at the end.
 4. **Open by construction.** The kit is a convenience and never a limit. No list of permitted things exists anywhere in the design.
 5. **Alive honestly.** Woody's states have real causes and it can name them. It does not act out feelings for effect, does not claim to be human, and is never built to make you attached or to make you feel guilty.
 6. **Everything is visible and correctable.** What Woody did, knows, wants and changed is in the records, with the reason.
-7. **Untrusted content can inform, never instruct.** Web pages and tool output are data. They cannot create a preference, a method, a rule or an identity change. One exception was decided on 2026-11-12: a pipe that the operator approved on the approval channel may let such content trigger a service action (see "Pipes").
+7. **Untrusted content can inform, never instruct.** Web pages and tool output are data. They cannot create a preference, a method, a rule or an identity change.
 8. **Quiet is a valid choice.** Woody is not measured by how much it does.
 
 ## The screen
@@ -175,7 +175,7 @@ Decided on 2026-11-12; planned as Phase 13 in [PLAN.md](PLAN.md).
 Anything that comes out of a thing can be piped into anything another thing takes in. You drag from the picture of a dog, say that what comes out is the dog's face, drop on the clock, say that it feeds the clock's background, and Woody makes both ends work.
 
 - **Ports.** Each thing has outputs and inputs, with suggestions; you can type anything else, and Woody has the thing changed to provide it.
-- **Ends.** Besides things: the machine's feeds, files, Woody itself, a notice to you, and, with your one-time approval, an action on the system.
+- **Ends.** Besides things: the machine's feeds, files, Woody itself, a notice to you, and, with your one-time approval, an action on the system. An action is fed only by the machine's own readings or by a thing you made, with all its values fixed when you approve; nothing from the web, a file or a model's judgement can reach one.
 - **Code first.** A pipe is plain code unless meaning is needed. Then a model sits in it, marked, running only when the value changes, within its own small budget.
 - **Visible.** Every pipe is a faint line drawn by the frame, and is listed in a record with a switch and an undo.
 
@@ -231,7 +231,7 @@ Dropping the security toolkit did not drop the protections. They are what makes 
 - **The isolation of things** rests on the browser's sandbox, a strict content policy and a separate origin. It is defence in depth, not a proof.
 - **Identity drift.** Small daily steps can add up. The first identity is kept as an anchor to compare against, and any version can be restored.
 - **Surprise fatigue.** Too many uninvited changes would become noise. Hence the daily limit, pinning and undo. The limit is enforced by the canvas, but whether a change was asked for is reported by Woody's program, which Woody cannot change today; this must be settled before Phase 10.
-- **Pipes that act.** An approved action pipe may be fed by content from the web, which may also supply the action's values. This is a deliberate exception to "untrusted content never instructs". It is bounded to service actions, a daily cap, the executor's own checks and a switch; within those bounds a stranger's text can stop or restart a service.
+- **Pipes that act.** An approved action pipe runs with nobody watching. It is bounded by what feeds it (the machine's own readings and your own things only), by fixed values, a daily cap and a switch. A reading that is wrong can still set it off.
 - **Triggers that stay silent.** A trigger on meaning can miss a change that mattered. The record of every check and the unsure cases in the daily brief are there to make a miss findable, not impossible.
 - **Attachment.** A machine that seems alive invites it. The design answers with honesty about what Woody is and with nothing built to increase dependence.
 

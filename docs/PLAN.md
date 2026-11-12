@@ -499,8 +499,9 @@ Decisions:
 | How pipes are shown | Faint lines, always, drawn by the frame; brighter for a moment when a value passes |
 | A port the thing does not have yet | The pipe appears at once as a dashed line with the words typed; it becomes solid when both ends work, or says why it cannot be done |
 | Woody's own pipes | Anywhere on the canvas except pinned things, counted against its daily limit of unasked changes. An action pipe always needs the operator |
-| How an action pipe may act | Approved once, as a standing rule, on the approval channel. The approval shows the action, which values are fixed and which come from the pipe, and the most runs a day |
-| What may feed an action pipe | Anything, once the operator approved the pipe: also content from the web or a model's judgement of it. The content may supply the action's values |
+| How an action pipe may act | Approved once, as a standing rule, on the approval channel. The approval shows the action with all its values and the most runs a day |
+| What may feed an action pipe | Only the machine's own readings (meters, service states, the clock) or a thing the operator made, through plain code. Nothing that came from the web, from a file or from mail, and nothing that passed through a model stage. Such content can still reach a thing or raise an alert |
+| What the pipe decides | Only when the action runs. The action and all its values are fixed when the pipe is approved |
 | Which actions a pipe may run | Starting, stopping and restarting services under the standing approval. A configuration change raised by a pipe waits for a yes each time. The locked core and the services that can never be touched stay out of reach |
 | Sources a trigger can watch | Web pages, things and files, the machine's logs and state, mail |
 | When a trigger is unsure | It goes in the daily brief, not in an alert. Every check is kept in a record |
@@ -510,7 +511,7 @@ Decisions:
 | Reaching the operator when away | The alert waits on the screen and in the daily brief. A phone notification is not part of these phases |
 | How much mail Woody may read | One folder or label the operator chooses, read-only. Never the rest of the mailbox; never send, delete or mark |
 
-One decision departs from principle 7 ("untrusted content can inform, never instruct") and from the poison test of Phase 9: an approved action pipe may be fed by content from the web, and that content may supply the action's values. It was the operator's choice, made twice against the recommendation. What bounds it: only service actions run without a further yes; the executor's catalogue checks every value; the list of services that can never be touched still holds; the pipe has a daily cap; every run is in the audit log; the operator can switch the pipe off. What remains possible: a crafted page can stop or restart an ordinary service as often as the cap allows.
+Action pipes keep principle 7 ("untrusted content can inform, never instruct") whole. During the discussion the operator first chose to let web content feed an approved action pipe and supply its values, then took the recommendation back up the same day: what a stranger wrote never reaches an action. The gateway knows where each value in a pipe came from, and refuses to connect an action to anything that is not the machine's own reading or the operator's own thing.
 
 #### Phase 13: universal pipes
 
@@ -526,21 +527,22 @@ The largest phase since the canvas. Four steps.
   - Each thing offers suggestions. A typed port that does not exist yet makes Woody have the thing changed to provide it, and write a small adapter when the two kinds differ. The adapter is code in a sandbox, written once.
   - Woody gets tools to make and remove pipes.
 - **13c. Meaning in a pipe.** A model stage with no tools, for what code cannot do ("the mood of this text" into a colour). It runs on change only, within its budget, and is drawn differently.
-- **13d. Action pipes.** Standing approvals in the executor (a change to the locked core): the approval names the action, the fixed values, the values that come from the pipe and the daily cap.
+- **13d. Action pipes.** Standing approvals in the executor (a change to the locked core): the approval names the action, all its values and the daily cap. The gateway marks every value with where it came from, and an action accepts only the machine's own readings and the operator's own things.
 - **Spikes first:**
   - Whether a reader model can locate a region of a picture well enough ("the face of the dog"). Woody never sees pictures, so a pipe like the operator's example rests on this.
   - How many lines the software-rendered screen draws without slowing things down.
 - **Risks:**
   - "Anything into anything" will sometimes be impossible or wrong. A pipe that cannot be made must say so plainly, and a pipe that works must be testable by looking at the value that passes.
   - A model stage makes a pipe slower, costlier and not repeatable. Hence code by default.
-  - Action pipes: see the note on principle 7 above.
+  - An action pipe is an automation that runs with nobody watching. Hence the one-time approval, the fixed values, the daily cap and the switch.
 - **Done when:**
   - the dog's face becomes the clock's background by one drag and two typed phrases, or Woody says why it cannot;
   - a pipe between two kit parts works with no model call at all;
   - a pipe to a pinned thing changed it once, with an undo;
   - a model stage stopped when its budget was used and said so;
   - an approved action pipe restarted a service within its cap, each run is in the audit log, and switching it off stopped it;
-  - a pipe fed by web content could not raise a configuration change without a yes.
+  - a pipe fed by web content, by a file or through a model stage could not be connected to an action at all;
+  - a configuration change raised by a pipe waited for a yes.
 
 #### Phase 14: triggers on meaning
 
