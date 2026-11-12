@@ -26,16 +26,30 @@ let
   session = pkgs.writeShellScript "woody-kiosk" ''
     export WLR_NO_HARDWARE_CURSORS=1
     export WLR_RENDERER=pixman
-    exec ${pkgs.systemd}/bin/systemd-cat -t woody-kiosk \
-      ${pkgs.cage}/bin/cage -s -- \
-      ${pkgs.chromium}/bin/chromium \
-        --ozone-platform=wayland \
-        --no-first-run \
-        --noerrdialogs \
-        --disable-infobars \
-        --disable-session-crashed-bubble \
-        --user-data-dir=/home/kiosk/.chromium-kiosk \
-        --app=${page}
+    browser() {
+      ${pkgs.systemd}/bin/systemd-cat -t woody-kiosk \
+        ${pkgs.cage}/bin/cage -s -- \
+        ${pkgs.chromium}/bin/chromium \
+          --ozone-platform=wayland \
+          --no-first-run \
+          --noerrdialogs \
+          --disable-infobars \
+          --disable-session-crashed-bubble \
+          --user-data-dir="$HOME/.chromium-kiosk" \
+          "--app=$1"
+    }
+    # Only the "kiosk" user may read the HUD's start page. Anyone else who
+    # signs in here gets a short explanation, then the login screen again.
+    if [ ! -r /run/woody-hud/boot.html ]; then
+      echo "session for $(${pkgs.coreutils}/bin/id -un) cannot read the HUD start page" \
+        | ${pkgs.systemd}/bin/systemd-cat -t woody-kiosk
+      browser "data:text/html,<body style='background:%23000;color:%23ffb000;font:28px monospace;padding:12vh 10vw'>THIS ACCOUNT CANNOT OPEN THE HUD.<br><br>Sign in as <b>kiosk</b>.<br><br>If you did, the HUD service is not running: check it over SSH with<br>systemctl status woody-hud<br><br>Back to the login screen in a few seconds.</body>" &
+      shown=$!
+      ${pkgs.coreutils}/bin/sleep 12
+      kill "$shown" 2>/dev/null
+      exit 0
+    fi
+    browser ${page}
   '';
 in
 {
