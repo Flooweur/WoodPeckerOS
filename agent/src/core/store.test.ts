@@ -1,5 +1,6 @@
 // Store-level continuity tests (docs/MIND.md, "How continuity is tested").
 // The model-level versions of these are run by hand in the VM.
+import { SCHEMA_VERSION } from "./store.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -622,34 +623,16 @@ test("the hourly ceiling ignores sessions the API refused, and knows when it fre
 
 // ---- Phase 4d: reflection, identity, briefs --------------------------------
 
-test("identity: a proposal changes nothing until the operator approves it", () => {
+test("identity: the operator can rewrite it directly, and the rules still come first", () => {
   const store = new Store(tempDb());
   const original = store.identity();
-  const better = `${original.text}\n\nWith this operator you keep answers short and lead with the number.`;
-  assert.throws(() => store.proposeIdentity("too short", "because"), PolicyError);
-  assert.throws(() => store.proposeIdentity(original.text, "no change"), /already your identity/);
-  const p = store.proposeIdentity(better, "They asked for shorter answers three times this week.");
-  assert.equal(store.identity().version, original.version); // unchanged
-  assert.doesNotMatch(systemPrompt("RULES", store, memoryLine), /lead with the number/);
-  assert.throws(() => store.proposeIdentity(`${better} And more.`, "another"), /already waiting/);
-
-  // Rejected: still unchanged, and a new proposal becomes possible.
-  store.decideIdentity(p.id, false);
-  assert.equal(store.identity().version, original.version);
-  assert.throws(() => store.decideIdentity(p.id, true), PolicyError); // cannot be decided twice
-  const p2 = store.proposeIdentity(better, "Same observation, a week later.");
-  const approved = store.decideIdentity(p2.id, true);
-  assert.equal(approved.version, original.version + 1);
+  assert.throws(() => store.setIdentity("too short"), PolicyError);
+  const set = store.setIdentity("You are Woody. You are calm, exact and a little dry, and you never bluff.");
+  assert.equal(set.version, original.version + 1);
+  assert.equal(store.identityHistory().length, 2);
   const system = systemPrompt("RULES", store, memoryLine);
-  assert.match(system, /lead with the number/);
-  // The rules still come first, and the identity is declared unable to override them.
+  assert.match(system, /a little dry/);
   assert.ok(system.indexOf("RULES") < system.indexOf("It never overrides the rules above"));
-  assert.match(store.identityHistory()[0]!.note, /approved by the operator/);
-
-  // The operator can also rewrite it directly; the history keeps every version.
-  store.setIdentity("You are Woody. You are calm, exact and a little dry, and you never bluff.");
-  assert.equal(store.identityHistory().length, 3);
-  assert.equal(store.pendingIdentityProposals().length, 0);
   store.close();
 });
 
@@ -718,14 +701,12 @@ test("briefs are built from the journal, the board and what waits on the operato
   store.checkpoint(done.id, { dossier: "Listed.", next_step: "", status: "done", outcome: "Ports 22 and 7800 are open." });
   const plan = store.addGoal({ title: "Install ncdu", owner: "operator" });
   store.setReview(plan.id, review({ changes_system: true }), 1);
-  store.proposeIdentity(`${store.identity().text}\n\nYou keep answers short for this operator.`, "They asked.");
   store.addWatch("approval", "abc123", { action: "service.restart" });
 
   const daily = briefPreamble(store, main, "daily", since, "$3.10 of the $50 monthly cap", new Date(t + 3_600_000));
   assert.match(daily, /ran out of memory/);
   assert.match(daily, /#\d+ \[done\] List open ports .*outcome: Ports 22 and 7800 are open\./);
   assert.match(daily, /goal #\d+ "Install ncdu": plan to accept/);
-  assert.match(daily, /identity change #1, undecided/);
   assert.match(daily, /1 request\(s\) of yours await their approval/);
   assert.match(daily, /\$3\.10 of the \$50 monthly cap/);
   assert.match(daily, /time for your daily brief/);
@@ -827,7 +808,7 @@ test("an older store loses the lab duty and keeps the others", () => {
   assert.deepEqual(standing.map((g) => g.title), ["Keep this machine healthy", "Keep improving yourself", "Stay up to date"]);
   assert.doesNotMatch(standing[2]!.description, /\blab\b/);
   // The migrations after it ran too (Phase 8b added the interests).
-  assert.equal(store.getMeta("schema_version"), "11");
+  assert.equal(store.getMeta("schema_version"), String(SCHEMA_VERSION));
   assert.deepEqual(store.interests(), []);
   store.close();
 });

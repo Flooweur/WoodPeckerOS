@@ -1,6 +1,7 @@
 // Open reading (Phase 9a): once a session has read the web it may fetch only
 // addresses that code found in what it was given, and an address it was not
 // given is removed from what it writes down for later.
+import { SCHEMA_VERSION } from "./store.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -135,7 +136,7 @@ test("an older store learns that any public site may be read", () => {
   first.setMeta("schema_version", "8");
   first.close();
   const again = new Store(file);
-  assert.equal(again.getMeta("schema_version"), "11");
+  assert.equal(again.getMeta("schema_version"), String(SCHEMA_VERSION));
   const duty = again.goals().find((g) => g.title === "Stay up to date");
   assert.ok(duty && !/allow-list/.test(duty.description));
   again.close();

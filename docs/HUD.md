@@ -97,7 +97,7 @@ Details are in [AGENT.md](AGENT.md), under "Making things".
 To try a thing yourself, use the command line on the VM. A thing's source is an HTML fragment (markup, a `<style>` and a `<script>`). The samples of the Phase 7a spike are ready to use: `clock`, `backclock`, `list`, `meters` and `note` in `/etc/woodpecker/source/spikes/phase7/canvas/things/` (the system's own copy of the repository).
 
 ```bash
-sudo -u woody-hud woody-hud canvas make "Backwards clock" /etc/woodpecker/source/spikes/phase7/canvas/things/backclock.html --why "trying the canvas"
+sudo -u woody-hud woody-hud canvas make "Backwards clock" /etc/woodpecker/source/hud/dev/check/things/backclock.html --why "trying the canvas"
 ```
 
 ```bash

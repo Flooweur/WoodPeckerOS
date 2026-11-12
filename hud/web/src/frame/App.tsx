@@ -522,7 +522,7 @@ export function App() {
 
   const open = useMemo(() => goals.filter((g) => !g.standing && g.status !== "done" && g.status !== "dropped"), [goals]);
   const duties = useMemo(() => goals.filter((g) => g.standing), [goals]);
-  const needs = approvals.length + inbox.length + (identity?.pending.length ?? 0);
+  const needs = approvals.length + inbox.length;
   /** Changes Woody made to its identity that have not been looked at: the frame says so by the lattice until the record is opened. */
   const changedSelf = state?.identity?.unseen?.length ?? 0;
 
@@ -583,15 +583,6 @@ export function App() {
             <span className="two">shown as a prompt</span>
           </span>
         </div>
-      ))}
-      {(identity?.pending ?? []).map((p) => (
-        <button key={`id${p.id}`} className="entry" onClick={() => openRecord({ kind: "identity" })}>
-          <MarkIcon mark="saved" tone="red" />
-          <span className="entry-text">
-            <span className="one">Woody proposes a change to who it is</span>
-            <span className="two">{p.reason}</span>
-          </span>
-        </button>
       ))}
       {inbox.map((item) => (
         <button key={item.goal.id} className="entry" onClick={() => openRecord({ kind: "goal", id: item.goal.id })}>

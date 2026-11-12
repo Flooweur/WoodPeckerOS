@@ -101,7 +101,11 @@ export function setExtraContext(fn: () => string[]): void {
 
 function contextBlock(store: Store, thread: number, userText: string, fresh: boolean, now: Date): string[] {
   const lines: string[] = [];
-  lines.push(`Now: ${now.toISOString().slice(0, 16).replace("T", " ")} UTC (${now.toLocaleDateString("en-GB", { weekday: "long" })}).`);
+  // Records are stamped in UTC; the operator lives in the machine's local time, and that is the time to speak to them in.
+  const local = now.toLocaleString("en-GB", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", hour12: false });
+  lines.push(
+    `Now: ${now.toISOString().slice(0, 16).replace("T", " ")} UTC. For the operator it is ${local} (${Intl.DateTimeFormat().resolvedOptions().timeZone}). Times in your records are in UTC; when you speak to the operator, give times in theirs.`,
+  );
   const extra = extraContext();
   if (extra.length) lines.push("", ...extra);
 
@@ -359,7 +363,6 @@ function needsOperator(store: Store): string[] {
     const what = item.kind === "plan" ? "plan to accept" : item.kind === "blocked" ? `needs their answer (${clip(item.goal.waiting_reason, 140)})` : "your proposal, undecided";
     out.push(`- goal #${item.goal.id} "${clip(item.goal.title, 80)}": ${what}`);
   }
-  for (const p of store.pendingIdentityProposals()) out.push(`- identity change #${p.id}, undecided`);
   const approvals = store.activeWatches().filter((w) => w.kind === "approval");
   if (approvals.length) out.push(`- ${approvals.length} request(s) of yours await their approval`);
   return out;

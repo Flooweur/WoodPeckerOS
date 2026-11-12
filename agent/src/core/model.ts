@@ -2,7 +2,7 @@
 // summariser in the agent speaks to a model. It lives in the locked part
 // because it holds the model interface; what Woody may change calls it only
 // through a function handed to it, which records the cost.
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query } from "./sdk.js";
 
 export type CostSink = (model: string, costUsd: number) => void;
 

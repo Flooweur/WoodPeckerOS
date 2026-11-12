@@ -111,12 +111,12 @@ function startGateway() {
 
 (async () => {
   startGateway();
-  const sink = spawn(NODE, ["/work/spikes/phase7/serve.mjs", "--port", "7811", "--out", "/tmp/sink"], { stdio: "ignore" });
+  const sink = spawn(NODE, [`${HUD}/dev/check/sink.mjs`, "--port", "7811"], { stdio: "ignore" });
   await sleep(1200);
   const token = fs.readFileSync(`${STATE}/token`, "utf8").trim();
 
   // ---- things made as Woody would make them ----
-  const T = "/work/spikes/phase7/canvas/things";
+  const T = `${HUD}/dev/check/things`;
   check("make a thing", (await cli("make", "Backwards clock", `${T}/backclock.html`, "--why", "you asked for a clock that runs backwards")).ok);
   await cli("make", "Reading list", `${T}/list.html`, "--why", "to keep track of what you read");
   await cli("make", "The machine", `${T}/meters.html`);

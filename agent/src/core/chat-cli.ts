@@ -10,7 +10,7 @@
 //           /alarms   /unalarm <id>   /pulse
 //           /goals   /inbox   /goal <id>   /goal-add <title> | <details>   /accept <id>
 //           /drop <id>   /say <id> <text>
-//           /identity   /identity-approve <id>   /identity-reject <id>
+//           /identity
 //           /brief [HH:MM | now | on | off]   /reflect
 import readline from "node:readline";
 import { WebSocket } from "ws";
@@ -168,15 +168,9 @@ function printMind(op: string, result: any): void {
       console.log(dim(`  deleted ${result.deleted.map((i: number) => `#${i}`).join(", ")}`));
       break;
     case "identity":
-    case "identity_decide":
     case "identity_set":
       console.log(dim(`  identity, version ${result.current.version}:`));
       console.log(result.current.text.replace(/^/gm, "    "));
-      for (const p of result.pending ?? []) {
-        console.log(amber(`  proposal #${p.id}: ${p.reason}`));
-        console.log(p.text.replace(/^/gm, "    "));
-        console.log(dim(`  /identity-approve ${p.id}   or   /identity-reject ${p.id}`));
-      }
       break;
     case "brief":
       console.log(dim(`  daily brief ${result.enabled ? `at ${result.time}` : "off"}`));
@@ -275,12 +269,6 @@ function mindCommand(text: string): boolean {
       return true;
     case "/identity":
       mind("identity");
-      return true;
-    case "/identity-approve":
-      mind("identity_decide", { id, approve: true });
-      return true;
-    case "/identity-reject":
-      mind("identity_decide", { id, approve: false });
       return true;
     case "/brief":
       if (!rest[0]) mind("brief");

@@ -6,13 +6,13 @@
   "type": "module",
   "license": "MIT",
   "bin": {
-    "woody-agent": "dist/core/server.js",
+    "woody-agent": "dist/core/main.js",
     "woody-chat": "dist/core/chat-cli.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node selfcheck.mjs dist",
+    "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node selfcheck.mjs dist && node --test dist/core/wall.test.js dist/core/methods.test.js dist/core/store.test.js dist/core/self.test.js dist/core/links.test.js dist/canvas.test.js dist/mind/inner.test.js dist/mind/life.test.js dist/mind/study.test.js"
+    "test": "node --test \"dist/**/*.test.js\""
   },
   "engines": {
     "node": ">=22"

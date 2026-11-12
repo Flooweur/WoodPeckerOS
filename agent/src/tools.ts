@@ -31,7 +31,7 @@ export type LoopHooks = {
   unwatchConfig(candidate: string): void;
   /** "observe": Woody is acting on its own without an accepted plan, and may not change the system. */
   mode(): "full" | "observe";
-  /** Waits a moment, a few seconds at most. Woody's own code has no timers: nothing it starts can outlive the session it belongs to. */
+  /** Waits a moment, a few seconds at most. */
   pause(ms: number): Promise<void>;
 };
 

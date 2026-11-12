@@ -182,7 +182,6 @@ export type Goal = {
   standing: Standing | null;
 };
 
-export type IdentityProposal = { id: number; ts: number; text: string; reason: string; status: "pending" | "approved" | "rejected"; decided_ts: number | null };
 
 /** One line Woody wrote about an interest. `web` marks a note taken in a session that had read the web. */
 export type InterestNote = { ts: number; text: string; web: boolean };
@@ -227,7 +226,7 @@ const MAX_OPEN_PROPOSALS = 10;
 const MAX_OPEN_INTERESTS = 12;
 const MAX_INTEREST_NOTES = 12;
 
-const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 const SCHEMA_V11 = `
 CREATE TABLE IF NOT EXISTS methods (
@@ -733,6 +732,13 @@ export class Store {
         this.setMeta("schema_version", "11");
       });
     }
+    if (version < 12) {
+      // Since Phase 8c Woody changes its identity itself, in small steps: the table of proposals that waited for approval is no longer used.
+      this.tx(() => {
+        this.db.exec("DROP TABLE IF EXISTS identity_proposals");
+        this.setMeta("schema_version", "12");
+      });
+    }
   }
 
   private tx<T>(fn: () => T): T {
@@ -1145,11 +1151,11 @@ export class Store {
    * then oldest. With operatorOnly, autonomous events are left waiting (used
    * while paused or out of allowance).
    */
-  claimNext(opts: { operatorOnly?: boolean } = {}): QueueItem | null {
+  claimNext(opts: { operatorOnly?: boolean; ownOnly?: boolean } = {}): QueueItem | null {
     return this.tx(() => {
       const row = this.db
         .prepare(
-          `SELECT * FROM queue WHERE status = 'pending' ${opts.operatorOnly ? "AND source = 'operator'" : ""}
+          `SELECT * FROM queue WHERE status = 'pending' ${opts.operatorOnly ? "AND source = 'operator'" : opts.ownOnly ? "AND source = 'own'" : ""}
            ORDER BY (source = 'operator') DESC, priority, id LIMIT 1`,
         )
         .get() as Row | undefined;
@@ -2064,53 +2070,6 @@ export class Store {
     this.event("identity_frozen", { frozen }, { actor: "operator" });
   }
 
-  private toProposal(r: Row): IdentityProposal {
-    return {
-      id: Number(r.id),
-      ts: Number(r.ts),
-      text: String(r.text),
-      reason: String(r.reason),
-      status: r.status as IdentityProposal["status"],
-      decided_ts: r.decided_ts == null ? null : Number(r.decided_ts),
-    };
-  }
-
-  /**
-   * Woody proposes a new version of who it is. Nothing changes until the
-   * operator approves. Only one proposal can wait at a time.
-   */
-  proposeIdentity(text: string, reason: string): IdentityProposal {
-    const clean = text.trim();
-    if (clean.length < 40 || clean.length > 3000) throw new PolicyError("the identity text must be between 40 and 3000 characters");
-    if (!reason.trim()) throw new PolicyError("say why you propose this change");
-    if (clean === this.identity().text.trim()) throw new PolicyError("that is already your identity");
-    if (this.pendingIdentityProposals().length) throw new PolicyError("a proposal is already waiting for the operator; do not send another until they decide");
-    const r = this.db.prepare("INSERT INTO identity_proposals (ts, text, reason) VALUES (?, ?, ?)").run(this.now(), clean, reason.trim().slice(0, 2000));
-    const id = Number(r.lastInsertRowid);
-    this.event("identity_proposed", { id });
-    return this.toProposal(this.db.prepare("SELECT * FROM identity_proposals WHERE id = ?").get(id) as Row);
-  }
-
-  pendingIdentityProposals(): IdentityProposal[] {
-    return (this.db.prepare("SELECT * FROM identity_proposals WHERE status = 'pending' ORDER BY id").all() as Row[]).map((r) => this.toProposal(r));
-  }
-
-  /** The operator approves or rejects a proposal. Approval creates a new identity version. */
-  decideIdentity(id: number, approve: boolean): { version: number; text: string } {
-    const row = this.db.prepare("SELECT * FROM identity_proposals WHERE id = ? AND status = 'pending'").get(id) as Row | undefined;
-    if (!row) throw new PolicyError(`no waiting identity proposal #${id}`);
-    return this.tx(() => {
-      this.db.prepare("UPDATE identity_proposals SET status = ?, decided_ts = ? WHERE id = ?").run(approve ? "approved" : "rejected", this.now(), id);
-      if (approve) {
-        this.db
-          .prepare("INSERT INTO identity (ts, text, note, author, reason, seen) VALUES (?, ?, 'proposed by Woody, approved by the operator', 'woody', ?, 1)")
-          .run(this.now(), String(row.text), String(row.reason).slice(0, 2000));
-      }
-      this.event("identity_decided", { id, approved: approve }, { actor: "operator" });
-      return this.identity();
-    });
-  }
-
   /** The operator rewrites the identity directly. */
   setIdentity(text: string): { version: number; text: string } {
     const clean = text.trim();
@@ -2371,7 +2330,6 @@ export class Store {
       alarms: count("SELECT count(*) AS n FROM alarms WHERE status = 'pending'"),
       goals_open: count("SELECT count(*) AS n FROM goals WHERE status NOT IN ('done', 'dropped', 'standing')"),
       goals_need_you: count("SELECT count(*) AS n FROM goals WHERE status IN ('review', 'waiting', 'proposed')"),
-      identity_pending: count("SELECT count(*) AS n FROM identity_proposals WHERE status = 'pending'"),
       queued: count("SELECT count(*) AS n FROM queue WHERE status = 'pending'"),
       identity_version: this.identity().version,
       studies_open: count("SELECT count(*) AS n FROM studies WHERE status IN ('reading', 'explaining')"),

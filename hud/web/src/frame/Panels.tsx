@@ -618,18 +618,6 @@ function IdentityView({ mind, identity }: { mind: MindFn; identity: Identity | n
           step a day, at most a quarter of the words. You are shown each change and can put any version back.
         </label>
       )}
-      {identity.pending.map((p) => (
-        <div key={p.id} className="stack">
-          <h4>Woody proposed this before it could change the text itself</h4>
-          <pre>{p.text}</pre>
-          <h4>Its reason</h4>
-          <p className="pre">{p.reason}</p>
-          <div className="row-actions">
-            <button className="primary" onClick={() => mind("identity_decide", { id: p.id, approve: true })}>approve</button>
-            <button className="danger" onClick={() => mind("identity_decide", { id: p.id, approve: false })}>reject</button>
-          </div>
-        </div>
-      ))}
       {history.length > 1 && (
         <>
           <h4>Versions</h4>

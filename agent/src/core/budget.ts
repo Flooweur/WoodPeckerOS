@@ -1,14 +1,16 @@
 // Spend ledger and pacer. Every model call's cost, as reported by the SDK,
 // is appended to a JSONL file.
 //
-// Two limits come out of it:
-//  * the monthly cap gates everything, including replies to the operator;
-//  * the pace gates what Woody does on its own: the cap is spread evenly
-//    over the month, unused days roll over, and a reserve is always kept so
-//    that Woody can still answer the operator;
-//  * a share of the cap is Woody's own, for its interests and its own
-//    projects. It is paced the same way. It is a ceiling on what Woody spends
-//    for itself, not a reserve: answering the operator always comes first.
+// The monthly cap gates everything, including replies to the operator. Under
+// it there are two ledgers, each paced by the day (the amount is spread evenly
+// over the month and unused days roll over):
+//  * the operator's side: their conversations, and the work Woody does for
+//    them unasked (goals, wake-ups, studies they asked for). The pace gates
+//    that unasked work, and a reserve is always kept so that Woody can still
+//    answer;
+//  * Woody's own share, for its interests and its own projects. It is counted
+//    apart: what the operator's conversations cost does not use it up, and
+//    what Woody spends on itself does not slow the operator's work.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -18,7 +20,7 @@ export type BudgetStatus = {
   cap_usd: number;
   remaining_usd: number;
   exhausted: boolean;
-  /** One day's share of the monthly cap. */
+  /** One day's share of the operator's side of the cap. */
   daily_usd: number;
   /** What Woody may spend on its own right now (0 when it must rest). */
   autonomous_usd: number;
@@ -27,6 +29,9 @@ export type BudgetStatus = {
 };
 
 export type SpendKind = "chat" | "background" | "autonomous" | "own";
+
+/** What a session used in tokens, as the SDK reports it. */
+export type Tokens = { in: number; out: number; cache_read: number; cache_write: number };
 
 function monthKey(date: Date): string {
   return date.toISOString().slice(0, 7);
@@ -40,9 +45,9 @@ export function pace(capUsd: number, date: Date): { released: number; daily: num
 }
 
 /**
- * What autonomous work may spend now: everything released so far this month,
- * minus what was spent, minus a reserve of half a day's share kept for the
- * operator. Never more than what is left of the monthly cap.
+ * What unasked work for the operator may spend now: everything released so far
+ * this month on their side, minus what was spent there, minus a reserve of
+ * half a day's share kept for answering them. Never more than what is left.
  */
 export function autonomousAllowance(capUsd: number, spentUsd: number, date: Date): number {
   const { released, daily } = pace(capUsd, date);
@@ -99,7 +104,7 @@ export class Budget {
     }
   }
 
-  record(entry: { kind: SpendKind; model: string; cost_usd: number; session?: string }): void {
+  record(entry: { kind: SpendKind; model: string; cost_usd: number; session?: string; source?: string; turns?: number; tokens?: Tokens }): void {
     if (monthKey(this.now()) !== this.month) this.reload();
     this.spent += entry.cost_usd;
     if (entry.kind === "own") this.ownSpent += entry.cost_usd;
@@ -115,21 +120,22 @@ export class Budget {
     const date = this.now();
     if (monthKey(date) !== this.month) this.reload();
     const remaining = Math.max(0, this.capUsd - this.spent);
-    const autonomous = autonomousAllowance(this.capUsd, this.spent, date);
     const ownCap = this.capUsd * this.ownShare;
+    // The operator's side: the cap without Woody's share, and what was spent outside it.
+    const autonomous = Math.min(remaining, autonomousAllowance(this.capUsd - ownCap, this.spent - this.ownSpent, date));
     return {
       month: this.month,
       spent_usd: Number(this.spent.toFixed(4)),
       cap_usd: this.capUsd,
       remaining_usd: Number(remaining.toFixed(4)),
       exhausted: remaining <= 0,
-      daily_usd: Number(pace(this.capUsd, date).daily.toFixed(4)),
+      daily_usd: Number(pace(this.capUsd - ownCap, date).daily.toFixed(4)),
       autonomous_usd: Number(autonomous.toFixed(4)),
       own: {
         share_usd: Number(ownCap.toFixed(2)),
         spent_usd: Number(this.ownSpent.toFixed(4)),
-        // Its own time is still Woody acting by itself: the general pace bounds it too.
-        available_usd: Number(Math.min(autonomous, ownAllowance(ownCap, this.ownSpent, date)).toFixed(4)),
+        // Counted apart from the operator's side; the monthly cap still bounds it.
+        available_usd: Number(Math.min(remaining, ownAllowance(ownCap, this.ownSpent, date)).toFixed(4)),
       },
     };
   }

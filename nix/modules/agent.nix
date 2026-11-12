@@ -19,7 +19,10 @@ in
     wantedBy = [ "sockets.target" ];
     socketConfig = {
       ListenStream = "/run/woody-agent/agent.sock";
-      SocketUser = "woody";
+      # Whoever connects here speaks as the operator. The socket belongs to
+      # root and to the HUD gateway's group, not to Woody's own user: systemd
+      # hands the agent the listening socket, so it needs no right to open it.
+      SocketUser = "root";
       SocketGroup = "woody-hud";
       SocketMode = "0660";
       DirectoryMode = "0755";
@@ -46,10 +49,7 @@ in
       NIX_LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ];
     };
     serviceConfig = {
-      # Node is started with run-time code generation switched off. The agent
-      # refuses to run without it (agent/src/core/lockdown.ts): it is part of
-      # what keeps Woody's own code within what the build has checked.
-      ExecStart = "${pkgs.nodejs_22}/bin/node --disallow-code-generation-from-strings ${woody-agent}/lib/node_modules/woody-agent/dist/core/server.js";
+      ExecStart = "${pkgs.nodejs_22}/bin/node ${woody-agent}/lib/node_modules/woody-agent/dist/core/main.js";
       User = "woody";
       Group = "woody";
       StateDirectory = "woody";
@@ -77,6 +77,6 @@ in
     };
   };
 
-  # `woody-chat` for the human, until the HUD exists.
+  # `woody-chat`: a terminal client for the human, over SSH (sudo woody-chat).
   environment.systemPackages = [ woody-agent ];
 }

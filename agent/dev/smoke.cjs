@@ -1,4 +1,4 @@
-// Starts the built agent the way the system does (code generation off), without a key or an executor,
+// Starts the built agent the way the system does, without a key or an executor,
 // and asks it what the HUD asks. Usage, after a build (npm run build):  node dev/smoke.cjs .
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -12,7 +12,7 @@ delete env.ANTHROPIC_API_KEY;
 delete env.CLAUDE_CODE_OAUTH_TOKEN;
 delete env.LISTEN_FDS;
 delete env.WOODY_AGENT_SOCKET;
-const entry = path.join(agent, "dist", "core", "server.js");
+const entry = path.join(agent, "dist", "core", "main.js");
 
 function run(args) {
   return new Promise((resolve) => {
@@ -32,12 +32,8 @@ function run(args) {
     console.log(`${ok ? "ok  " : "FAIL"} ${name}${detail ? ` · ${detail}` : ""}`);
   };
 
-  const plain = await run([]);
-  check("without the switch the agent refuses to start", plain.code === 78 && /refusing to start/.test(plain.out), `exit ${plain.code}`);
-  plain.child.kill();
-
-  const started = await run(["--disallow-code-generation-from-strings"]);
-  check("with the switch it starts and listens", started.code === null && /listening on 127\.0\.0\.1:7877/.test(started.out), started.out.trim().split("\n").slice(-3).join(" | "));
+  const started = await run([]);
+  check("it starts and listens", started.code === null && /listening on 127\.0\.0\.1:7877/.test(started.out), started.out.trim().split("\n").slice(-3).join(" | "));
   if (started.code !== null) process.exit(1);
 
   const ws = new WebSocket("ws://127.0.0.1:7877/");

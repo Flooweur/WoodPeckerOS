@@ -1,0 +1,53 @@
+# Runs on every push: the agent's and the HUD's type checks and tests, and the
+# executor's tests. The full system build (Nix) is not run here; it is run in
+# the VM by `woody-rebuild`.
+name: checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: agent/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+  hud:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hud
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: hud/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+
+  executor:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: executor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # One at a time: some tests write a small script and run it.
+      - run: cargo test -- --test-threads=1

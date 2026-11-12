@@ -1,6 +1,5 @@
 # LOCKED CORE. Changes to this directory are never applied by the agent on its
-# own: they require human approval (enforced from Phase 3 on, when the agent
-# gains the ability to rebuild the system).
+# own: they require human approval (see locked_paths below and docs/SELFMOD.md).
 #
 # woody-execd: the only root component the agent can talk to.
 #   /run/woody/exec.sock     action requests   (group woody, agent uid only)
@@ -111,17 +110,16 @@ let
         "nix/modules/base.nix"
         # How the agent is started and confined.
         "nix/modules/agent.nix"
-        # The locked part of the agent: the protections, the check that
-        # Woody's own code stays within what it is given, and how the agent
-        # is built and tested (Phase 10; see docs/SELFMOD.md).
-        "agent/src/core/"
-        "agent/selfcheck.mjs"
-        "agent/package.json"
-        "agent/package-lock.json"
-        "agent/package.nix"
-        "agent/tsconfig.json"
-        "nix/modules/secrets.nix"
+        # The agent program, all of it: the loop, the rules, the gates and
+        # the tools. Since the review of 2026-11-12 it changes only with
+        # approval. What Woody changes by itself is data (its methods, its
+        # identity, its face, the things on the canvas) and, later, programs
+        # in its workbench, which run under another user (docs/REVIEW.md).
+        "agent/"
         "nix/modules/snapshots.nix"
+        # The kiosk browser's own network policy (the firewall rule behind it
+        # is in nix/locked/hud.nix).
+        "nix/modules/kiosk.nix"
       ];
     };
   });

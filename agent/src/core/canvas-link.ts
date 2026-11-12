@@ -1,7 +1,8 @@
 // The agent's connection to the canvas, which the HUD gateway keeps. It is
 // part of the locked side: every request Woody's canvas tools make goes
 // through here.
-import type { WebSocket } from "ws";
+/** The gateway's end of the connection: a WebSocket, or a stand-in for one in the tests. */
+export type LinkSocket = { readyState: number; send(data: string): void; on(event: "close", listener: () => void): unknown };
 
 export type Link = {
   connected(): boolean;
@@ -9,12 +10,12 @@ export type Link = {
 };
 
 export class CanvasLink implements Link {
-  private ws: WebSocket | null = null;
+  private ws: LinkSocket | null = null;
   private seq = 0;
   private readonly pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
 
   /** The gateway opened its canvas connection. A newer one replaces an older one. */
-  attach(ws: WebSocket): void {
+  attach(ws: LinkSocket): void {
     this.ws = ws;
     ws.on("close", () => {
       if (this.ws !== ws) return;

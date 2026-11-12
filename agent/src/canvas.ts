@@ -8,6 +8,7 @@
 //  * Woody's tools for the canvas.
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { Link } from "./core/canvas-link.js";
+import { MODELS } from "./core/models.js";
 import { z } from "zod";
 
 // ---- the maker --------------------------------------------------------------
@@ -19,10 +20,10 @@ import { z } from "zod";
  * five cents, Fable in up to a minute for a quarter of a dollar.
  */
 export const MAKER_MODELS = {
-  small: "claude-haiku-5-5",
-  normal: "claude-sonnet-5-5",
-  hard: "claude-opus-5-5",
-  best: "claude-fable-5-2",
+  small: MODELS.small,
+  normal: MODELS.everyday,
+  hard: MODELS.strong,
+  best: MODELS.strongest,
 } as const;
 export type Effort = keyof typeof MAKER_MODELS;
 /** After a thing that did not start, the next attempt goes to a stronger model. */

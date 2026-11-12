@@ -136,12 +136,10 @@ export type Goal = {
 };
 
 export type InboxItem = { kind: "plan" | "blocked" | "proposal"; goal: Goal };
-export type IdentityProposal = { id: number; ts: number; text: string; reason: string };
 export type IdentityVersion = { version: number; ts: number; text: string; note: string; author?: "initial" | "woody" | "operator"; reason?: string; seen?: boolean };
 export type IdentityState = { version: number; remaining: number; paused: boolean; frozen: boolean; blocked: string | null; unseen: number[] };
 export type Identity = {
   current: { version: number; text: string };
-  pending: IdentityProposal[];
   history?: IdentityVersion[];
   /** The first version, kept as the anchor every later one is compared against. */
   anchor?: IdentityVersion;

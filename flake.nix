@@ -9,13 +9,9 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    sops-nix = {
-      url = "github:Mic92/sops-nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
-  outputs = { self, nixpkgs, disko, sops-nix, ... }: {
+  outputs = { self, nixpkgs, disko, ... }: {
     nixosConfigurations.woodpecker = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
       specialArgs = {
@@ -25,7 +21,6 @@
       };
       modules = [
         disko.nixosModules.disko
-        sops-nix.nixosModules.sops
         ./nix/hosts/woodpecker
       ];
     };

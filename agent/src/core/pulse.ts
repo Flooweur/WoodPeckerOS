@@ -34,7 +34,7 @@ function squash(text: string): string {
 }
 
 /** Services that have newly failed since the last look. */
-async function failedServices(exec: ExecutorClient, store: Store): Promise<Finding[]> {
+async function failedServices(exec: Pick<ExecutorClient, "action">, store: Store): Promise<Finding[]> {
   const result = okResult<{ services?: Array<{ unit?: string; description?: string }> }>(await exec.action("service.list", { state: "failed" }));
   if (!result) return [];
   const now = (result.services ?? []).map((s) => String(s.unit ?? "")).filter(Boolean).sort();
@@ -58,7 +58,7 @@ async function failedServices(exec: ExecutorClient, store: Store): Promise<Findi
 }
 
 /** Filesystems with less than a tenth of their space left. */
-async function lowDisks(exec: ExecutorClient): Promise<Finding[]> {
+async function lowDisks(exec: Pick<ExecutorClient, "action">): Promise<Finding[]> {
   const result = okResult<{ rows?: Array<Record<string, string>> }>(
     await exec.action("osquery.query", {
       sql: "select device, path, blocks, blocks_available from mounts where blocks > 0 and type in ('btrfs', 'ext4', 'xfs', 'vfat')",
@@ -89,7 +89,7 @@ async function lowDisks(exec: ExecutorClient): Promise<Finding[]> {
 }
 
 /** New error-level log lines, one finding per unit, for triage. */
-async function journalErrors(exec: ExecutorClient, windowMinutes: number): Promise<Finding[]> {
+async function journalErrors(exec: Pick<ExecutorClient, "action">, windowMinutes: number): Promise<Finding[]> {
   const result = okResult<{ entries?: Array<{ unit?: string | null; message?: string }> }>(
     await exec.action("journal.query", { priority: 3, since: `-${windowMinutes}m`, lines: 80 }),
   );
@@ -113,7 +113,7 @@ async function journalErrors(exec: ExecutorClient, windowMinutes: number): Promi
   }));
 }
 
-export async function checkSystem(exec: ExecutorClient, store: Store, windowMinutes: number): Promise<Finding[]> {
+export async function checkSystem(exec: Pick<ExecutorClient, "action">, store: Store, windowMinutes: number): Promise<Finding[]> {
   const groups = await Promise.allSettled([failedServices(exec, store), lowDisks(exec), journalErrors(exec, windowMinutes)]);
   return groups.flatMap((g) => (g.status === "fulfilled" ? g.value : []));
 }

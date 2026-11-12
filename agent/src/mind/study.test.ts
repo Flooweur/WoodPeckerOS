@@ -1,6 +1,7 @@
 // Studies (Phase 9b): a subject learned over reading sessions, then explained
 // with a thing. Plain code decides the stages and keeps the list of pages
 // that were read; these tests fix both.
+import { SCHEMA_VERSION } from "../core/store.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -213,7 +214,7 @@ test("an older store gains the tables for studies", () => {
   first.setMeta("schema_version", "9");
   first.close();
   const again = new Store(file);
-  assert.equal(again.getMeta("schema_version"), "11");
+  assert.equal(again.getMeta("schema_version"), String(SCHEMA_VERSION));
   assert.deepEqual(again.studies({ includeClosed: true }), []);
   again.close();
 });

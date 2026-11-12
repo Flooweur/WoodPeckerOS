@@ -17,7 +17,7 @@ buildNpmPackage {
   # change, set this to lib.fakeHash, build, and copy the hash Nix reports.
   npmDepsHash = "sha256-flWVpD0YZ4HBOyjbmZUlWqE6XOMCucxUmbZdoTiQn2g=";
 
-  # The store-level continuity tests (src/mind/store.test.ts) must pass.
+  # The store-level continuity tests and the tests of the loop must pass.
   doCheck = true;
   checkPhase = ''
     runHook preCheck

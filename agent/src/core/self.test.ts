@@ -1,9 +1,11 @@
 // What Woody may change about itself: its identity, by small steps, and the
 // designs of its lattice. The limits are plain code; these tests fix each one.
+import { SCHEMA_VERSION } from "./store.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { briefPreamble, memoryLine, reflectionPrompt } from "../mind/context.js";
 import { systemPrompt } from "./prompt.js";
@@ -314,12 +316,14 @@ test("the face tools: list, draw, reset and express", async () => {
 test("an older store gains the new columns and keeps its identity versions", () => {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "woody-self-")), "mind.db");
   const first = new Store(file);
-  const p = first.proposeIdentity(`${INITIAL_IDENTITY}\n\nYou keep answers short.`, "They asked for it, under the old rule.");
-  first.decideIdentity(p.id, true);
   first.setMeta("schema_version", "7");
   first.close();
+  // A version as the old rule recorded it: proposed by Woody, approved by the operator.
+  const raw = new DatabaseSync(file);
+  raw.prepare("INSERT INTO identity (ts, text, note) VALUES (?, ?, 'proposed by Woody, approved by the operator')").run(Date.now(), `${INITIAL_IDENTITY}\n\nYou keep answers short.`);
+  raw.close();
   const again = new Store(file);
-  assert.equal(again.getMeta("schema_version"), "11");
+  assert.equal(again.getMeta("schema_version"), String(SCHEMA_VERSION));
   const history = again.identityHistory();
   assert.deepEqual(history.map((v) => v.author), ["woody", "initial"]);
   assert.ok(history.every((v) => v.seen));

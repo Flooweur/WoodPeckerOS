@@ -2,6 +2,7 @@
 // by itself. The rules stay locked and come first; the methods are data with
 // versions. These tests fix what Woody may do with them, what the operator
 // and an update of the program do, and where they sit in the instructions.
+import { SCHEMA_VERSION } from "./store.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -239,7 +240,7 @@ test("an older store gains the table for methods", () => {
   first.setMeta("schema_version", "10");
   first.close();
   const again = new Store(file);
-  assert.equal(again.getMeta("schema_version"), "11");
+  assert.equal(again.getMeta("schema_version"), String(SCHEMA_VERSION));
   assert.deepEqual(again.methods(), []);
   again.syncMethods(DEFAULT_METHODS);
   assert.equal(again.methods().length, DEFAULT_METHODS.length);

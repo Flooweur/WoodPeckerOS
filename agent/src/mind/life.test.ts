@@ -98,7 +98,7 @@ test("the evening's first moment is the tidy, once", () => {
   assert.deepEqual([again.start, again.start && again.kind], [true, "free"]);
 });
 
-test("Woody's share of the budget: paced by the day, a ceiling inside the general pace", () => {
+test("Woody's share of the budget: paced by the day, and counted apart from the operator's side", () => {
   // A quarter of $90 is $22.50: $0.75 a day in a thirty-day month.
   const day3 = new Date(Date.UTC(2026, 10, 3, 12));
   assert.equal(ownAllowance(22.5, 0, day3).toFixed(2), "2.25");
@@ -114,10 +114,18 @@ test("Woody's share of the budget: paced by the day, a ceiling inside the genera
   assert.equal(s.own.spent_usd, 0.4);
   assert.equal(s.own.available_usd, 1.85);
   assert.equal(s.spent_usd, 1.4, "its own spending counts in the month's total");
-  // The operator's work used up the general pace: Woody's own time waits too.
+  // The operator's conversations used up the pace of their side: the work Woody does
+  // for them unasked waits. Woody's own share is counted apart and is still there.
   budget.record({ kind: "chat", model: "m", cost_usd: 7 });
   s = budget.status();
   assert.equal(s.autonomous_usd, 0);
+  assert.equal(s.own.available_usd, 1.85);
+  // The operator's side is the cap without Woody's share: $67.50, or $2.25 a day.
+  assert.equal(s.daily_usd, 2.25);
+  // The monthly cap bounds both: when it is spent, nothing is left for either.
+  budget.record({ kind: "chat", model: "m", cost_usd: 82 });
+  s = budget.status();
+  assert.ok(s.exhausted);
   assert.equal(s.own.available_usd, 0);
   // The ledger is read back the same after a restart.
   const again = new Budget(dir, 90, 0.25);
