@@ -41,7 +41,8 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 | 7 | **The canvas**: the frame, things, the kit, making | Done (7a to 7d), tested in the VM |
 | 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | 8a (inner state) done, tested in the VM. 8b (a life of its own) and 8c (identity and face) built; they await the VM test |
 | 9 | **Learning and showing**: open reading, studies, explainers, web pictures | Built in three steps (9a open reading, 9b studies and explainers, 9c web pictures); awaits the VM test |
-| 10 | **Reshaping itself**: free change of its own program | 10a (the wall around the protections) done, tested in the VM. 10b (methods as data) built; awaits the VM test. Next: 10c unasked self-change, 10d its own tools |
+| 10 | **Reshaping itself**: free change of its own program | 10a (the wall around the protections) and 10b (methods as data) done, tested in the VM. 10c and 10d are replaced by the decisions of the review: see [REVIEW.md](REVIEW.md) |
+| R | **The review** of 2026-11-12: restructuring, the workbench, the canvas carrying data, the web rule by consequence, the trust dial, the HUD split | Decided; steps A to F in [REVIEW.md](REVIEW.md). Next: A and B |
 | 11 | **Sound and voice** | Planned |
 | 12 | **Programs on the canvas** | Planned |
 | 13 | **Universal pipes**: outputs of things wired to inputs of things, the machine, Woody and approved actions | Planned (decided 2026-11-12) |
@@ -411,6 +412,8 @@ What the redesign adds (Phases 7 to 12):
 ## The phases to come
 
 Each phase ends with a test in the VM by the operator. Details of the design are in [VISION.md](VISION.md).
+
+The review of 2026-11-12 ([REVIEW.md](REVIEW.md)) changed the order and several earlier decisions. Its steps A to F come before Phase 11, and where this section disagrees with the review's decisions, the review holds.
 
 ### Phase 7: the canvas
 

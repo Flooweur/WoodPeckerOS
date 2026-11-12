@@ -68,7 +68,13 @@ in
     # Only used when the account is first created. Change it right after
     # the first login with `passwd`.
     initialPassword = "woodpecker";
+    # Keys listed in settings.nix may sign in over SSH without a password.
+    openssh.authorizedKeys.keys = settings.adminKeys;
   };
+
+  # Whether the admin account (the only member of "wheel") must type its
+  # password for sudo. See adminSudoWithoutPassword in settings.nix.
+  security.sudo.wheelNeedsPassword = !settings.adminSudoWithoutPassword;
 
   ##### Memory #############################################################
   zramSwap.enable = true;

@@ -9,6 +9,8 @@ A computer that is alive: a NixOS virtual machine whose whole interface is Woody
 - **[docs/HUD.md](docs/HUD.md)**: the screen as it is today.
 - **[docs/EXECUTOR.md](docs/EXECUTOR.md)**, **[docs/AGENT.md](docs/AGENT.md)**, **[docs/SELFMOD.md](docs/SELFMOD.md)**: the privileged core, the agent, and how Woody changes its own system.
 
-Status (2026-11-12): the base system, the privileged core, the mind and the first HUD are built. The canvas, the inner state and the rest of the redesign are designed and not yet built.
+- **[docs/REVIEW.md](docs/REVIEW.md)**: the review of 2026-11-12, what it found, and the decisions and order of work that follow.
+
+Status (2026-11-12): the base system, the privileged core, the mind, the canvas, Woody's own life, studies and its methods are built and tested in the VM. A review of the whole project then set the next steps: a restructuring, then a workbench where Woody runs real programs.
 
 The project first aimed at a security-testing toolkit for a home lab. That goal was dropped on 2026-11-12 and its code removed.

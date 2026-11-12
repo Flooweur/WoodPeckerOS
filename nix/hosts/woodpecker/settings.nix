@@ -4,6 +4,20 @@
   # Human admin account (not the agent).
   adminUser = "flooweur";
 
+  # SSH public keys that may sign in as the admin account (from the
+  # host-only network only). The first one belongs to Claude Code on the
+  # Windows host, which builds and tests this system; its private half
+  # never leaves that PC. Remove the line to take that access away.
+  adminKeys = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGNNTpfGLuYDJnUFkMusHXjkbHgM1JQ2XE4sLExBf2RQ woodpecker-review"
+  ];
+
+  # Let the admin account use sudo without typing its password. Decided on
+  # 2026-11-12 so that changes can be tested in the VM over SSH. It concerns
+  # the admin account only: Woody's own user has no sudo at all. Set it to
+  # false to be asked for the password again.
+  adminSudoWithoutPassword = true;
+
   timeZone = "Europe/Paris";
   locale = "en_US.UTF-8";
   consoleKeyMap = "fr";
