@@ -46,6 +46,7 @@ const mindCalls = [];
 let agentState = null;
 let faceAnswer = null;
 let identityAnswer = null;
+let studiesAnswer = null;
 const agentSay = (msg) => { for (const b of browsers) if (b.readyState === 1) b.send(JSON.stringify(msg)); };
 fs.rmSync(AGENT_SOCK, { force: true });
 const agentHttp = http.createServer();
@@ -54,9 +55,9 @@ new WebSocket.Server({ server: agentHttp }).on("connection", (ws) => {
   if (agentState) ws.send(JSON.stringify(agentState));
   ws.on("message", (raw) => {
     const m = JSON.parse(raw.toString());
-    if (m.type === "mind" && (m.op === "face" || m.op === "face_restore" || String(m.op).startsWith("identity"))) {
+    if (m.type === "mind" && (m.op === "face" || m.op === "face_restore" || String(m.op).startsWith("identity") || String(m.op).startsWith("stud"))) {
       mindCalls.push(m);
-      const result = String(m.op).startsWith("face") ? faceAnswer : identityAnswer;
+      const result = String(m.op).startsWith("stud") ? studiesAnswer : String(m.op).startsWith("face") ? faceAnswer : identityAnswer;
       if (!result) return;
       if (m.op === "identity_seen") {
         identityAnswer.state.unseen = [];
@@ -452,6 +453,50 @@ function startGateway() {
   await js(`[...document.querySelectorAll(".face-entry")].find((e) => e.querySelector("b").textContent === "resting").querySelector("button").click()`);
   await sleep(400);
   check("the operator can put a built-in design back", mindCalls.some((m) => m.op === "face_restore" && m.name === "resting" && m.id === undefined));
+  await js(`document.querySelector(".panel-head button.ghost").click()`);
+
+  // ---- studies and an explainer's sources (Phase 9b) ----
+  // The pages read for a study are handed over with the explainer and shown by the frame, not by the thing.
+  const STUDY = {
+    id: 3,
+    subject: "How tides work",
+    sources: [
+      { url: "https://oceanservice.example/tides/basics", title: "What causes tides?" },
+      { url: "https://encyclopedia.example/wiki/Tide", title: "" },
+      { url: "http://plain.example/", title: "not https" },
+      { url: "javascript:alert(1)", title: "not an address" },
+    ],
+  };
+  const explainer = await woody("kit", { part: "text", props: KIT_SAMPLES.text, title: "Tides explained", why: "you asked me to learn about tides and show you", study: STUDY });
+  check("an explainer is made with the study it explains", explainer.ok && explainer.result.thing.study?.sources.length === 2, explainer.ok ? JSON.stringify(explainer.result.thing.study?.sources.map((s) => s.url)) : explainer.error);
+  const exId = explainer.ok ? explainer.result.thing.id : "none";
+  check("the frame marks it with the number of pages that were read", await until(`document.querySelector('[data-thing="${exId}"] .thing-sources')?.textContent.trim() === "sources · 2"`));
+  check("a thing that explains no study has no such mark", await js(`!document.querySelector('[data-thing="t1"] .thing-sources')`));
+  await shot("10-explainer");
+  await js(`document.querySelector('[data-thing="${exId}"] .thing-sources').click()`);
+  check("its record lists the sources, as the frame holds them", (await until(`document.querySelectorAll(".sources .source").length === 2`)) && (await js(`document.querySelector(".sources").textContent.includes("https://oceanservice.example/tides/basics") && document.querySelector(".sources").textContent.includes("How tides work") && !document.querySelector(".sources").textContent.includes("plain.example")`)));
+  check("an address is shown as text, never as a link out of the frame", await js(`document.querySelectorAll(".sources a").length === 0`));
+  await shot("11-sources");
+  studiesAnswer = {
+    studies: [
+      { id: 3, subject: "How tides work", why: "Learn about tides and show me.", owner: "operator", status: "done", created: Date.now() - 7_200_000, updated: Date.now(), budget_usd: 1.5, spent_usd: 1.1, max_readings: 5, readings: 3, plan: "", thing_id: exId, outcome: "It shows the two bulges.",
+        notes: [{ id: 1, ts: Date.now(), text: "Tides are raised mainly by the moon.", sources: ["https://oceanservice.example/tides/basics"] }], pages: STUDY.sources.slice(0, 2).map((s) => ({ ...s, ts: Date.now() })) },
+      { id: 4, subject: "Orbits", why: "Learn about orbits.", owner: "operator", status: "reading", created: Date.now(), updated: Date.now(), budget_usd: 1.5, spent_usd: 0.2, max_readings: 5, readings: 1, plan: "Kepler's second law.", thing_id: null, outcome: "", notes: [], pages: [] },
+    ],
+  };
+  await js(`document.querySelector(".lattice-button").click()`);
+  await until(`!!document.querySelector(".menu-list")`);
+  await js(`[...document.querySelectorAll(".menu-list button")].find((b) => b.textContent.includes("STUDIES")).click()`);
+  check("the studies record shows what is being learned and what was found", (await until(`document.querySelectorAll(".studies details").length === 2`)) && (await js(`document.querySelector(".studies").textContent.includes("reading · session 2 of 5") && document.querySelector(".studies").textContent.includes("Kepler") && document.querySelector(".studies").textContent.includes("read at oceanservice.example")`)));
+  await js(`[...document.querySelectorAll(".studies button")].find((b) => b.textContent.includes("drop this study")).click()`);
+  await sleep(400);
+  check("the operator can drop a study", mindCalls.some((m) => m.op === "study_drop" && m.id === 4));
+  await js(`(() => { const i = document.querySelector("#study-subject"); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(i, "How clocks keep time"); i.dispatchEvent(new Event("input", { bubbles: true })); })()`);
+  await sleep(200);
+  await js(`[...document.querySelectorAll(".studies form button")].find((b) => b.textContent.trim() === "study").click()`);
+  await sleep(400);
+  check("and start one", mindCalls.some((m) => m.op === "study_add" && m.subject === "How clocks keep time" && m.size === "medium"));
+  await shot("12-studies");
   await js(`document.querySelector(".panel-head button.ghost").click()`);
 
   // ---- everything survives a restart of the gateway ----

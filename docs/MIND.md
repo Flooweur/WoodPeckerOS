@@ -462,6 +462,47 @@ Limits to know:
 | Links found by code; only given addresses fetched; addresses cleaned from lasting text | 6 agent tests | To do with a real page |
 | A redirect chain on a real site; the hourly ceiling | Not exercised | To do |
 
+## Studies and explainers (Phase 9b)
+
+Code: `agent/src/mind/study-tools.ts` (the tools), `studyPreamble` in `agent/src/mind/context.ts` (what a session is told), the stages in `agent/src/mind/store.ts`, the scheduling in `agent/src/server.ts`, the sources in `hud/server/canvas.ts` and the frame.
+
+### How a study goes
+
+| Stage | What happens | Who decides it is over |
+|---|---|---|
+| Started | `study_start`, from your request or from the Studies record; or by Woody in its own time | |
+| Reading | Sessions that search, read and write down findings with `study_note`; each ends with `study_plan` (what to look for next) | Woody says "enough", or the reading sessions are used, or 70% of the budget is spent |
+| Explaining | One session that builds a thing from the findings and calls `study_done` | A thing is on the canvas; or two tries failed, or the money ran out |
+| Done or given up | The findings and the list of pages stay in the record | |
+
+- **Whose study, whose money.** A study you asked for is your work: it runs at any hour, on the model you chose, from the general budget. A study of Woody's own runs only in its own moments (one session per moment), on the own-time model, from its own share, and only one at a time.
+- **A reading session** is an ordinary session that reads the web, so everything from 4e and 9a holds: it may only observe and take notes, it fetches only addresses it was given, and addresses it was not given are removed from its findings. It writes nothing to you.
+- **The explainer session** has not read the web. It is given the findings as data, labelled as what Woody understood from strangers' pages. If it used a web tool it could no longer put anything on the canvas, and it is told so.
+- **For a study you asked for,** the explainer is yours: it does not count against the daily limit of things Woody adds on its own, and Woody tells you in the conversation when it is there. A study of Woody's own follows the rules of its own time: a note if the thing is for you, and the daily limit.
+
+### Sources
+
+- When a page is fetched during a reading session, code records it for the study (`study_pages`), with the page's title. This happens in the tool, not in the model.
+- Each finding carries the pages that were fetched since the finding before it.
+- When the explainer is made, the agent hands the canvas the study and its pages. The canvas keeps them on the thing; a later change to the thing does not touch them.
+- The frame shows "sources · N" on the thing. Its record lists every page with its title and address, as text. The explainer's own code never sees or draws that list.
+
+### Limits to know
+
+- An explainer is what Woody understood. It can be wrong where the reader's notes or Woody's reading were wrong. Hence the sources.
+- The page list is recorded and handed over by the agent, Woody's own program. See the note in "Open reading".
+- Limits in code: four studies open at once, sixty findings and two hundred pages per study, $10 and twenty reading sessions at most.
+
+### Test status
+
+| What | In containers | In the VM |
+|---|---|---|
+| Owners, sizes, limits; pages and findings; the stages decided by code | 6 tests in `study.test.ts` | |
+| Tools refuse outside a study session or at the wrong stage; `study_done` needs a thing | Tests | |
+| What a reading session and an explainer session are told | Tests | |
+| The canvas keeps the sources; the frame shows the mark, the list and the Studies record | 1 gateway test, 8 scripted browser checks | To do |
+| A real study from request to explainer | Not testable here | To do |
+
 ## The inner state (Phase 8a)
 
 Code: `agent/src/mind/inner.ts`, wired in `agent/src/server.ts`.

@@ -8,6 +8,7 @@
 //             its origin and its sources; never overwritten, only superseded
 //   identity  who Woody is, versioned
 //   face      the designs of Woody's lattice that Woody drew itself, versioned
+//   studies   subjects Woody learns over several reading sessions: notes, and the pages actually read
 //   queue     everything that can wake Woody, waiting to be handled
 //   alarms    wake-ups Woody set for itself
 //   watches   things in progress elsewhere whose outcome Woody is waiting for
@@ -66,10 +67,58 @@ export type JournalEntry = {
 /** Raised when a memory would break a trust rule. The message is for the model. */
 export class PolicyError extends Error {}
 
+/** One finding of a study, in Woody's words, with the pages that were read before it was written. */
+export type StudyNote = { id: number; ts: number; text: string; sources: string[] };
+/** A page that was actually fetched for a study. Recorded by code when the fetch happens, never typed by the model. */
+export type StudyPage = { url: string; title: string; ts: number };
+/** A subject Woody learns over several reading sessions, then explains with a thing on the canvas. */
+export type Study = {
+  id: number;
+  subject: string;
+  why: string;
+  /** Who it is for: the operator asked for it, or it grew from one of Woody's own interests (then it is paid from Woody's share). */
+  owner: "operator" | "woody";
+  interest_id: number | null;
+  status: "reading" | "explaining" | "done" | "dropped";
+  created: number;
+  updated: number;
+  last_worked: number;
+  budget_usd: number;
+  spent_usd: number;
+  max_readings: number;
+  readings: number;
+  /** How many times building the explainer was tried. */
+  tries: number;
+  /** What Woody wants to find out next, written at the end of each reading session. */
+  plan: string;
+  /** The explainer on the canvas, once built. */
+  thing_id: string | null;
+  outcome: string;
+  notes: StudyNote[];
+  pages: StudyPage[];
+};
+
+/** The size of a study and the limits around it. */
+export const STUDY = {
+  budgetUsd: 1.5,
+  maxReadings: 5,
+  /** The most a single study may be given. */
+  maxBudgetUsd: 10,
+  maxReadingsEver: 20,
+  /** Reading stops once this share of the budget is spent: the rest is for building the explainer. */
+  readShare: 0.7,
+  maxOpen: 4,
+  /** Woody studies one subject of its own at a time. */
+  maxOwnOpen: 1,
+  maxNotes: 60,
+  maxPages: 200,
+  maxTries: 2,
+};
+
 export type QueueItem = {
   id: number;
   ts: number;
-  source: "operator" | "alarm" | "system" | "job" | "approval" | "goal" | "brief" | "reflect" | "thing" | "own";
+  source: "operator" | "alarm" | "system" | "job" | "approval" | "goal" | "brief" | "reflect" | "thing" | "own" | "study";
   kind: string;
   payload: Record<string, unknown>;
   priority: number;
@@ -170,7 +219,45 @@ const MAX_OPEN_PROPOSALS = 10;
 const MAX_OPEN_INTERESTS = 12;
 const MAX_INTEREST_NOTES = 12;
 
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
+
+const SCHEMA_V10 = `
+CREATE TABLE IF NOT EXISTS studies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  subject TEXT NOT NULL,
+  why TEXT NOT NULL DEFAULT '',
+  owner TEXT NOT NULL,
+  interest_id INTEGER,
+  status TEXT NOT NULL DEFAULT 'reading',
+  created INTEGER NOT NULL,
+  updated INTEGER NOT NULL,
+  last_worked INTEGER NOT NULL DEFAULT 0,
+  budget_usd REAL NOT NULL,
+  spent_usd REAL NOT NULL DEFAULT 0,
+  max_readings INTEGER NOT NULL,
+  readings INTEGER NOT NULL DEFAULT 0,
+  tries INTEGER NOT NULL DEFAULT 0,
+  plan TEXT NOT NULL DEFAULT '',
+  thing_id TEXT,
+  outcome TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS study_notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  study_id INTEGER NOT NULL,
+  ts INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  sources TEXT NOT NULL DEFAULT '[]'
+);
+CREATE TABLE IF NOT EXISTS study_pages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  study_id INTEGER NOT NULL,
+  ts INTEGER NOT NULL,
+  url TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS study_notes_study ON study_notes (study_id, id);
+CREATE INDEX IF NOT EXISTS study_pages_study ON study_pages (study_id, id);
+`;
 
 const SCHEMA_V8 = `
 CREATE TABLE IF NOT EXISTS face (
@@ -609,6 +696,13 @@ export class Store {
       this.tx(() => {
         this.db.prepare("UPDATE goals SET description = ? WHERE status = 'standing' AND title = 'Stay up to date'").run(STAY_UPDATED);
         this.setMeta("schema_version", "9");
+      });
+    }
+    if (version < 10) {
+      // Phase 9b: studies.
+      this.tx(() => {
+        this.db.exec(SCHEMA_V10);
+        this.setMeta("schema_version", "10");
       });
     }
   }
@@ -1632,6 +1726,189 @@ export class Store {
     return this.memory(keepId)!;
   }
 
+  // ---- studies -----------------------------------------------------------
+
+  private toStudy(r: Row): Study {
+    const id = Number(r.id);
+    const notes = (this.db.prepare("SELECT * FROM study_notes WHERE study_id = ? ORDER BY id").all(id) as Row[]).map((n) => {
+      let sources: string[] = [];
+      try {
+        sources = (JSON.parse(String(n.sources)) as unknown[]).map(String);
+      } catch {
+        /* keep empty */
+      }
+      return { id: Number(n.id), ts: Number(n.ts), text: String(n.text), sources };
+    });
+    const pages = (this.db.prepare("SELECT url, title, ts FROM study_pages WHERE study_id = ? ORDER BY id").all(id) as Row[]).map((p) => ({
+      url: String(p.url),
+      title: String(p.title),
+      ts: Number(p.ts),
+    }));
+    return {
+      id,
+      subject: String(r.subject),
+      why: String(r.why),
+      owner: r.owner === "woody" ? "woody" : "operator",
+      interest_id: r.interest_id == null ? null : Number(r.interest_id),
+      status: r.status as Study["status"],
+      created: Number(r.created),
+      updated: Number(r.updated),
+      last_worked: Number(r.last_worked),
+      budget_usd: Number(r.budget_usd),
+      spent_usd: Number(r.spent_usd),
+      max_readings: Number(r.max_readings),
+      readings: Number(r.readings),
+      tries: Number(r.tries),
+      plan: String(r.plan),
+      thing_id: r.thing_id == null ? null : String(r.thing_id),
+      outcome: String(r.outcome),
+      notes,
+      pages,
+    };
+  }
+
+  study(id: number): Study | null {
+    const row = this.db.prepare("SELECT * FROM studies WHERE id = ?").get(id) as Row | undefined;
+    return row ? this.toStudy(row) : null;
+  }
+
+  /** Open studies, oldest first; with includeClosed, the finished and dropped ones too, newest first after them. */
+  studies(opts: { includeClosed?: boolean } = {}): Study[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM studies ${opts.includeClosed ? "" : "WHERE status IN ('reading', 'explaining')"} ORDER BY (status IN ('reading', 'explaining')) DESC, id`)
+      .all() as Row[];
+    return rows.map((r) => this.toStudy(r));
+  }
+
+  private needStudy(id: number, open = true): Study {
+    const s = this.study(id);
+    if (!s) throw new PolicyError(`no study #${id}`);
+    if (open && s.status !== "reading" && s.status !== "explaining") throw new PolicyError(`study #${id} is closed (${s.status})`);
+    return s;
+  }
+
+  /** A subject to learn. The operator's are paid from the general budget; Woody's own from its share, one at a time. */
+  addStudy(s: { subject: string; why: string; owner: Study["owner"]; interest_id?: number | null; budget_usd?: number; max_readings?: number }): Study {
+    const subject = s.subject.trim().replace(/\s+/g, " ");
+    if (subject.length < 3 || subject.length > 200) throw new PolicyError("a study has a subject of 3 to 200 characters");
+    const budget = s.budget_usd ?? STUDY.budgetUsd;
+    const readings = s.max_readings ?? STUDY.maxReadings;
+    if (!(budget >= 0.2 && budget <= STUDY.maxBudgetUsd)) throw new PolicyError(`a study's budget is between $0.20 and $${STUDY.maxBudgetUsd}`);
+    if (!Number.isInteger(readings) || readings < 1 || readings > STUDY.maxReadingsEver) throw new PolicyError(`a study has 1 to ${STUDY.maxReadingsEver} reading sessions`);
+    const open = this.studies();
+    const same = open.find((x) => normalise(x.subject) === normalise(subject));
+    if (same) throw new PolicyError(`that is already study #${same.id}`);
+    if (open.length >= STUDY.maxOpen) throw new PolicyError(`${STUDY.maxOpen} studies are open, which is the most at one time. Finish or drop one first.`);
+    if (s.owner === "woody" && open.filter((x) => x.owner === "woody").length >= STUDY.maxOwnOpen) {
+      throw new PolicyError("you are already studying a subject of your own; finish or drop it before starting another");
+    }
+    const interest = s.interest_id == null ? null : this.interest(s.interest_id);
+    if (s.interest_id != null && !interest) throw new PolicyError(`no interest #${s.interest_id}`);
+    const now = this.now();
+    const r = this.db
+      .prepare("INSERT INTO studies (subject, why, owner, interest_id, created, updated, budget_usd, max_readings) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(subject, s.why.trim().slice(0, 600), s.owner, interest?.id ?? null, now, now, budget, readings);
+    const id = Number(r.lastInsertRowid);
+    this.event("study_started", { id, subject, owner: s.owner, budget_usd: budget, max_readings: readings }, { actor: s.owner === "woody" ? "woody" : "operator" });
+    return this.study(id)!;
+  }
+
+  /** One finding, in Woody's words. `sources` are the pages the session had fetched before writing it. */
+  noteStudy(id: number, text: string, sources: string[]): StudyNote {
+    const s = this.needStudy(id);
+    if (s.status !== "reading") throw new PolicyError(`study #${id} is no longer in its reading stage`);
+    const clean = text.trim();
+    if (clean.length < 10 || clean.length > 1500) throw new PolicyError("a study note is 10 to 1500 characters: one finding, self-contained");
+    if (s.notes.length >= STUDY.maxNotes) throw new PolicyError(`this study has ${STUDY.maxNotes} notes, which is the most. Say you have read enough (study_plan).`);
+    const r = this.db
+      .prepare("INSERT INTO study_notes (study_id, ts, text, sources) VALUES (?, ?, ?, ?)")
+      .run(id, this.now(), clean, JSON.stringify([...new Set(sources)].slice(0, 12)));
+    this.db.prepare("UPDATE studies SET updated = ? WHERE id = ?").run(this.now(), id);
+    return { id: Number(r.lastInsertRowid), ts: this.now(), text: clean, sources };
+  }
+
+  /** A page was fetched during one of this study's reading sessions. Called by code at the moment of the fetch. */
+  addStudyPage(id: number, url: string, title = ""): void {
+    const seen = this.db.prepare("SELECT count(*) AS n, sum(url = ?) AS same FROM study_pages WHERE study_id = ?").get(url, id) as Row;
+    if (Number(seen.same ?? 0) > 0 || Number(seen.n) >= STUDY.maxPages) return;
+    this.db.prepare("INSERT INTO study_pages (study_id, ts, url, title) VALUES (?, ?, ?, ?)").run(id, this.now(), url.slice(0, 2000), title.replace(/\s+/g, " ").trim().slice(0, 140));
+  }
+
+  /** The end of a reading session: what to find out next, or that enough has been read. */
+  planStudy(id: number, plan: string, enough: boolean): Study {
+    const s = this.needStudy(id);
+    if (s.status !== "reading") throw new PolicyError(`study #${id} is no longer in its reading stage`);
+    if (enough && !s.notes.length) throw new PolicyError("write down at least one finding (study_note) before saying you have read enough");
+    this.db.prepare("UPDATE studies SET plan = ?, status = ?, updated = ? WHERE id = ?").run(plan.trim().slice(0, 1000), enough ? "explaining" : "reading", this.now(), id);
+    if (enough) this.event("study_read", { id, notes: s.notes.length, pages: s.pages.length });
+    return this.study(id)!;
+  }
+
+  /**
+   * A session of the study ended. Its cost is added, and plain code decides
+   * the stage: reading stops when the sessions or the reading share of the
+   * budget are used; an explainer that could not be built is given up after
+   * a second try.
+   */
+  studySession(id: number, kind: "read" | "explain", costUsd: number): Study {
+    const s = this.needStudy(id, false);
+    const now = this.now();
+    this.db
+      .prepare("UPDATE studies SET spent_usd = spent_usd + ?, readings = readings + ?, tries = tries + ?, last_worked = ?, updated = ? WHERE id = ?")
+      .run(Math.max(0, costUsd), kind === "read" ? 1 : 0, kind === "explain" ? 1 : 0, now, now, id);
+    const after = this.study(id)!;
+    if (after.status === "reading" && (after.readings >= after.max_readings || after.spent_usd >= after.budget_usd * STUDY.readShare)) {
+      if (after.notes.length) {
+        this.db.prepare("UPDATE studies SET status = 'explaining' WHERE id = ?").run(id);
+        this.event("study_read", { id, notes: after.notes.length, pages: after.pages.length });
+      } else {
+        this.closeStudy(id, "dropped", "The reading sessions ended without a single finding written down.", "woody");
+      }
+    } else if (after.status === "explaining" && (after.tries >= STUDY.maxTries || after.spent_usd >= after.budget_usd)) {
+      this.closeStudy(id, "dropped", after.spent_usd >= after.budget_usd ? "The budget ran out before the explainer was built. The notes are kept." : "The explainer could not be built in two tries. The notes are kept.", "woody");
+    }
+    return this.study(id)!;
+  }
+
+  private closeStudy(id: number, status: "done" | "dropped", outcome: string, actor: string, thingId?: string | null): void {
+    this.db
+      .prepare("UPDATE studies SET status = ?, outcome = ?, thing_id = coalesce(?, thing_id), updated = ? WHERE id = ?")
+      .run(status, outcome.trim().slice(0, 1500), thingId ?? null, this.now(), id);
+    const s = this.study(id)!;
+    this.event(status === "done" ? "study_done" : "study_dropped", { id, subject: s.subject, owner: s.owner, outcome: s.outcome, thing: s.thing_id, pages: s.pages.length }, { actor });
+  }
+
+  /** The explainer is on the canvas: the study is done. */
+  finishStudy(id: number, thingId: string, outcome: string): Study {
+    const s = this.needStudy(id);
+    if (s.status !== "explaining") throw new PolicyError(`study #${id} is still in its reading stage`);
+    this.closeStudy(id, "done", outcome, "woody", thingId);
+    return this.study(id)!;
+  }
+
+  dropStudy(id: number, actor: "woody" | "operator", reason: string): Study {
+    this.needStudy(id);
+    this.closeStudy(id, "dropped", reason || (actor === "operator" ? "Dropped by the operator." : "Dropped."), actor);
+    return this.study(id)!;
+  }
+
+  /** The operator changes what a study may cost and how many reading sessions it gets. */
+  setStudySize(id: number, budgetUsd: number, maxReadings: number): Study {
+    this.needStudy(id);
+    if (!(budgetUsd >= 0.2 && budgetUsd <= STUDY.maxBudgetUsd)) throw new PolicyError(`a study's budget is between $0.20 and $${STUDY.maxBudgetUsd}`);
+    if (!Number.isInteger(maxReadings) || maxReadings < 1 || maxReadings > STUDY.maxReadingsEver) throw new PolicyError(`a study has 1 to ${STUDY.maxReadingsEver} reading sessions`);
+    this.db.prepare("UPDATE studies SET budget_usd = ?, max_readings = ?, updated = ? WHERE id = ?").run(budgetUsd, maxReadings, this.now(), id);
+    return this.study(id)!;
+  }
+
+  /** The study to work on next for this owner, and at which stage: the one left alone the longest. */
+  nextStudyWork(owner: Study["owner"]): { study: Study; kind: "read" | "explain" } | null {
+    const s = this.studies()
+      .filter((x) => x.owner === owner)
+      .sort((a, b) => a.last_worked - b.last_worked)[0];
+    return s ? { study: s, kind: s.status === "reading" ? "read" : "explain" } : null;
+  }
+
   // ---- identity ----------------------------------------------------------
 
   identity(): { version: number; text: string } {
@@ -1919,6 +2196,7 @@ export class Store {
       identity_pending: count("SELECT count(*) AS n FROM identity_proposals WHERE status = 'pending'"),
       queued: count("SELECT count(*) AS n FROM queue WHERE status = 'pending'"),
       identity_version: this.identity().version,
+      studies_open: count("SELECT count(*) AS n FROM studies WHERE status IN ('reading', 'explaining')"),
     };
   }
 }

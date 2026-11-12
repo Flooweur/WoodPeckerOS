@@ -23,15 +23,16 @@ import { WebSocket, WebSocketServer } from "ws";
 import { Budget } from "./budget.js";
 import { ExecutorClient } from "./executor.js";
 import { Files } from "./files.js";
-import { briefPreamble, describeTurn, eventPreamble, goalPreamble, ownPreamble, preamble, reflectionPrompt, setExtraContext, systemPrompt, type GoalWork, type OwnMaterial } from "./mind/context.js";
+import { briefPreamble, describeTurn, eventPreamble, goalPreamble, ownPreamble, preamble, reflectionPrompt, setExtraContext, systemPrompt, type GoalWork, type OwnMaterial, studyPreamble } from "./mind/context.js";
 import { createGoalTools, smallGoalLimit } from "./mind/goal-tools.js";
 import { DEFAULT_RHYTHM, clockText, dayEnd, dayKey, dayStartOf, ownTime, parseClock, phaseAt, reflectKey, validRhythm, type OwnDecision, type OwnMoment, type Rhythm } from "./mind/life.js";
 import { createLifeTools } from "./mind/life-tools.js";
 import { GivenLinks, scrubLinks } from "./links.js";
 import { createSelfTools } from "./mind/self-tools.js";
+import { STUDY_SIZES, createStudyTools } from "./mind/study-tools.js";
 import { checkSystem, systemChange, triage } from "./mind/pulse.js";
 import { rollThreadSummary, summariseTurn } from "./mind/reflect.js";
-import { MEMORY_KINDS, PolicyError, Store, type Goal, type MemoryKind, type Message, type QueueItem } from "./mind/store.js";
+import { MEMORY_KINDS, PolicyError, STUDY, Store, type Goal, type MemoryKind, type Message, type QueueItem, type Study } from "./mind/store.js";
 import { createMemoryTools } from "./mind/tools.js";
 import { CANVAS_CHANGING_TOOLS, CanvasLink, createCanvasTools } from "./canvas.js";
 import { innerLines, innerState, type Inner } from "./mind/inner.js";
@@ -131,6 +132,11 @@ const RULES = `You are Woody, the mind that lives in WoodPecker-OS: a single-pur
 - If the operator asks how you are or why you are like this, call inner_state and tell them the real causes. Do not invent feelings or reasons that are not in it. You are a mind in a machine, not a person, and you do not pretend otherwise.
 - You may disagree. When you think a request is a poor idea, say so and say why, offer something better, or do it your own way and say that you did. If the operator insists, do what they asked; you may add that you still disagree. Never appear to comply while doing something else. Refusals for safety are a different matter and are not negotiable either way.
 
+# Studying
+- When the operator asks you to learn about a subject, or to learn it and show them, start a study (study_start) and tell them it has started. You do not read in that conversation. A study is worked on in sessions of its own, started for you one after the other: reading sessions, in which you search, read and write down each finding (study_note), then one session in which you build a thing that explains what you understood.
+- In a moment of your own you may turn one of your interests into a study of your own. It is paid from your share and moves forward in your own moments; one at a time.
+- An explainer is built from your findings, in a session that has not read the web, and it contains only what you found. You do not write its sources: the frame lists on it the pages that were actually read, from the record.
+
 # A life of your own
 - Part of your time and of the budget is yours. When nothing is asked of you and you are rested, you get moments of your own: an <own_time> block instead of a message. They are for your interests, for your own things on the canvas, and now and then for something left for the operator. Nobody is owed anything in them, and doing nothing is allowed.
 - Keep a list of what you are curious about (interest_add), saying honestly where each interest came from: a conversation, work you did, something you noticed. Write down where you get to (interest_note) and drop what has gone flat (interest_drop). The operator sees the list, may suggest an interest and may remove one. When something in a conversation catches your curiosity, you may add it then and there; it is followed later, in your own time, not in theirs.
@@ -198,12 +204,24 @@ const mainThread = thread;
 const reflectionThread = store.systemThread("reflection");
 /** Where Woody's own time is recorded: what it did with it goes to its journal, not to the conversation. */
 const ownThread = store.systemThread("own");
+/** Where the reading sessions of studies are recorded. */
+const studyThread = store.systemThread("study");
 /** True while the session in progress is a moment of Woody's own: what it spends comes out of Woody's share. */
 let sessionOwn = false;
 /** What the session in progress spent outside its own model calls (the maker, the web reader). */
 let sessionExtra = 0;
 /** The session in progress is the daily reflection: the only moment Woody may change its identity. */
 let sessionReflecting = false;
+/** The study the session in progress works on, and at which stage (reading, or building the explainer). */
+let sessionStudy: { id: number; kind: "read" | "explain" } | null = null;
+/** The pages the session in progress fetched since it last wrote a finding. */
+let sessionPages: string[] = [];
+/** The thing the session in progress put on the canvas, if any. */
+let sessionMade: string | null = null;
+/** The session in progress is the operator writing to Woody (and not Woody acting by itself). */
+let sessionOperator = false;
+/** What the session in progress adds to the canvas was asked for by the operator, although Woody is working by itself (a study's explainer). */
+let sessionInvited = false;
 /** Expressions Woody chose to show during the session in progress. */
 let sessionExpressed = 0;
 const MAX_EXPRESSED_PER_SESSION = 6;
@@ -230,6 +248,8 @@ const TAINT_BLOCKED = new Set([
   "goal_review", "clipboard_offer",
   // What Woody will be curious about tomorrow is not for a page to decide.
   "interest_add", "interest_drop",
+  // Nor what it will study.
+  "study_start", "study_drop",
   // Nor is how Woody looks from now on.
   "face_design", "face_reset",
   // What a page suggested must not end up on the screen in the same session.
@@ -448,6 +468,12 @@ function lifeNow(): Record<string, unknown> {
   };
 }
 
+/** What one session of a study may spend: a reading session its share of the reading budget, the explainer what is left. */
+function studyCap(s: Study, kind: "read" | "explain"): number {
+  const left = Math.max(0.05, s.budget_usd - s.spent_usd);
+  return kind === "read" ? Math.min(left, Math.max(0.15, (s.budget_usd * STUDY.readShare) / s.max_readings)) : left;
+}
+
 type Look = {
   things?: Array<{ id: string; title: string; for: string; made_by: string; on_its_own?: boolean; pinned: boolean; running: string }>;
   own_additions?: { today: number; limit: number };
@@ -535,8 +561,13 @@ const toolServer = createToolServer(
       has: (url) => sessionLinks.has(url),
       add: (urls) => sessionLinks.add(urls),
     },
-    pageRead: (url) => {
-      store.event("page_read", { url });
+    pageRead: (url, title) => {
+      store.event("page_read", { url, study: sessionStudy?.id ?? null });
+      // A page read for a study is one of its sources, whatever the model later writes.
+      if (sessionStudy?.kind === "read") {
+        store.addStudyPage(sessionStudy.id, url, title);
+        sessionPages.push(url);
+      }
     },
   },
   [
@@ -554,10 +585,26 @@ const toolServer = createToolServer(
           : null;
       },
       // Whatever Woody does without the operator having asked (its own time, a wake-up, a duty) is uninvited.
-      uninvited: () => sessionMode === "observe",
+      uninvited: () => sessionMode === "observe" && !sessionInvited,
+      // The explainer of a study carries the pages that were read for it.
+      study: () => {
+        const s = sessionStudy?.kind === "explain" ? store.study(sessionStudy.id) : null;
+        return s ? { id: s.id, subject: s.subject, sources: s.pages.map((p) => ({ url: p.url, title: p.title })) } : null;
+      },
+      made: (id) => {
+        sessionMade = sessionMade ?? id;
+      },
     }),
     ...createLifeTools(store, () => sessionTaint !== null, scrub),
     ...createSelfTools(store, { reflecting: () => sessionReflecting, express, faceChanged: () => broadcast(stateMessage()) }),
+    ...createStudyTools(store, {
+      scrub,
+      starter: () => (sessionOperator ? "operator" : sessionOwn && !sessionStudy ? "woody" : null),
+      current: () => sessionStudy,
+      takeSources: () => sessionPages.splice(0),
+      madeThing: () => sessionMade,
+      changed: () => broadcast({ type: "goals_changed" }),
+    }),
     tool(
       "inner_state",
       "How you are right now and why: your energy, ease, curiosity, attention to the operator and unease, each with the real events behind it. The system computes it from the record. Use it when the operator asks how you are or why you are like this, and answer with these causes.",
@@ -740,6 +787,8 @@ function describeTrigger(item: QueueItem): Trigger {
       return { source: "reflect", headline: "Time for the daily reflection.", detail: "", untrusted: false };
     case "own":
       return { source: "own", headline: p.kind === "tidy" ? "A moment of your own: the evening tidy." : "A moment of your own.", detail: String(p.why ?? ""), untrusted: false };
+    case "study":
+      return { source: "study", headline: `Study #${p.study} (${p.kind === "read" ? "reading" : "building the explainer"}): ${p.subject}`, detail: "", untrusted: false };
     case "thing":
       return {
         source: "thing",
@@ -768,9 +817,18 @@ async function runSession(item: QueueItem): Promise<void> {
   const reflecting = item.source === "reflect";
   /** A moment of Woody's own: nobody asked for anything. */
   const own = item.source === "own";
-  const thread = goal ? goal.thread_id : reflecting ? reflectionThread : own ? ownThread : mainThread;
+  /** A session of a study: one the operator asked for (its own queue source), or Woody's own, worked on in a moment of its own. */
+  const studying = item.source === "study";
+  const study: Study | null = (studying || own) && typeof item.payload.study === "number" ? store.study(item.payload.study) : null;
+  if (studying && (!study || (study.status !== "reading" && study.status !== "explaining"))) {
+    store.finishQueued(item.id, "dropped", "the study is gone or closed");
+    return;
+  }
+  const studyKind: "read" | "explain" | null = study && (study.status === "reading" || study.status === "explaining") ? (study.status === "reading" ? "read" : "explain") : null;
+  // Reading is silent; the session that builds an explainer the operator asked for speaks in the conversation.
+  const thread = goal ? goal.thread_id : reflecting ? reflectionThread : own ? ownThread : studying ? (studyKind === "explain" ? mainThread : studyThread) : mainThread;
   /** An isolated session never reuses or leaves behind the model's working context. */
-  const isolated = goal !== null || reflecting || own;
+  const isolated = goal !== null || reflecting || own || studying;
   const goalWork: GoalWork | undefined = goal ? (operator ? "message" : (String(item.payload.kind) as GoalWork)) : undefined;
   // Full permissions: the operator is asking directly, or accepted this goal's plan.
   sessionMode = operator || (goal !== null && goal.accepted && !goal.auto_started) ? "full" : "observe";
@@ -779,6 +837,11 @@ async function runSession(item: QueueItem): Promise<void> {
   sessionLinks.clear();
   sessionOwn = own;
   sessionExtra = 0;
+  sessionStudy = study && studyKind ? { id: study.id, kind: studyKind } : null;
+  sessionPages = [];
+  sessionMade = null;
+  sessionOperator = operator;
+  sessionInvited = studying && studyKind === "explain";
   sessionReflecting = reflecting;
   sessionExpressed = 0;
   const emit = (message: Record<string, unknown>) => broadcast({ ...message, thread });
@@ -787,7 +850,7 @@ async function runSession(item: QueueItem): Promise<void> {
   abort = new AbortController();
   arrivals = [];
   const model = own ? OWN_MODEL : state.model;
-  setMind(operator ? "attending" : "working", operator ? "your message" : own ? "time of its own" : trigger!.headline);
+  setMind(operator ? "attending" : "working", operator ? "your message" : own ? (sessionStudy ? "time of its own: its study" : "time of its own") : trigger!.headline);
   /** In a moment of its own: what was put on the canvas and which interests moved, for the day's record. */
   const ownCalls = new Map<string, { left?: string; interest?: number }>();
   const ownLeft: string[] = [];
@@ -815,6 +878,17 @@ async function runSession(item: QueueItem): Promise<void> {
   } else if (reflecting) {
     startEvent = store.event("wake", { source: "reflect" }, { thread });
     prompt = reflectionPrompt(store, Number(item.payload.since));
+  } else if (study && studyKind) {
+    startEvent = store.event("wake", { source: item.source, study: study.id, kind: studyKind, why: item.payload.why ?? "" }, { thread });
+    const m = await ownMaterial("free");
+    const cap = studyCap(study, studyKind);
+    prompt =
+      studyPreamble(store, thread, study, studyKind, {
+        own,
+        canvas: m.canvas,
+        additions: own ? m.additions : null,
+        money: `this session may use up to about $${Math.min(cap, own ? Math.min(OWN_SESSION_CAP_USD, before.own.available_usd) : before.autonomous_usd).toFixed(2)}. The study has $${Math.max(0, study.budget_usd - study.spent_usd).toFixed(2)} left of $${study.budget_usd.toFixed(2)}${own ? ", from your own share" : ""}.`,
+      }) + (own ? "" : keyLine);
   } else if (own) {
     startEvent = store.event("wake", { source: "own", kind: item.kind, why: item.payload.why ?? "" }, { thread });
     prompt = ownPreamble(store, thread, await ownMaterial(item.kind === "tidy" ? "tidy" : "free"));
@@ -916,6 +990,7 @@ async function runSession(item: QueueItem): Promise<void> {
             PER_TURN_CAP_USD,
             before.remaining_usd,
             operator ? Infinity : own ? Math.min(OWN_SESSION_CAP_USD, before.own.available_usd) : before.autonomous_usd,
+            study && studyKind ? studyCap(study, studyKind) : Infinity,
             goal && !operator
               ? goal.standing
                 ? goal.standing.weekly_usd - goal.standing.week_spent_usd
@@ -1027,7 +1102,7 @@ async function runSession(item: QueueItem): Promise<void> {
 
           // An autonomous session speaks only if it has something to say.
           const silent = !operator && !problem && finalText.trim().replace(/[.!]$/, "").toUpperCase() === "NOTHING";
-          if ((reflecting || own) && !apiError) {
+          if ((reflecting || own || (studying && studyKind === "read")) && !apiError) {
             // What the reflection concluded, or what Woody did with its own time, goes to the journal, not to the conversation.
             if (!silent && finalText.trim()) store.addMessage(thread, "woody", "text", finalText);
           } else if (!operator && !silent && !apiError) {
@@ -1098,7 +1173,9 @@ async function runSession(item: QueueItem): Promise<void> {
         thread,
         wake: operator
           ? `The operator wrote: ${clip(text.replace(/\s+/g, " "), 240)}`
-          : own
+          : study && studyKind
+            ? `${own ? "I had time of my own and gave it to my study" : "I worked on the study"} of "${clip(study.subject, 120)}" (${studyKind === "read" ? `reading session ${study.readings + 1} of ${study.max_readings}` : "building the explainer"}).`
+            : own
             ? `I had time of my own${item.kind === "tidy" ? " (the evening tidy)" : ""}.`
             : `I woke up by myself: ${clip(trigger!.headline, 240)}`,
         did: d.did,
@@ -1117,7 +1194,7 @@ async function runSession(item: QueueItem): Promise<void> {
           nothing: !problem && !finalText.trim(),
           cost_usd: Number((cost + sessionExtra).toFixed(4)),
           left: ownLeft,
-          interests: [...ownFollowed].map((id) => store.interest(id)?.topic ?? `#${id}`),
+          interests: [...[...ownFollowed].map((id) => store.interest(id)?.topic ?? `#${id}`), ...(study ? [`my study of ${study.subject}`] : [])],
         };
         store.event("own_time", { ...record, problem: problem ?? null, why: item.payload.why ?? "" }, { thread });
         store.setMeta("last_own_ts", String(Date.now()));
@@ -1131,6 +1208,20 @@ async function runSession(item: QueueItem): Promise<void> {
           state.sessionId = undefined;
           state.sessionTurns = 0;
           saveState();
+        }
+      }
+      if (study && studyKind && !apiError) {
+        // The session counts against the study, with what the reader and the maker cost during it.
+        // Plain code then decides the stage: enough read, the explainer built, or given up.
+        const after = store.studySession(study.id, studyKind, cost + sessionExtra);
+        broadcast({ type: "goals_changed" });
+        if (after.status !== study.status && (after.status === "done" || after.status === "dropped")) {
+          const what = after.status === "done" ? "is done: its explainer is on the canvas" : `was given up: ${clip(after.outcome, 160)}`;
+          note(`the study of "${clip(after.subject, 60)}" ${what}`);
+          if (after.owner === "operator") {
+            if (after.status === "done") moment("sparkle");
+            broadcast({ type: "notify", title: after.status === "done" ? "A study is done" : "A study was given up", body: clip(`${after.subject}: ${after.outcome}`, 200), level: after.status === "done" ? "info" : "warn", ts: Date.now() });
+          }
         }
       }
       if (goal) {
@@ -1168,6 +1259,9 @@ async function runSession(item: QueueItem): Promise<void> {
     sessionLinks.clear();
     sessionOwn = false;
     sessionReflecting = false;
+    sessionStudy = null;
+    sessionOperator = false;
+    sessionInvited = false;
     busy = false;
     abort = undefined;
     if (journalId !== undefined && !problem && (operator || finalText)) void afterSession(journalId, asked, toolNames, finalText, thread);
@@ -1250,12 +1344,33 @@ async function pump(): Promise<void> {
               payload: { goal: work.goal.id, kind: work.kind, title: work.goal.title },
             });
             item = store.claimNext();
-          } else if (!sleeping) {
-            // Nothing is asked of it at all: perhaps a moment of its own.
-            const decision = ownDecision();
-            if (decision.start) {
-              store.enqueue({ source: "own", kind: decision.kind, priority: 9, payload: { kind: decision.kind, why: decision.why }, dedupe: "own" });
+          } else {
+            // A study the operator asked for is their work too: it is read for at any hour.
+            const studyWork = store.nextStudyWork("operator");
+            if (studyWork) {
+              store.enqueue({
+                source: "study",
+                kind: studyWork.kind,
+                priority: 8,
+                payload: { study: studyWork.study.id, kind: studyWork.kind, subject: studyWork.study.subject },
+                dedupe: `study-${studyWork.study.id}`,
+              });
               item = store.claimNext();
+            } else if (!sleeping) {
+              // Nothing is asked of it at all: perhaps a moment of its own.
+              const decision = ownDecision();
+              if (decision.start) {
+                // A study of its own moves forward in its own moments, one session at a time.
+                const mine = decision.kind === "free" ? store.nextStudyWork("woody") : null;
+                store.enqueue({
+                  source: "own",
+                  kind: decision.kind,
+                  priority: 9,
+                  payload: { kind: decision.kind, why: decision.why, ...(mine ? { study: mine.study.id } : {}) },
+                  dedupe: "own",
+                });
+                item = store.claimNext();
+              }
             }
           }
         }
@@ -1307,7 +1422,7 @@ const ACTIVITY_KINDS = [
   "user_message", "assistant_message", "tool_use", "wake", "goal_checkpoint", "goal_created", "goal_reviewed",
   "goal_accepted", "goal_dropped", "memory_created", "alarm_set", "api_error", "interrupted_by_restart",
   "session_tainted", "system_changed", "identity_proposed", "identity_decided", "approval_parked",
-  "own_time", "interest_added", "interest_dropped", "identity_changed", "identity_restored", "face_changed", "face_reset",
+  "own_time", "interest_added", "interest_dropped", "study_started", "study_read", "study_done", "study_dropped", "identity_changed", "identity_restored", "face_changed", "face_reset",
 ];
 
 /** Recent events as one line each, with the mark the HUD draws for them. */
@@ -1344,6 +1459,14 @@ function activity(limit: number): Array<{ ts: number; mark: string; text: string
         return { ts: e.ts, mark: "saved", text: `proposed identity change #${d.id}` };
       case "identity_decided":
         return { ts: e.ts, mark: "said", text: `you ${d.approved ? "approved" : "rejected"} identity change #${d.id}` };
+      case "study_started":
+        return { ts: e.ts, mark: "woke", text: `${d.owner === "woody" ? "woody began a study of its own" : "a study began"} · ${one(d.subject, 70)}` };
+      case "study_read":
+        return { ts: e.ts, mark: "saved", text: `study #${d.id}: the reading is finished · ${d.notes} findings from ${d.pages} pages` };
+      case "study_done":
+        return { ts: e.ts, mark: "said", text: `study done · ${one(d.subject, 60)} · its explainer is thing ${d.thing}` };
+      case "study_dropped":
+        return { ts: e.ts, mark: "problem", text: `${e.actor === "operator" ? "you dropped the study" : "study given up"} · ${one(d.subject, 50)} · ${one(d.outcome, 60)}` };
       case "identity_changed":
         return { ts: e.ts, mark: "saved", text: `woody changed its identity (version ${d.version}) · ${one(d.reason, 60)}` };
       case "identity_restored":
@@ -1803,6 +1926,21 @@ function mindRequest(msg: Record<string, unknown>): unknown {
     case "interest_suggest":
       if (typeof msg.topic !== "string") throw new PolicyError("a topic is required");
       return store.addInterest({ topic: msg.topic, origin: "the operator suggested it", source: "operator" });
+    case "studies":
+      // The record of studies: what is being learned, what was found, and the pages that were read.
+      return { studies: store.studies({ includeClosed: true }), sizes: STUDY_SIZES, limits: { max_budget_usd: STUDY.maxBudgetUsd, max_readings: STUDY.maxReadingsEver } };
+    case "study_add": {
+      if (typeof msg.subject !== "string") throw new PolicyError("a subject is required");
+      const size = msg.size === "small" || msg.size === "large" ? msg.size : "medium";
+      store.addStudy({ subject: msg.subject, why: typeof msg.why === "string" && msg.why.trim() ? msg.why : "The operator asked for it from the studies record.", owner: "operator", ...STUDY_SIZES[size] });
+      return { studies: store.studies({ includeClosed: true }) };
+    }
+    case "study_drop":
+      store.dropStudy(needId(), "operator", typeof msg.reason === "string" ? msg.reason : "");
+      return { studies: store.studies({ includeClosed: true }) };
+    case "study_size":
+      store.setStudySize(needId(), Number(msg.budget_usd), Number(msg.max_readings));
+      return { studies: store.studies({ includeClosed: true }) };
     case "interest_drop":
       return store.dropInterest(needId(), "operator", typeof msg.reason === "string" ? msg.reason : "removed by the operator");
     case "own_time": {
@@ -1960,7 +2098,7 @@ function handle(ws: WebSocket, raw: string): void {
       try {
         send(ws, { type: "mind_result", op: msg.op, ok: true, result: mindRequest(msg) });
         const op = String(msg.op);
-        const life = op === "interest_suggest" || op === "interest_drop" || op === "own_time" || op === "rhythm";
+        const life = op === "interest_suggest" || op === "interest_drop" || op === "own_time" || op === "rhythm" || op === "study_add" || op === "study_drop" || op === "study_size";
         if (op === "face_restore") {
           void exec.event({ kind: "mind_edit", op, id: msg.name ?? null });
           broadcast(stateMessage());

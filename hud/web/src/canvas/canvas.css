@@ -36,6 +36,8 @@
 .thing-note-from { grid-column: 1 / -1; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
 .thing-note-text { color: var(--text); overflow-wrap: anywhere; }
 .thing-note button { min-height: 0; height: 22px; padding: 0 8px; font-size: 11px; }
+.thing-sources { position: absolute; right: -1px; bottom: -1px; min-height: 0; height: 16px; padding: 0 6px; border: 0; background: var(--line-strong); color: var(--bg); font-size: 10px; font-weight: 700; letter-spacing: 0.14em; line-height: 16px; }
+.thing-sources:hover:not(:disabled) { background: var(--amber); }
 .thing-mark { position: absolute; left: -1px; bottom: -1px; padding: 0 6px; background: var(--line-strong); color: var(--bg); font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; pointer-events: none; }
 
 .thing-grip { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; opacity: 0.45; touch-action: none;

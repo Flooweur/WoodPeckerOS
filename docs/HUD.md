@@ -41,6 +41,10 @@ Everything the three-column HUD showed is still there, one click or one key away
 
 Two more records, also in the lattice menu, belong to the canvas: **Things** (every thing, on the canvas or put away: who made it, why, its versions and its source) and **Changes** (every change to the canvas with who made it and why, the attempts that were refused, and undo).
 
+**Studies** (in the lattice menu) lists what Woody is learning and has learned, for you or for itself: the stage, the money spent, what it wants to find out next, each finding with where it was read, and every page that was fetched. You start a study there (a subject and a size), give one more money and sessions, or drop it.
+
+A thing that explains a study carries a mark, "sources · N", drawn by the frame. Clicking it opens the thing's record with the list of pages that were read. The list comes from the record of fetches, not from the thing.
+
 **Its face** (in the lattice menu) shows every design the lattice can play, each as a small live lattice: which ones Woody drew itself, when and why, with a button to put the built-in one or an earlier drawing back. The frame's own signals are listed last with what each one says.
 
 When Woody has changed its identity and you have not looked yet, a notice appears beside the lattice. Clicking it opens the identity record on the change.

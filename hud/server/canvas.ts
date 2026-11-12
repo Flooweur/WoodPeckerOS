@@ -46,7 +46,15 @@ export type Thing = {
   note?: string;
   /** The operator has read the note. */
   note_seen?: boolean;
+  /**
+   * When the thing explains a study: the study, and the pages that were read
+   * for it. The agent hands them over from its record when the thing is
+   * made; the frame lists them. The thing's own code cannot change them.
+   */
+  study?: StudyRef;
 };
+export type Source = { url: string; title: string };
+export type StudyRef = { id: number; subject: string; sources: Source[] };
 export type Change = {
   seq: number;
   ts: number;
@@ -71,7 +79,7 @@ export type Settings = {
 
 export class CanvasError extends Error {}
 
-export const LIMITS = { source: 300_000, state: 256_000, things: 80, title: 80, why: 400, versions: 500, note: 300, uninvited_per_day: 20 };
+export const LIMITS = { source: 300_000, state: 256_000, things: 80, title: 80, why: 400, versions: 500, note: 300, uninvited_per_day: 20, sources: 200 };
 const DEFAULT_SETTINGS: Settings = { uninvited_per_day: 3 };
 const DEFAULT_SIZE = { w: 320, h: 220 };
 const GAP = 16;
@@ -80,6 +88,19 @@ const clamp = (n: unknown, lo: number, hi: number, fallback: number): number => 
   const v = typeof n === "number" && Number.isFinite(n) ? Math.round(n) : fallback;
   return Math.min(hi, Math.max(lo, v));
 };
+/** A study and its sources as handed over with a new thing, or null if they are not well formed. */
+function studyOf(v: unknown): StudyRef | null {
+  const s = v as { id?: unknown; subject?: unknown; sources?: unknown } | null;
+  if (!s || typeof s !== "object" || !Number.isInteger(s.id) || typeof s.subject !== "string" || !Array.isArray(s.sources)) return null;
+  const sources: Source[] = [];
+  for (const x of s.sources as Array<{ url?: unknown; title?: unknown }>) {
+    if (!x || typeof x.url !== "string" || !/^https:\/\/[^\s<>"'`]{1,2000}$/.test(x.url)) continue;
+    sources.push({ url: x.url, title: text(x.title, LIMITS.title + 60) });
+    if (sources.length >= LIMITS.sources) break;
+  }
+  return { id: s.id as number, subject: text(s.subject, 200), sources };
+}
+
 const text = (v: unknown, max: number): string => (typeof v === "string" ? v : "").replace(/[\u0000-\u0008\u000b-\u001f]/g, " ").trim().slice(0, max);
 
 export class Canvas {
@@ -232,7 +253,7 @@ export class Canvas {
 
   // ---- changing ------------------------------------------------------------
 
-  make(by: Actor, input: { title?: unknown; source?: unknown; kind?: unknown; for?: unknown; why?: unknown; box?: Partial<Box>; uninvited?: unknown; note?: unknown }): Thing {
+  make(by: Actor, input: { title?: unknown; source?: unknown; kind?: unknown; for?: unknown; why?: unknown; box?: Partial<Box>; uninvited?: unknown; note?: unknown; study?: unknown }): Thing {
     const source = this.checkSource(input.source);
     const title = text(input.title, LIMITS.title);
     if (!title) throw new CanvasError("a thing needs a title");
@@ -260,6 +281,9 @@ export class Canvas {
     const note = by === "woody" ? text(input.note, LIMITS.note) : "";
     if (uninvited) thing.uninvited = true;
     if (note) thing.note = note;
+    // Only Woody studies; what the operator makes has no sources to list.
+    const study = by === "woody" ? studyOf(input.study) : null;
+    if (study) thing.study = study;
     fs.mkdirSync(path.join(this.dir, "things", id), { recursive: true });
     this.write(path.join("things", id, "v1.html"), source);
     this.things.push(thing);

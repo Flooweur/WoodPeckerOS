@@ -40,7 +40,7 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 | 6 | Change of goal: security material removed, documents rewritten | Done (2026-11-12); awaits the VM rebuild |
 | 7 | **The canvas**: the frame, things, the kit, making | Done (7a to 7d), tested in the VM |
 | 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | 8a (inner state) done, tested in the VM. 8b (a life of its own) and 8c (identity and face) built; they await the VM test |
-| 9 | **Learning and showing**: open reading, studies, explainers, web pictures | 9a (open reading) built; awaits the VM test. 9b (studies and explainers) is next, then 9c (web pictures) |
+| 9 | **Learning and showing**: open reading, studies, explainers, web pictures | 9a (open reading) and 9b (studies and explainers) built; they await the VM test. 9c (web pictures) is next |
 | 10 | **Reshaping itself**: free change of its own program | Planned |
 | 11 | **Sound and voice** | Planned |
 | 12 | **Programs on the canvas** | Planned |
@@ -295,6 +295,21 @@ Built in 9a (a change to the locked core, which you apply by rebuilding):
   - A search query is still written by Woody, so a fooled session could put private data into a query. It goes to the search provider, not to the page's author.
   - Cleaning removes addresses with `http://` or `https://` in front. A session could still note a bare host name in words.
 
+## Phase 9b results (2026-11-12): studies and explainers
+
+- **A study** is a subject Woody learns over several reading sessions and then explains with a thing on the canvas. You start one by asking ("learn about tides and show me") or from the new **Studies** record; Woody may start one of its own from an interest, in its own time and from its own share, one at a time.
+- **Sizes:** small ($0.50, 2 reading sessions), medium ($1.50, 5; the default) and large ($4, 10). You can give a study more from its record, or drop it.
+- **Sessions are started by plain code**, one after the other: reading sessions, then one session that builds the explainer. Reading stops when Woody says it has read enough, when the sessions are used, or when 70% of the budget is spent. An explainer that cannot be built is given up after two tries; the findings are kept.
+- **Reading sessions** search and read under the rules of 9a and write down findings (`study_note`). They say nothing to you. **The explainer session** starts from the findings, has not read the web, and builds the thing; for a study you asked for, it tells you in the conversation when it is done.
+- **Sources are the frame's.** Each page fetched in a reading session is recorded by code at the moment of the fetch. When the explainer is made, that list is handed to the canvas with it, and the frame shows "sources · N" on the thing and the full list in its record. Woody does not write the list.
+- **Schema 10** of the mind's store: `studies`, `study_notes`, `study_pages`.
+- **Tests:** 82 agent tests (6 new), 13 gateway tests (1 new) and 107 scripted browser checks (8 new) pass in containers; the Nix builds succeed.
+- **Not tested:** a real study. What a model reads, how good its findings are and whether the explainer teaches can only be seen in the VM.
+- **Known limits:**
+  - The list of sources is handed over by the agent, which is Woody's own program. As with the other agent-side rules, this must be settled before Phase 10.
+  - The explainer contains what Woody understood. The reader and Woody can both be wrong; the sources are there so that you can check.
+  - A study you asked for runs at any hour and back to back, bounded by its budget and by the ceiling of twelve sessions an hour.
+
 ## Architecture
 
 Today:
@@ -410,7 +425,7 @@ The whole of it:
 
 ### Phase 9: learning and showing
 
-Built in three steps: 9a open reading (built: see "Phase 9a results"), 9b studies and explainers, 9c web pictures.
+Built in three steps: 9a open reading (built: see "Phase 9a results"), 9b studies and explainers (built: see "Phase 9b results"), 9c web pictures.
 
 - **Open reading:** the executor's allow-list becomes a block list; any public site may be read through the quarantined reader. This is a change to the locked core, approved by the operator. With it, the fetch user gets its own firewall rule (it may reach public addresses on port 443 only).
 - **Studies:** a subject to learn becomes a dossier of notes with their sources, built over reading sessions.

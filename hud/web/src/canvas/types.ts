@@ -20,6 +20,8 @@ export type ThingInfo = {
   /** Woody's note on a thing it left for the operator, and whether they have read it. */
   note?: string;
   note_seen?: boolean;
+  /** When the thing explains a study: the study and the pages that were read for it, as the canvas recorded them. */
+  study?: { id: number; subject: string; sources: Array<{ url: string; title: string }> };
   /** The unguessable name under which the gateway serves this thing. */
   key: string;
 };

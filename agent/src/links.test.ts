@@ -123,7 +123,7 @@ test("an older store learns that any public site may be read", () => {
   first.setMeta("schema_version", "8");
   first.close();
   const again = new Store(file);
-  assert.equal(again.getMeta("schema_version"), "9");
+  assert.equal(again.getMeta("schema_version"), "10");
   const duty = again.goals().find((g) => g.title === "Stay up to date");
   assert.ok(duty && !/allow-list/.test(duty.description));
   again.close();

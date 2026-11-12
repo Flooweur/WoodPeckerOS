@@ -198,7 +198,21 @@ export function createCanvasTools(deps: {
   canSpend: (effort: Effort) => string | null;
   /** True when the session in progress was not asked for by the operator: what it adds is uninvited. */
   uninvited?: () => boolean;
+  /**
+   * When the session is building the explainer of a study: the study and the
+   * pages that were read for it. The canvas keeps them on the thing and the
+   * frame lists them. They come from the record, never from the model.
+   */
+  study?: () => { id: number; subject: string; sources: Array<{ url: string; title: string }> } | null;
+  /** Told the id of a thing this session put on the canvas. */
+  made?: (id: string) => void;
 }) {
+  const study = () => deps.study?.() ?? undefined;
+  const madeThing = <T,>(result: T): T => {
+    const id = (result as { thing?: { id?: unknown } } | null)?.thing?.id;
+    if (typeof id === "string") deps.made?.(id);
+    return result;
+  };
   const uninvited = () => deps.uninvited?.() ?? false;
   const { link } = deps;
   const guarded = async (fn: () => Promise<ToolResult>): Promise<ToolResult> => {
@@ -245,11 +259,13 @@ export function createCanvasTools(deps: {
       async (args) =>
         guarded(async () =>
           data(
-            await link.request("kit", {
-              part: args.part, props: args.props, title: args.title, why: args.why,
-              kind: args.pretend ? "pretend" : "real", for: args.for_whom === "yourself" ? "woody" : "you", box: box(args),
-              uninvited: uninvited(), note: args.note,
-            }),
+            madeThing(
+              await link.request("kit", {
+                part: args.part, props: args.props, title: args.title, why: args.why,
+                kind: args.pretend ? "pretend" : "real", for: args.for_whom === "yourself" ? "woody" : "you", box: box(args),
+                uninvited: uninvited(), note: args.note, study: study(),
+              }),
+            ),
           ),
         ),
     ),
@@ -281,10 +297,11 @@ export function createCanvasTools(deps: {
             (source) =>
               link.request(
                 "make",
-                { title: args.title, source, why: args.why, kind: args.pretend ? "pretend" : "real", for: args.for_whom === "yourself" ? "woody" : "you", box: box(args), uninvited: uninvited(), note: args.note },
+                { title: args.title, source, why: args.why, kind: args.pretend ? "pretend" : "real", for: args.for_whom === "yourself" ? "woody" : "you", box: box(args), uninvited: uninvited(), note: args.note, study: study() },
                 40_000,
               ),
           );
+          if (made.ok) madeThing(made.result);
           return made.ok ? data({ ...(made.result as object), written_by: made.model, attempts: made.attempts }) : failure(made.error);
         }),
     ),

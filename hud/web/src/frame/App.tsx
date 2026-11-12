@@ -13,6 +13,7 @@ import { ChangesRecord, ThingsRecord } from "./CanvasRecords";
 import { Lattice, type MindStateName, type Overlay, type Play } from "./Lattice";
 import { LifeRecord } from "./Life";
 import { FaceRecord } from "./Face";
+import { StudiesRecord } from "./Studies";
 import { ownDesigns, type Design } from "./faceData";
 import { PanelView, type Panel } from "./Panels";
 import type {
@@ -804,6 +805,7 @@ export function App() {
     changes: <ChangesRecord canvas={canvas} tx={tx} result={canvasResult} />,
     life: <LifeRecord tx={tx} incoming={mindResult} version={version} canvas={canvas} />,
     face: <FaceRecord tx={tx} incoming={mindResult} faceVersion={state?.face ?? 0} />,
+    studies: <StudiesRecord tx={tx} incoming={mindResult} version={version} openThing={(id) => openRecord({ kind: "things", id })} />,
   };
   const count = (n: number, width = 2) => String(n).padStart(width, "0");
 
@@ -904,6 +906,9 @@ export function App() {
               </button>
               <button onClick={() => openRecord({ kind: "life" })}>
                 <span className="code" /> ITS OWN LIFE <span className="n">{state?.life?.asleep ? "zz" : ""}</span>
+              </button>
+              <button onClick={() => openRecord({ kind: "studies" })}>
+                <span className="code" /> STUDIES <span className="n">{state?.mind?.studies_open ? count(state.mind.studies_open) : ""}</span>
               </button>
               <button onClick={() => openRecord({ kind: "face" })}>
                 <span className="code" /> ITS FACE <span className="n">{Object.keys(designs).length ? count(Object.keys(designs).length) : ""}</span>

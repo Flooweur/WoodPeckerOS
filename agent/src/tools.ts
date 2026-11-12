@@ -43,7 +43,7 @@ export type LoopHooks = {
    */
   links: { restricted(): boolean; has(url: string): boolean; add(urls: string[]): void };
   /** Told each page the executor actually fetched, so that what was read is on record whatever the model says. */
-  pageRead?(url: string): void;
+  pageRead?(url: string, title: string): void;
 };
 
 type ToolResult = {
@@ -311,7 +311,8 @@ export function createToolServer(exec: ExecutorClient, notify: Notify, files: Fi
           const html = /html|xml/.test(page.content_type ?? "");
           const anchors = html ? pageAnchors(page.body ?? "", page.url) : [];
           loop.links.add([page.url, ...(page.redirected_from ?? []), ...anchors.map((a) => a.url), ...(html ? [] : textLinks(page.body ?? ""))]);
-          loop.pageRead?.(page.url);
+          const title = html ? (/<title[^>]*>([\s\S]*?)<\/title>/i.exec(page.body ?? "")?.[1] ?? "").replace(/<[^>]*>/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim() : "";
+          loop.pageRead?.(page.url, title.slice(0, 140));
           const text = pageText(page.body ?? "", page.content_type ?? "");
           if (!text.trim()) return data({ url: page.url, status: page.status, note: "The page had no readable text." });
           try {

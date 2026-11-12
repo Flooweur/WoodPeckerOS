@@ -155,6 +155,31 @@ test("a thing is served as a sealed document", () => {
   assert.ok(!/allow-same-origin|allow-top-navigation|allow-popups|allow-forms/.test(THING_POLICY));
 });
 
+test("an explainer keeps the study it explains and the pages that were read", () => {
+  const { canvas } = fresh();
+  const study = {
+    id: 3,
+    subject: "How tides work",
+    sources: [
+      { url: "https://example.org/tides", title: "Tides\u0007 explained" },
+      { url: "http://plain.example/", title: "not https" },
+      { url: "javascript:alert(1)", title: "not an address" },
+      { url: "https://other.net/moon?x=1", title: 7 },
+      "nonsense",
+    ],
+  };
+  const made = canvas.make("woody", { title: "Tides", source: CLOCK, study });
+  assert.deepEqual(made.study, { id: 3, subject: "How tides work", sources: [{ url: "https://example.org/tides", title: "Tides  explained" }, { url: "https://other.net/moon?x=1", title: "" }] });
+  // It stays with the thing, whatever is changed in it later.
+  canvas.change("woody", { id: made.id, source: CLOCK.replace("clock", "tides") });
+  assert.equal(canvas.get(made.id).study?.sources.length, 2);
+  // Nothing malformed is kept, and the operator's own things have no study.
+  assert.equal(canvas.make("woody", { title: "No study", source: CLOCK, study: { id: "x", subject: "s", sources: [] } }).study, undefined);
+  assert.equal(canvas.make("you", { title: "Mine", source: CLOCK, study }).study, undefined);
+  const many = canvas.make("woody", { title: "Many", source: CLOCK, study: { id: 4, subject: "s", sources: Array.from({ length: 500 }, (_, i) => ({ url: `https://example.org/${i}`, title: "" })) } });
+  assert.equal(many.study!.sources.length, 200);
+});
+
 test("what Woody adds on its own: marked, with a note, within the operator's daily limit", () => {
   const dir = tempDir();
   let now = new Date(2026, 10, 12, 9, 0, 0).getTime();

@@ -282,6 +282,12 @@ function ThingView({
         </button>
       </div>
       {thing.kind === "pretend" && <span className="thing-mark">pretend</span>}
+      {/* An explainer's sources are the frame's to show: the pages that were read, from the record. */}
+      {thing.study && phase === "ready" && (
+        <button className="thing-sources" onPointerDown={(e) => e.stopPropagation()} onClick={onWhy} title={`It explains Woody's study of "${thing.study.subject}". Click for the pages that were read.`}>
+          sources · {thing.study.sources.length}
+        </button>
+      )}
       {/* What Woody left without being asked says so, in the frame's own hand, until the operator has read it. */}
       {thing.uninvited && thing.note && !thing.note_seen && phase === "ready" && (
         <div className="thing-note">

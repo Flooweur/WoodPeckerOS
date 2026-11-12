@@ -129,6 +129,20 @@ let interests = EMPTY ? [] : [
     notes: [{ ts: now - 5 * 3_600_000, text: "Snapshots here are taken before every rebuild; 14 are kept.", web: false }], dropped_reason: "" },
   { id: 4, topic: "Paper sizes", origin: "a passing thought", source: "woody", status: "dropped", created: now - 9 * 86_400_000, last_followed: now - 8 * 86_400_000, followed: 1, notes: [], dropped_reason: "it went flat" },
 ];
+const page = (url, title, h) => ({ url, title, ts: now - h * 3_600_000 });
+let studies = EMPTY ? [] : [
+  { id: 2, subject: "How tides work", why: "Learn about tides and show me.", owner: "operator", status: "reading", created: now - 5 * 3_600_000, updated: now - 40 * min, budget_usd: 1.5, spent_usd: 0.46, max_readings: 5, readings: 2,
+    plan: "Why there are two bulges and not one, in terms a newcomer can follow.", thing_id: null, outcome: "",
+    notes: [
+      { id: 1, ts: now - 4 * 3_600_000, text: "Tides are raised mainly by the moon: its pull differs across the Earth, which stretches the oceans into two bulges, one facing the moon and one opposite.", sources: ["https://oceanservice.example/tides/basics"] },
+      { id: 2, ts: now - 40 * min, text: "Spring tides come at new and full moon, when the sun and the moon pull along one line; neap tides at the quarters. Two pages agree; one popular page had it the wrong way round.", sources: ["https://oceanservice.example/tides/spring-neap", "https://encyclopedia.example/wiki/Tide"] },
+    ],
+    pages: [page("https://oceanservice.example/tides/basics", "What causes tides?", 4), page("https://oceanservice.example/tides/spring-neap", "Spring and neap tides", 1), page("https://encyclopedia.example/wiki/Tide", "Tide", 1)] },
+  { id: 1, subject: "How woodpeckers avoid concussion", why: "My own curiosity, from a joke about my name.", owner: "woody", status: "done", created: now - 4 * 86_400_000, updated: now - 2 * 86_400_000, budget_usd: 0.5, spent_usd: 0.41, max_readings: 2, readings: 2,
+    plan: "", thing_id: "t3", outcome: "It shows the hyoid bone wrapping the skull and lets you slow a peck down. How much the beak's shape matters stays disputed.",
+    notes: [{ id: 3, ts: now - 3 * 86_400_000, text: "The hyoid bone wraps around the skull and acts like a seat belt at each strike.", sources: ["https://birds.example/woodpecker-skull"] }],
+    pages: [page("https://birds.example/woodpecker-skull", "The woodpecker's skull", 72)] },
+];
 const lifeResult = () => ({
   ...state().life,
   next: "its last moment of its own was 48 minutes ago; the next is in about 72 minutes",
@@ -158,7 +172,7 @@ const state = () => ({
     attention: { value: 0.93, word: "with you", causes: [{ text: "you are here", effect: 0.85 }] },
     unease: { value: 0.25, word: "untroubled", causes: [{ text: "backup.service has failed", effect: 0.2 }] },
   },
-  mind: { memories: EMPTY ? 0 : 48, journal: EMPTY ? 0 : 212, identity_version: idHistory[0].version, goals_need_you: inbox.length, identity_pending: 0 },
+  mind: { memories: EMPTY ? 0 : 48, journal: EMPTY ? 0 : 212, identity_version: idHistory[0].version, studies_open: studies.filter((s) => s.status === "reading" || s.status === "explaining").length, goals_need_you: inbox.length, identity_pending: 0 },
   mind_state: {
     state: stateName,
     focus: stateName === "working" ? "Goal #4 (work): Find what fills the disk" : stateName === "resting" ? "until 14:35: look at the disk again"
@@ -248,7 +262,10 @@ wss.on("connection", (ws) => {
         send(state());
       }
       if (m.op === "face_restore") { delete ownFace[m.name]; faceVersion += 1; send(state()); }
-      const result = m.op === "face" || m.op === "face_restore" ? faceRecord() : String(m.op).startsWith("identity") ? identityRecord() : m.op === "life" ? lifeResult() : m.op === "goals" ? { goals: all, small_goal_usd: 1 } : m.op === "inbox" ? inbox : m.op === "activity" ? activity
+      if (m.op === "study_add") studies = [{ id: studies.length + 1, subject: m.subject, why: "The operator asked for it from the studies record.", owner: "operator", status: "reading", created: Date.now(), updated: Date.now(), budget_usd: m.size === "small" ? 0.5 : m.size === "large" ? 4 : 1.5, spent_usd: 0, max_readings: m.size === "small" ? 2 : m.size === "large" ? 10 : 5, readings: 0, plan: "", thing_id: null, outcome: "", notes: [], pages: [] }, ...studies];
+      if (m.op === "study_drop") studies = studies.map((s) => (s.id === m.id ? { ...s, status: "dropped", outcome: "Dropped by the operator." } : s));
+      if (m.op === "study_size") studies = studies.map((s) => (s.id === m.id ? { ...s, budget_usd: m.budget_usd, max_readings: m.max_readings } : s));
+      const result = String(m.op).startsWith("stud") ? { studies } : m.op === "face" || m.op === "face_restore" ? faceRecord() : String(m.op).startsWith("identity") ? identityRecord() : m.op === "life" ? lifeResult() : m.op === "goals" ? { goals: all, small_goal_usd: 1 } : m.op === "inbox" ? inbox : m.op === "activity" ? activity
         : m.op === "goal" ? { goal: all.find((g) => g.id === m.id), messages: [{ kind: "assistant", text: "The store is 41 GB so far." }, { kind: "user", text: "Leave my home directory out." }, { kind: "tool", name: "mcp__woody__goal_checkpoint" }] }
         : m.op === "memories" ? memories : m.op === "journal" ? journal : m.op === "brief" ? { time: "08:00", enabled: true } : {};
       send({ type: "mind_result", op: m.op, ok: true, result });

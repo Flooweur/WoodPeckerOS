@@ -285,6 +285,11 @@ pre.diff { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 mark.diff-gone { background: transparent; color: var(--red-soft); text-decoration: line-through; }
 mark.diff-new { background: var(--amber); color: var(--bg); }
 label.check { display: block; font-size: 13px; line-height: 1.5; }
+/* studies, and the sources of an explainer */
+.source { display: grid; gap: 1px; padding: 5px 0; border-top: 1px solid var(--faint); }
+.source .url { overflow-wrap: anywhere; user-select: text; }
+ol.findings { margin: 0; padding-left: 22px; display: grid; gap: 6px; }
+.studies select { min-height: 32px; }
 .search.three { grid-template-columns: minmax(0, 1fr) auto auto; }
 .record.interest > summary { display: grid; gap: 2px; cursor: pointer; list-style: none; }
 .record.interest > summary::-webkit-details-marker { display: none; }

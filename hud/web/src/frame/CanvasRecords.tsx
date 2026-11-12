@@ -58,6 +58,21 @@ export function ThingsRecord({ canvas, tx, result, pick }: { canvas: CanvasState
               {thing.note}
             </p>
           )}
+          {thing.study && (
+            <div className="sources">
+              <h4>
+                Sources · {thing.study.sources.length} <span className="dim small">· the pages Woody read for its study of "{thing.study.subject}"</span>
+              </h4>
+              <p className="dim small">Listed by the frame from the record of pages that were fetched. Woody did not write this list and cannot leave a page out.</p>
+              {thing.study.sources.length === 0 && <p className="dim small">No page was read for this study.</p>}
+              {thing.study.sources.map((s) => (
+                <div key={s.url} className="source">
+                  <span>{s.title || s.url.replace(/^https:\/\//, "").split("/")[0]}</span>
+                  <span className="dim small url">{s.url}</span>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="row-actions">
             {thing.removed ? (
               <button className="primary" onClick={() => op("bring_back")}>put it back on the canvas</button>
