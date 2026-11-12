@@ -1,0 +1,27 @@
+<svg viewBox="-110 -110 220 220" id="face">
+  <circle r="100" fill="none" stroke="var(--line)" stroke-width="2"/>
+  <g id="marks"></g>
+  <line id="h" y2="-52" stroke="var(--fg)" stroke-width="6"/>
+  <line id="m" y2="-78" stroke="var(--fg)" stroke-width="4"/>
+  <line id="s" y2="-88" stroke="var(--red)" stroke-width="2"/>
+  <circle r="5" fill="var(--fg)"/>
+</svg>
+<style>svg { width: 100%; height: 100%; }</style>
+<script>
+  // A clock that runs backwards: it started at the real time and loses a second every second.
+  const marks = document.getElementById("marks");
+  for (let i = 0; i < 12; i++) {
+    const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    l.setAttribute("y1", -100); l.setAttribute("y2", -90); l.setAttribute("stroke", "var(--dim)"); l.setAttribute("stroke-width", 3);
+    l.setAttribute("transform", `rotate(${i * 30})`); marks.append(l);
+  }
+  const born = Date.now();
+  function tick() {
+    const t = new Date(born - (Date.now() - born));
+    const s = t.getSeconds(), m = t.getMinutes() + s / 60, h = (t.getHours() % 12) + m / 60;
+    document.getElementById("s").setAttribute("transform", `rotate(${s * 6})`);
+    document.getElementById("m").setAttribute("transform", `rotate(${m * 6})`);
+    document.getElementById("h").setAttribute("transform", `rotate(${h * 30})`);
+  }
+  tick(); setInterval(tick, 1000); woody.ready();
+</script>

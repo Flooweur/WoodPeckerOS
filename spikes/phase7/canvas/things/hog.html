@@ -1,0 +1,17 @@
+<div id="v">hog: waiting</div>
+<style>body { display: grid; place-items: center; color: var(--red); }</style>
+<script>
+  // Burns the processor for three seconds without yielding.
+  woody.ready();
+  setTimeout(() => {
+    woody.report({ hog: "start" });
+    setTimeout(() => {
+      const began = performance.now();
+      const until = began + 3000;
+      let x = 0;
+      while (performance.now() < until) x += Math.sqrt(x + 1);
+      document.getElementById("v").textContent = "hog: done";
+      woody.report({ hog: "done", burned_ms: Math.round(performance.now() - began) });
+    }, 50);
+  }, 300);
+</script>

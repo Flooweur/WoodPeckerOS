@@ -1,0 +1,21 @@
+<ul id="l"></ul>
+<style>
+  body { padding: 12px; } ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  li { cursor: pointer; } li.done { color: var(--dim); text-decoration: line-through; }
+</style>
+<script>
+  // Saved state through the bridge: the thing has no storage of its own.
+  const items = ["read chapter 3", "water the plant", "call the dentist", "back up photos"];
+  let done = [];
+  const ul = document.getElementById("l");
+  function draw() {
+    ul.replaceChildren(...items.map((text, i) => {
+      const li = document.createElement("li");
+      li.textContent = (done.includes(i) ? "[x] " : "[ ] ") + text;
+      li.className = done.includes(i) ? "done" : "";
+      li.onclick = () => { done = done.includes(i) ? done.filter((d) => d !== i) : [...done, i]; woody.state.set({ done }); draw(); };
+      return li;
+    }));
+  }
+  woody.state.get().then((s) => { done = s?.done ?? []; draw(); woody.ready(); });
+</script>

@@ -5,3 +5,6 @@ result
 result-*
 *.log
 .env
+
+# Phase 7a spike output (things made by the benchmark, results)
+spikes/phase7/out/

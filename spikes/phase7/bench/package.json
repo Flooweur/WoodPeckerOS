@@ -1,0 +1,10 @@
+{
+  "name": "woody-spike-making-bench",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phase 7a spike (throwaway): time and cost for each model to make a thing",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0"
+  }
+}

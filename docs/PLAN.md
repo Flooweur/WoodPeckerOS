@@ -38,7 +38,7 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 | 4 | The mind loop: events, memory, goals, journal, alarms, pacer, web reading | Built; 4c, 4d and 4e await the VM test |
 | 5 | The first full HUD | Built; awaits the VM test |
 | 6 | Change of goal: security material removed, documents rewritten | Done (2026-11-12); awaits the VM rebuild |
-| 7 | **The canvas**: the frame, things, the kit, making | Next |
+| 7 | **The canvas**: the frame, things, the kit, making | 7a (spikes) built and run in a container; awaits the VM run. 7b is next |
 | 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | Planned |
 | 9 | **Learning and showing**: open reading, studies, explainers, web pictures | Planned |
 | 10 | **Reshaping itself**: free change of its own program | Planned |
@@ -144,6 +144,21 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 - The store's schema is now version 6: on an existing machine the lab duty is deleted and "Stay up to date" loses its mention of a lab.
 - An existing machine keeps `/var/lib/woody-execd/engagement.json` if one was set; nothing reads it any more and it can be deleted.
 - Tested in containers: the executor (35 tests), the agent (35 tests, including the schema change on an older store), the HUD build, and the evaluation of the whole system. Not yet rebuilt in the VM.
+
+## Phase 7a results (2026-11-12): spikes for the canvas
+
+Built and run in a container with the VM's own Chromium build (157), headless. The run in the VM (frame rates on the real screen, and the making benchmark, which needs the API key) is still to do: see `spikes/phase7/README.md`.
+
+- **The design under test:** a thing's source is a fragment; the server wraps it in a document it owns and sends it with a policy that forbids every network use; the frame shows it with `sandbox="allow-scripts"`; the bridge is `postMessage`, and the frame page identifies the sender by its window.
+- **Isolation:** a hostile thing tried 33 ways out (requests of every kind, navigation, popups, reading the frame page and its token, other things' documents and saved state, forged bridge messages, storage, dialogs, the clipboard). 32 were blocked as designed.
+- **One hole found: WebRTC.** A thing could send packets to any address. The policy directive meant to forbid it is not known to this browser. Two fixes each closed it: a browser flag on the kiosk (now in `kiosk.nix`), and removing the WebRTC interfaces from a thing's page before its code runs (needed for the Windows browser, where we do not control the flags). Phase 7c must do both.
+- **A thing cannot freeze the screen.** One that burned the processor for three seconds stalled the frame page for 17 ms: sandboxed things run in their own process, whichever site serves them.
+- **Things must be served as their own documents.** One injected by the frame page (`srcdoc`) inherits the frame page's strict policy and does not start.
+- **Things may be served from the gateway's own address.** Serving them from a second site changed nothing for isolation.
+- **The making benchmark** (four models, three requests) works end to end against a stand-in for the API, and what it saved started in the sandbox.
+- Added for this and later tests: root can point the kiosk at a local test page (`/run/woody-kiosk-page`).
+- Not yet known: frame rates on the software-rendered screen, and the time and cost of making with each model.
+- Known limit of the test: it cannot see a name lookup (DNS). A thing has no way left to trigger one that we know of, but the kiosk should also get a network rule of its own in 7b.
 
 ## Architecture
 

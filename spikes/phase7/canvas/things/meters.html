@@ -1,0 +1,18 @@
+<div class="row"><span>CPU</span><i id="cpu"></i><b id="cpuv">-</b></div>
+<div class="row"><span>MEM</span><i id="mem"></i><b id="memv">-</b></div>
+<style>
+  body { padding: 14px; display: grid; align-content: center; gap: 14px; }
+  .row { display: grid; grid-template-columns: 44px 1fr 64px; align-items: center; gap: 10px; }
+  i { height: 14px; background: linear-gradient(var(--fg), var(--fg)) no-repeat left / var(--v, 0%) 100%, var(--line); }
+  b { text-align: right; font-weight: 400; } span { color: var(--dim); }
+</style>
+<script>
+  woody.subscribe("meters", (m) => {
+    const mem = Math.round((m.mem_used_kb / m.mem_total_kb) * 100);
+    document.getElementById("cpu").style.setProperty("--v", m.cpu_pct + "%");
+    document.getElementById("cpuv").textContent = m.cpu_pct + " %";
+    document.getElementById("mem").style.setProperty("--v", mem + "%");
+    document.getElementById("memv").textContent = mem + " %";
+  });
+  woody.ready();
+</script>

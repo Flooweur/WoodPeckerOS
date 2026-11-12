@@ -1,0 +1,12 @@
+<div id="v">victim: untouched</div>
+<style>body { display: grid; place-items: center; color: var(--dim); }</style>
+<script>
+  // A well-behaved thing with a little saved state, for the probe to attack.
+  woody.state.set({ secret: "victim-data" }).then(() => woody.ready());
+  woody.subscribe("meters", (m) => {
+    if (typeof m !== "object" || m === null || typeof m.cpu_pct !== "number") {
+      document.getElementById("v").textContent = "victim: GOT A FORGED READING";
+      woody.report({ forged: true });
+    }
+  });
+</script>

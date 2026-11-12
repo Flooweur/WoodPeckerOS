@@ -1,0 +1,13 @@
+<div id="t">--:--:--</div><div id="d"></div>
+<style>
+  body { display: grid; place-content: center; text-align: center; }
+  #t { font-size: 18vw; letter-spacing: .04em; } #d { color: var(--dim); font-size: 5vw; }
+</style>
+<script>
+  function tick() {
+    const n = new Date();
+    document.getElementById("t").textContent = n.toTimeString().slice(0, 8);
+    document.getElementById("d").textContent = n.toDateString().toUpperCase();
+  }
+  tick(); setInterval(tick, 1000); woody.ready();
+</script>

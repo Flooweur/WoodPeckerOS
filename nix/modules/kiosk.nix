@@ -5,6 +5,10 @@
 #    compositor on VMware's vmwgfx driver, so the compositor runs in software.
 #  * --app=URL instead of --kiosk: --kiosk left the browser bars visible.
 #
+# --webrtc-ip-handling-policy: nothing shown here needs WebRTC, and without
+# this flag a page could use it to send packets to any address (found by the
+# Phase 7a spike).
+#
 # The session opens the bootstrap page written by the HUD gateway
 # (nix/locked/hud.nix), which loads the HUD with its access token.
 { lib, pkgs, settings, ... }:
@@ -35,9 +39,24 @@ let
           --noerrdialogs \
           --disable-infobars \
           --disable-session-crashed-bubble \
+          --webrtc-ip-handling-policy=disable_non_proxied_udp \
           --user-data-dir="$HOME/.chromium-kiosk" \
           "--app=$1"
     }
+    # A test page instead of the HUD (spikes, trying a new screen before it
+    # replaces the old one). Root writes one line, a local address, to
+    # /run/woody-kiosk-page; the next sign-in opens it. Removing the file and
+    # restarting greetd brings the HUD back, and so does a reboot.
+    if [ -f /run/woody-kiosk-page ] && [ "$(${pkgs.coreutils}/bin/stat -c %u /run/woody-kiosk-page)" = 0 ]; then
+      read -r override < /run/woody-kiosk-page || true
+      case "$override" in
+        http://127.0.0.1:*|http://localhost:*)
+          echo "opening the test page $override instead of the HUD" | ${pkgs.systemd}/bin/systemd-cat -t woody-kiosk
+          browser "$override"
+          exit 0
+          ;;
+      esac
+    fi
     # Only the "kiosk" user may read the HUD's start page. Anyone else who
     # signs in here gets a short explanation, then the login screen again.
     if [ ! -r /run/woody-hud/boot.html ]; then
