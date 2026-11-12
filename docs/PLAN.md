@@ -39,7 +39,7 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 | 2 | Privileged core, agent, thin HUD | Done |
 | 3 | System hands (3a observe and operate; 3b self-modification; 3c screenshots and clipboard) | Done |
 | 4 | **Mind loop**: events, state, memory, goals, journal, alarms, pacer, web access | Built; 4c, 4d and 4e await the VM test |
-| 5 | **Full HUD**, designed around the loop | Planned |
+| 5 | **Full HUD**, designed around the loop | 5a built (the screen); terminal, logs, host access and login to come |
 | 6 | **Security toolkit** | Planned |
 
 ## Phase 0 results (2026-11-11)
@@ -115,6 +115,13 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 - Read-only web access: an allow-listed, pinned, redirect-free fetch in the executor; search and reading done by a quarantined model with no way to act; sessions that read the web restricted to observing and taking notes; web-origin memory. "Stay up to date" is on. Details in [MIND.md](MIND.md).
 - The fetch was tested live against the built executor. Search and the reader need the API and are untested outside the VM.
 - Phase 4 is complete in code. Next is Phase 5, the full HUD designed around the loop.
+
+## Phase 5a results (2026-11-12)
+
+- The design was drafted on a canvas and chosen by the operator: three columns, notched amber panels, one shape per kind of event, and an 8 by 8 lattice as the mind panel, with a chosen animation for each state and moment and ten expressions.
+- Built: the presence bar, the three columns, the conversation on a time spine, the panels for a goal, a new goal, the journal, memory, identity and settings, the activity stream, the machine meters and the scope. See [HUD.md](HUD.md).
+- The gateway now reads the machine meters itself and pushes the engagement scope; the agent sends an activity list and the events behind the expressions.
+- Checked in a browser against sample data. Not yet seen in the VM's kiosk.
 
 ## Review of the original brief: what changes and why
 

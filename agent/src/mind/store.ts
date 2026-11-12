@@ -557,6 +557,23 @@ export class Store {
     return rows.map((r) => ({ id: Number(r.id), ts: Number(r.ts), kind: String(r.kind), actor: String(r.actor), data: JSON.parse(String(r.data)) }));
   }
 
+  /** The latest events of the given kinds, newest first (for the HUD's activity stream). */
+  recentEvents(kinds: string[], limit: number): Array<{ id: number; ts: number; kind: string; actor: string; data: Record<string, unknown> }> {
+    const rows = this.db
+      .prepare(`SELECT * FROM events WHERE kind IN (${kinds.map(() => "?").join(",")}) ORDER BY id DESC LIMIT ?`)
+      .all(...kinds, limit) as Row[];
+    return rows.map((r) => {
+      let data: Record<string, unknown> = {};
+      try {
+        const parsed = JSON.parse(String(r.data));
+        if (parsed && typeof parsed === "object") data = parsed;
+      } catch {
+        /* keep empty */
+      }
+      return { id: Number(r.id), ts: Number(r.ts), kind: String(r.kind), actor: String(r.actor), data };
+    });
+  }
+
   // ---- threads and messages ----------------------------------------------
 
   mainThread(): number {

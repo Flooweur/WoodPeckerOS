@@ -219,9 +219,11 @@ wss.on("connection", (browser) => {
   };
   connectAgent();
 
-  // Send the current approvals straight away.
+  // Send the current approvals, scope and meters straight away.
   lastApprovals = "";
   void pollApprovals();
+  void pushScope(true);
+  send(browser, readMeters());
 
   browser.on("message", async (raw) => {
     let msg: Record<string, unknown>;
@@ -340,6 +342,88 @@ async function pollApprovals(): Promise<void> {
 }
 
 setInterval(() => void pollApprovals(), 1000).unref();
+
+// ---- the machine: meters and scope ---------------------------------------
+//
+// Read from /proc by this unprivileged process. No model and no executor
+// action is involved, so the meters cost nothing and work while Woody rests.
+
+let lastCpu: { busy: number; total: number } | undefined;
+let lastNet: { bytes: number; at: number } | undefined;
+
+function readMeters(): Record<string, unknown> {
+  const out: Record<string, unknown> = { type: "meters", at: Date.now() };
+  try {
+    const cpu = fs.readFileSync("/proc/stat", "utf8").split("\n")[0]!.trim().split(/\s+/).slice(1).map(Number);
+    const total = cpu.reduce((a, b) => a + b, 0);
+    const busy = total - (cpu[3] ?? 0) - (cpu[4] ?? 0);
+    if (lastCpu && total > lastCpu.total) out.cpu_pct = Math.round(((busy - lastCpu.busy) / (total - lastCpu.total)) * 100);
+    lastCpu = { busy, total };
+  } catch {
+    /* not available */
+  }
+  try {
+    const mem = fs.readFileSync("/proc/meminfo", "utf8");
+    const kb = (key: string) => Number(new RegExp(`^${key}:\\s+(\\d+)`, "m").exec(mem)?.[1] ?? 0);
+    out.mem_total_kb = kb("MemTotal");
+    out.mem_used_kb = kb("MemTotal") - kb("MemAvailable");
+  } catch {
+    /* not available */
+  }
+  try {
+    const st = fs.statfsSync("/");
+    out.disk_free_pct = Math.round((Number(st.bavail) / Number(st.blocks)) * 1000) / 10;
+  } catch {
+    /* not available */
+  }
+  try {
+    let bytes = 0;
+    for (const line of fs.readFileSync("/proc/net/dev", "utf8").split("\n").slice(2)) {
+      const [name, rest] = line.split(":");
+      if (!rest || name!.trim() === "lo") continue;
+      const f = rest.trim().split(/\s+/).map(Number);
+      bytes += (f[0] ?? 0) + (f[8] ?? 0);
+    }
+    const at = Date.now();
+    if (lastNet && at > lastNet.at) out.net_kbps = Math.max(0, Math.round((bytes - lastNet.bytes) / 1024 / ((at - lastNet.at) / 1000)));
+    lastNet = { bytes, at };
+  } catch {
+    /* not available */
+  }
+  try {
+    out.uptime_s = Math.round(Number(fs.readFileSync("/proc/uptime", "utf8").split(" ")[0]));
+  } catch {
+    /* not available */
+  }
+  try {
+    out.generation = Number(/system-(\d+)-link/.exec(fs.readlinkSync("/nix/var/nix/profiles/system"))?.[1] ?? 0) || undefined;
+  } catch {
+    /* not on NixOS */
+  }
+  return out;
+}
+
+setInterval(() => {
+  if (browsers.size === 0) return;
+  const meters = readMeters();
+  for (const ws of browsers) send(ws, meters);
+}, 2000).unref();
+
+let lastScope = "";
+async function pushScope(force = false): Promise<void> {
+  if (browsers.size === 0) return;
+  try {
+    const reply = await approvalCall({ op: "scope" });
+    const snapshot = JSON.stringify(reply.result ?? null);
+    if (force || snapshot !== lastScope) {
+      lastScope = snapshot;
+      for (const ws of browsers) send(ws, { type: "scope", ...(reply.result ?? {}) });
+    }
+  } catch {
+    /* the executor is down: the approvals feed already says so */
+  }
+}
+setInterval(() => void pushScope(), 30_000).unref();
 
 // ---- start ----------------------------------------------------------------
 

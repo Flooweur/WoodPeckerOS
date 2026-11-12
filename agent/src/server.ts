@@ -225,6 +225,27 @@ function hasCredential(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN);
 }
 
+/** Services known to be failed at the last system check. */
+function failedUnits(): string[] {
+  try {
+    const list = JSON.parse(store.getMeta("known_failed") ?? "[]");
+    return Array.isArray(list) ? list.slice(0, 20).map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * A small expression for the HUD's mind panel. Each is tied to something
+ * real that just happened; none is decoration. The HUD may ignore them.
+ */
+function moment(name: "smile" | "wink" | "yawn" | "peck" | "curious" | "worried" | "sparkle" | "heart"): void {
+  broadcast({ type: "moment", name });
+}
+
+/** When the last session ended, to tell a wake-up after a long rest from an ordinary one. */
+let lastSessionEnd = Date.now();
+
 function stateMessage(): Record<string, unknown> {
   const nextAlarm = store.pendingAlarms()[0];
   return {
@@ -238,6 +259,9 @@ function stateMessage(): Record<string, unknown> {
     mind: store.stats(),
     mind_state: {
       ...mind,
+      mode: busy ? sessionMode : null,
+      tainted: sessionTaint !== null,
+      failed_units: failedUnits(),
       paused,
       queue: store.queueDepth(),
       next_alarm: nextAlarm ? { id: nextAlarm.id, due: nextAlarm.due, reason: nextAlarm.reason } : null,
@@ -513,7 +537,12 @@ async function runSession(item: QueueItem): Promise<void> {
   store.setMeta("open_turn", String(startEvent));
   turnSources = [startEvent];
 
-  emit({ type: "turn_start", model, fresh, source: item.source, goal: goal?.id ?? null });
+  emit({ type: "turn_start", model, fresh, source: item.source, kind: item.kind, goal: goal?.id ?? null });
+  if (!operator) {
+    // The woodpecker gets to work; or stretches first, after a long rest.
+    if (goal && goalWork === "work") moment("peck");
+    else if (Date.now() - lastSessionEnd > 3_600_000) moment("yawn");
+  }
   broadcast(stateMessage());
   void exec.event({ kind: "session_start", source: item.source, model, fresh });
 
@@ -776,6 +805,10 @@ async function runSession(item: QueueItem): Promise<void> {
         // A refused API call is not the goal's fault: it does not count as a session without progress.
         const after = store.noteGoalSession(goal.id, cost, apiError || touchedGoals.has(goal.id));
         broadcast({ type: "goals_changed" });
+        if (after.status !== goal.status) {
+          if (after.status === "done" && (after.budget_usd <= 0 || after.spent_usd <= after.budget_usd)) moment("wink");
+          else if (after.status === "waiting" && !problem) moment("curious");
+        }
         if (after.status !== goal.status && ["review", "waiting", "done"].includes(after.status)) {
           const what =
             after.status === "done"
@@ -793,6 +826,9 @@ async function runSession(item: QueueItem): Promise<void> {
     // Messages that arrived too late to be delivered stay queued and are answered next.
     arrivals = [];
     turnSources = [];
+    // It woke for something on the machine and had to tell the operator about it.
+    if (item.source === "system" && finalText.trim() && !problem) moment("worried");
+    lastSessionEnd = Date.now();
     sessionMode = "full";
     sessionTaint = null;
     busy = false;
@@ -890,6 +926,7 @@ async function pump(): Promise<void> {
 /** A message from the operator: recorded at once, answered as soon as possible. */
 function operatorMessage(text: string): void {
   operatorPresent();
+  if (/\b(thanks|thank you|thx|merci)\b/i.test(text)) moment("heart");
   const event = store.event("user_message", { text }, { thread, actor: "operator" });
   store.addMessage(thread, "user", "text", text);
   const queueId = store.enqueue({ source: "operator", kind: "message", payload: { text, event }, priority: 1 })!;
@@ -909,6 +946,58 @@ function operatorGoalMessage(goalId: number, text: string): void {
   broadcast({ type: "user_text", text, thread: goal.thread_id });
   broadcast({ type: "goals_changed" });
   void pump();
+}
+
+const ACTIVITY_KINDS = [
+  "user_message", "assistant_message", "tool_use", "wake", "goal_checkpoint", "goal_created", "goal_reviewed",
+  "goal_accepted", "goal_dropped", "memory_created", "alarm_set", "api_error", "interrupted_by_restart",
+  "session_tainted", "system_changed", "identity_proposed", "identity_decided", "approval_parked",
+];
+
+/** Recent events as one line each, with the mark the HUD draws for them. */
+function activity(limit: number): Array<{ ts: number; mark: string; text: string }> {
+  return store.recentEvents(ACTIVITY_KINDS, limit).map((e) => {
+    const d = e.data;
+    const one = (v: unknown, max = 90) => clip(String(v ?? "").replace(/\s+/g, " "), max);
+    switch (e.kind) {
+      case "user_message":
+        return { ts: e.ts, mark: "said", text: `you: ${one(d.text)}` };
+      case "assistant_message":
+        return { ts: e.ts, mark: "said", text: `woody: ${one(d.text)}` };
+      case "tool_use":
+        return { ts: e.ts, mark: "tool", text: one(d.name) };
+      case "wake":
+        return { ts: e.ts, mark: "woke", text: d.goal ? `goal #${d.goal} (${d.kind})` : one(d.headline ?? d.source) };
+      case "goal_checkpoint":
+        return { ts: e.ts, mark: "saved", text: `checkpoint goal #${d.id} · ${d.status}` };
+      case "goal_created":
+        return { ts: e.ts, mark: "saved", text: `${d.owner === "woody" ? "woody proposed" : "new"} goal #${d.id} · ${one(d.title, 60)}` };
+      case "goal_reviewed":
+        return { ts: e.ts, mark: "saved", text: `reviewed goal #${d.id} · ${d.status}` };
+      case "goal_accepted":
+        return { ts: e.ts, mark: "said", text: `you accepted goal #${d.id}` };
+      case "goal_dropped":
+        return { ts: e.ts, mark: "said", text: `goal #${d.id} dropped` };
+      case "memory_created":
+        return { ts: e.ts, mark: "saved", text: `remembered #${d.id} (${d.kind}, ${d.origin})` };
+      case "alarm_set":
+        return { ts: e.ts, mark: "saved", text: `alarm #${d.id} set · ${one(d.reason, 60)}` };
+      case "session_tainted":
+        return { ts: e.ts, mark: "tool", text: `read the web · ${one(d.source, 60)}` };
+      case "identity_proposed":
+        return { ts: e.ts, mark: "saved", text: `proposed identity change #${d.id}` };
+      case "identity_decided":
+        return { ts: e.ts, mark: "said", text: `you ${d.approved ? "approved" : "rejected"} identity change #${d.id}` };
+      case "approval_parked":
+        return { ts: e.ts, mark: "saved", text: `waiting for your approval · ${one(d.action)}` };
+      case "system_changed":
+        return { ts: e.ts, mark: "problem", text: one(d.text) };
+      case "api_error":
+        return { ts: e.ts, mark: "problem", text: `model API refused · ${one(d.text, 60)}` };
+      default:
+        return { ts: e.ts, mark: "problem", text: "restarted in the middle of work" };
+    }
+  });
 }
 
 /** A goal as the HUD shows it, with its thread. */
@@ -1075,6 +1164,7 @@ function operatorPresent(): void {
   const last = Number(store.getMeta("last_presence") ?? 0);
   store.setMeta("last_presence", String(now));
   if (!last || now - last < AWAY_MS) return;
+  moment("smile");
   const own = store.journalSince(last, 60).filter((j) => j.wake.startsWith("I woke up by myself") && !/daily brief|catch-up|daily reflection/.test(j.wake));
   if (!own.length) return;
   store.enqueue({ source: "brief", kind: "catchup", priority: 2, payload: { kind: "catchup", since: last }, dedupe: "catchup", dedupeWindowMs: AWAY_MS });
@@ -1170,6 +1260,8 @@ function mindRequest(msg: Record<string, unknown>): unknown {
       const n = Math.min(100, Math.max(1, Number(msg.n) || 10));
       return typeof msg.query === "string" && msg.query.trim() ? store.searchJournal(msg.query, n) : store.latestJournal(n);
     }
+    case "activity":
+      return activity(Math.min(60, Math.max(1, Number(msg.n) || 20)));
     case "goals":
       return { goals: store.goals({ includeClosed: Boolean(msg.all) }), small_goal_usd: smallGoalLimit(store) };
     case "goal":
@@ -1188,6 +1280,7 @@ function mindRequest(msg: Record<string, unknown>): unknown {
         description: typeof msg.description === "string" ? msg.description : undefined,
       });
     case "goal_accept": {
+      if (store.goal(needId())?.status === "proposed") moment("sparkle");
       const g = store.acceptGoal(needId(), typeof msg.budget_usd === "number" && msg.budget_usd > 0 ? msg.budget_usd : undefined);
       void pump();
       return g;

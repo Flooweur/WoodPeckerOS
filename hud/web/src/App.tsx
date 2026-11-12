@@ -1,70 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Board, type MindResult, type Tab } from "./Board";
-
-// ---- protocol types -------------------------------------------------------
-
-type Model = { id: string; label: string; note: string };
-type Budget = { month: string; spent_usd: number; cap_usd: number; remaining_usd: number; exhausted: boolean };
-type MindState = {
-  state: "attending" | "working" | "resting" | "waiting" | "paused" | "out_of_allowance" | "pacing" | "no_credential" | "api_error";
-  focus: string;
-  since: number;
-  queue: { operator: number; autonomous: number };
-  next_alarm: { id: number; due: number; reason: string } | null;
-  waiting_on_operator: number;
-};
-type AgentState = {
-  model: string;
-  models: Model[];
-  busy: boolean;
-  budget: Budget;
-  has_credential: boolean;
-  mind_state?: MindState;
-  mind?: { goals_need_you?: number; identity_pending?: number };
-};
-
-const MIND_LABEL: Record<MindState["state"], string> = {
-  attending: "answering you",
-  working: "working",
-  resting: "resting",
-  waiting: "waiting on you",
-  paused: "paused",
-  out_of_allowance: "out of allowance",
-  pacing: "pacing itself",
-  no_credential: "no API key",
-  api_error: "model API refused",
-};
-type Approval = {
-  approval_id: string;
-  action: string;
-  params: unknown;
-  action_hash: string;
-  created_ms: number;
-  expires_ms: number;
-  /** Extra context from the executor; for config.apply, the staged change. */
-  detail?: ConfigChange | null;
-};
-type ConfigChange = {
-  summary?: string;
-  changed?: Array<{ path: string; kind: string }>;
-  locked_paths?: string[];
-  privilege_changes?: string[];
-  diff?: string;
-  diff_truncated?: boolean;
-};
-
-type Item =
-  | { kind: "user"; key: number; text: string }
-  | { kind: "assistant"; key: number; text: string; streaming: boolean }
-  | { kind: "tool"; key: number; id: string; name: string; input: unknown; result?: string; isError?: boolean }
-  | { kind: "meta"; key: number; text: string }
-  | { kind: "error"; key: number; text: string };
+// The WoodPecker HUD.
+//
+// Left: Woody's mind in records (what needs you, the goals, the standing
+// duties). Centre: the conversation, on a time spine. Right: the mind panel,
+// the activity stream and the machine. The top bar says what Woody is doing.
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ApprovalModal } from "./Approval";
+import { Lattice, type MindStateName, type Overlay, type Play } from "./Lattice";
+import { PanelView, type Panel } from "./Panels";
+import type {
+  ActivityRow, AgentState, Approval, Goal, Identity, InboxItem, Item, Mark, Meters, MindResult, Scope,
+} from "./types";
+import { TOOL_PREFIX, clock, money, until, usd } from "./types";
 
 type Notice = { key: number; title: string; body: string; level: "info" | "warn" | "alert"; copy?: string; copied?: boolean };
-
 type Link = "connecting" | "open" | "closed" | "no-token";
-
-// ---- token ----------------------------------------------------------------
 
 function takeToken(): string | null {
   const match = /[#&]t=([0-9a-f]{64})/.exec(location.hash);
@@ -75,19 +24,84 @@ function takeToken(): string | null {
   return sessionStorage.getItem("woody-token");
 }
 
-const TOOL_PREFIX = "mcp__woody__";
-const usd = (n: number) => `$${n.toFixed(n < 1 ? 3 : 2)}`;
-
 const ERROR_TEXT: Record<string, string> = {
   "no-credential": "No Claude API key is configured for the agent.",
   "budget-exhausted": "The monthly spending cap has been reached.",
-  busy: "Woody is still working on the previous message.",
+  busy: "Too many messages are waiting; let Woody catch up.",
   "agent-unavailable": "The agent service is not reachable.",
   "turn-failed": "The reply failed.",
   "api-error": "The model API refused the request",
+  "pause-failed": "Pause could not be changed",
 };
 
-// ---- app ------------------------------------------------------------------
+const STATE_LABEL: Record<MindStateName, string> = {
+  attending: "ANSWERING YOU",
+  working: "WORKING",
+  resting: "RESTING",
+  waiting: "WAITING ON YOU",
+  paused: "PAUSED",
+  out_of_allowance: "OUT OF ALLOWANCE",
+  pacing: "PACING ITSELF",
+  no_credential: "NO API KEY",
+  api_error: "MODEL REFUSED",
+};
+const ALERT_STATES: MindStateName[] = ["waiting", "paused", "out_of_allowance", "no_credential", "api_error"];
+
+/** Tools whose use means something was written down. */
+const SAVING_TOOLS = ["remember", "memory_update", "memory_merge", "goal_checkpoint", "goal_review", "goal_propose", "fs_write", "alarm_set"];
+
+// One shape per kind of event.
+const MARK_PATH: Record<Mark, string> = {
+  said: "M5 1 A4 4 0 1 0 5 9 A4 4 0 1 0 5 1 Z",
+  tool: "M2 2 H8 V8 H2 Z",
+  woke: "M5 1 L9 9 L1 9 Z",
+  saved: "M5 0.5 L9.5 5 L5 9.5 L0.5 5 Z",
+  problem: "M1.5 1.5 L8.5 8.5 M8.5 1.5 L1.5 8.5",
+};
+
+function MarkIcon({ mark, tone = "dim", size = 12 }: { mark: Mark; tone?: "dim" | "amber" | "text" | "red"; size?: number }) {
+  const color = tone === "amber" ? "var(--amber)" : tone === "text" ? "var(--text)" : tone === "red" ? "var(--red-soft)" : "var(--dim)";
+  return (
+    <svg className="mark" width={size} height={size} viewBox="0 0 10 10" role="img" aria-label={mark}>
+      <path d={MARK_PATH[mark]} fill={mark === "problem" ? "none" : color} stroke={mark === "problem" ? "var(--red-soft)" : "none"} strokeWidth={1.5} />
+    </svg>
+  );
+}
+
+/** The state's own shape, so it reads without colour. */
+function StateMark({ state }: { state: MindStateName }) {
+  return <span className={`state-mark ${state}`} role="img" aria-label={STATE_LABEL[state].toLowerCase()} />;
+}
+
+function Bar({ fraction, tone = "amber", small = false }: { fraction: number; tone?: "amber" | "red"; small?: boolean }) {
+  return (
+    <span className={`bar ${small ? "small" : ""}`}>
+      <span className={tone} style={{ width: `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%` }} />
+    </span>
+  );
+}
+
+function PanelHead({ code, title, alert = false, children }: { code?: string; title: string; alert?: boolean; children?: React.ReactNode }) {
+  return (
+    <header className="panel-head">
+      <span className={`tab ${alert ? "alert" : ""}`}>
+        {code && <span className="code">{code} </span>}
+        {title}
+      </span>
+      <span className="leader" />
+      {children}
+    </header>
+  );
+}
+
+function goalMark(g: Goal): string {
+  if (g.status === "active") return "filled";
+  if (g.status === "review" || g.status === "waiting" || g.status === "proposed") return "half";
+  return "hollow";
+}
+const GOAL_WORD: Record<string, string> = {
+  inbox: "NEW", review: "PLAN", ready: "READY", active: "ACTIVE", waiting: "ASKS", proposed: "IDEA", done: "DONE", dropped: "DROPPED",
+};
 
 export function App() {
   const [link, setLink] = useState<Link>("connecting");
@@ -100,91 +114,156 @@ export function App() {
   const [draft, setDraft] = useState("");
   const [notices, setNotices] = useState<Notice[]>([]);
   const [paused, setPaused] = useState(false);
-  const [boardTab, setBoardTab] = useState<Tab | null>(null);
+  const [panel, setPanel] = useState<Panel | null>(null);
   const [mindResult, setMindResult] = useState<MindResult | null>(null);
-  const [boardVersion, setBoardVersion] = useState(0);
-  /** The id of the main conversation; messages of goal threads are shown in the board instead. */
-  const mainThread = useRef<number | null>(null);
-  const mindSeq = useRef(0);
+  const [version, setVersion] = useState(0);
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [smallLimit, setSmallLimit] = useState(1);
+  const [inbox, setInbox] = useState<InboxItem[]>([]);
+  const [identity, setIdentity] = useState<Identity | null>(null);
+  const [activity, setActivity] = useState<ActivityRow[]>([]);
+  const [meters, setMeters] = useState<Meters>({});
+  const [scope, setScope] = useState<Scope | null>(null);
+  const [play, setPlay] = useState<{ name: Play; seq: number } | null>(null);
+  const [overlay, setOverlay] = useState<Overlay>(null);
+  const [session, setSession] = useState<{ steps: number; cost: number | null }>({ steps: 0, cost: null });
+  const [typing, setTyping] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  const [expressions, setExpressionsState] = useState(() => {
+    try {
+      return localStorage.getItem("woody-expressions") !== "off";
+    } catch {
+      return true;
+    }
+  });
 
   const socket = useRef<WebSocket | null>(null);
   const nextKey = useRef(1);
+  const playSeq = useRef(0);
+  const mindSeq = useRef(0);
+  const mainThread = useRef<number | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
   const stick = useRef(true);
+  const refresh = useRef<number | undefined>(undefined);
+  const typingTimer = useRef<number | undefined>(undefined);
+
+  const tx = useCallback((message: Record<string, unknown>) => {
+    if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(message));
+  }, []);
+
+  const show = useCallback((name: Play) => setPlay({ name, seq: ++playSeq.current }), []);
+
+  /** Ask again for what the side columns show, shortly after something changed. */
+  const reload = useCallback(() => {
+    window.clearTimeout(refresh.current);
+    refresh.current = window.setTimeout(() => {
+      for (const op of ["goals", "inbox", "identity", "activity"]) tx({ type: "mind", op, n: 12 });
+      setVersion((v) => v + 1);
+    }, 400);
+  }, [tx]);
 
   const push = useCallback((item: Record<string, unknown>) => {
-    setItems((prev) => [...prev, { ...item, key: nextKey.current++ } as Item]);
+    setItems((prev) => [...prev, { ...item, key: nextKey.current++, ts: Date.now() } as Item]);
   }, []);
 
   const onMessage = useCallback(
     (msg: Record<string, any>) => {
-      // Activity in a goal's thread belongs to the board, not to the main conversation.
-      if (typeof msg.thread === "number" && mainThread.current !== null && msg.thread !== mainThread.current && msg.type !== "history") {
-        if (msg.type === "result" || msg.type === "assistant_text" || msg.type === "user_text") setBoardVersion((v) => v + 1);
-        return;
-      }
+      // ---- the mind panel reacts to everything, whatever thread it happens in ----
       switch (msg.type) {
-        case "mind_result":
-          setMindResult({ seq: ++mindSeq.current, op: String(msg.op), ok: Boolean(msg.ok), result: msg.result, error: msg.error });
+        case "turn_start":
+          setSession({ steps: 0, cost: null });
+          setOverlay(msg.source === "reflect" ? "reflecting" : null);
+          if (msg.source && msg.source !== "operator") show("woke");
           break;
-        case "goals_changed":
-          setBoardVersion((v) => v + 1);
+        case "user_text":
+          show("message");
           break;
+        case "tool_use": {
+          const name = String(msg.name ?? "").replace(TOOL_PREFIX, "");
+          setSession((s) => ({ ...s, steps: s.steps + 1 }));
+          if (name === "web_search" || name === "web_fetch") setOverlay("web");
+          show(SAVING_TOOLS.includes(name) ? "saved" : "tool");
+          break;
+        }
+        case "result":
+          setSession((s) => ({ ...s, cost: typeof msg.cost_usd === "number" ? msg.cost_usd : s.cost }));
+          setOverlay(null);
+          break;
+        case "error":
+          show("problem");
+          break;
+        case "note":
+          if (/ is done$/.test(String(msg.text))) show("done");
+          break;
+        case "moment":
+          show(msg.name as Play);
+          return;
+      }
+      if (["result", "note", "goals_changed", "user_text", "tool_use", "turn_start"].includes(msg.type)) reload();
+
+      // ---- activity in a goal's thread is shown in that goal, not in the main conversation ----
+      if (typeof msg.thread === "number" && mainThread.current !== null && msg.thread !== mainThread.current && msg.type !== "history") return;
+
+      switch (msg.type) {
         case "state":
           setState(msg as unknown as AgentState);
           setAgentUp(true);
           break;
         case "agent_up":
           setAgentUp(true);
+          reload();
           break;
         case "agent_down":
           setAgentUp(false);
           break;
         case "history":
-          // The conversation as stored by the agent: shown again after a reload.
           mainThread.current = typeof msg.thread === "number" ? msg.thread : null;
           setItems(
             (Array.isArray(msg.items) ? msg.items : []).map((it: Record<string, unknown>) => ({
+              ts: Date.now(),
               ...it,
               key: nextKey.current++,
               ...(it.kind === "assistant" ? { streaming: false } : {}),
             })) as Item[],
           );
           break;
+        case "mind_result": {
+          setMindResult({ seq: ++mindSeq.current, op: String(msg.op), ok: Boolean(msg.ok), result: msg.result, error: msg.error });
+          if (!msg.ok) break;
+          if (msg.op === "goals") {
+            setGoals(msg.result.goals);
+            setSmallLimit(msg.result.small_goal_usd);
+          } else if (msg.op === "inbox") setInbox(msg.result);
+          else if (msg.op === "identity" || msg.op === "identity_decide" || msg.op === "identity_set") setIdentity((prev) => ({ ...prev, ...msg.result }));
+          else if (msg.op === "activity") setActivity(msg.result);
+          else if (msg.op === "small_goal_limit") setSmallLimit(msg.result.small_goal_usd);
+          break;
+        }
         case "user_text":
           push({ kind: "user", text: msg.text });
           break;
         case "note":
-          // Woody woke up by itself, or something else worth a line.
           push({ kind: "meta", text: msg.text });
           break;
         case "assistant_delta":
           setItems((prev) => {
             const last = prev[prev.length - 1];
-            if (last?.kind === "assistant" && last.streaming) {
-              return [...prev.slice(0, -1), { ...last, text: last.text + msg.text }];
-            }
-            return [...prev, { kind: "assistant", key: nextKey.current++, text: msg.text, streaming: true }];
+            if (last?.kind === "assistant" && last.streaming) return [...prev.slice(0, -1), { ...last, text: last.text + msg.text }];
+            return [...prev, { kind: "assistant", key: nextKey.current++, ts: Date.now(), text: msg.text, streaming: true }];
           });
           break;
         case "assistant_text":
           setItems((prev) => {
             const last = prev[prev.length - 1];
-            if (last?.kind === "assistant" && last.streaming) {
-              return [...prev.slice(0, -1), { ...last, text: msg.text, streaming: false }];
-            }
-            return [...prev, { kind: "assistant", key: nextKey.current++, text: msg.text, streaming: false }];
+            if (last?.kind === "assistant" && last.streaming) return [...prev.slice(0, -1), { ...last, text: msg.text, streaming: false }];
+            return [...prev, { kind: "assistant", key: nextKey.current++, ts: Date.now(), text: msg.text, streaming: false }];
           });
           break;
         case "tool_use":
           push({ kind: "tool", id: msg.id, name: msg.name, input: msg.input });
           break;
         case "tool_result":
-          setItems((prev) =>
-            prev.map((it) =>
-              it.kind === "tool" && it.id === msg.id ? { ...it, result: msg.preview, isError: msg.is_error } : it,
-            ),
-          );
+          setItems((prev) => prev.map((it) => (it.kind === "tool" && it.id === msg.id ? { ...it, result: msg.preview, isError: msg.is_error } : it)));
           break;
         case "result":
           setItems((prev) => prev.map((it) => (it.kind === "assistant" && it.streaming ? { ...it, streaming: false } : it)));
@@ -192,16 +271,14 @@ export function App() {
             kind: "meta",
             text:
               msg.subtype === "success"
-                ? `${usd(msg.cost_usd ?? 0)} · ${((msg.duration_ms ?? 0) / 1000).toFixed(1)} s`
+                ? `${msg.silent ? "nothing needed · " : ""}${usd(msg.cost_usd ?? 0)} · ${((msg.duration_ms ?? 0) / 1000).toFixed(1)} s`
                 : `stopped: ${String(msg.subtype).replaceAll("_", " ")} · ${usd(msg.cost_usd ?? 0)}`,
           });
           break;
         case "error":
           push({
             kind: "error",
-            text:
-              (ERROR_TEXT[msg.error] ?? msg.error) +
-              (msg.detail && (!ERROR_TEXT[msg.error] || msg.error === "api-error") ? `: ${msg.detail}` : ""),
+            text: (ERROR_TEXT[msg.error] ?? msg.error) + (msg.detail && (!ERROR_TEXT[msg.error] || msg.error === "api-error" || msg.error === "pause-failed") ? `: ${msg.detail}` : ""),
           });
           break;
         case "approvals":
@@ -209,12 +286,17 @@ export function App() {
           setPaused(Boolean(msg.paused));
           setExecutorUp(Boolean(msg.executor_up));
           break;
+        case "meters":
+          setMeters(msg as Meters);
+          break;
+        case "scope":
+          setScope(msg as unknown as Scope);
+          break;
         case "notify": {
           const key = nextKey.current++;
           const level = msg.level === "alert" || msg.level === "warn" ? msg.level : "info";
           const copy = typeof msg.copy === "string" && msg.copy ? msg.copy : undefined;
-          setNotices((prev) => [...prev.slice(-4), { key, title: String(msg.title ?? ""), body: String(msg.body ?? ""), level, copy }]);
-          // Alerts and copy offers stay until dismissed; the rest clear themselves.
+          setNotices((prev) => [...prev.slice(-3), { key, title: String(msg.title ?? ""), body: String(msg.body ?? ""), level, copy }]);
           if (level !== "alert" && !copy) window.setTimeout(() => setNotices((prev) => prev.filter((n) => n.key !== key)), 15000);
           break;
         }
@@ -224,7 +306,7 @@ export function App() {
           break;
       }
     },
-    [push],
+    [push, reload, show],
   );
 
   // connection, with reconnect
@@ -239,7 +321,7 @@ export function App() {
     const connect = () => {
       if (stopped) return;
       setLink("connecting");
-      const ws = new WebSocket(`ws://${location.host}/ws?t=${token}`);
+      const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws?t=${token}`);
       socket.current = ws;
       ws.onopen = () => setLink("open");
       ws.onmessage = (ev) => {
@@ -263,15 +345,21 @@ export function App() {
     };
   }, [onMessage]);
 
+  // a clock for countdowns
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
+
   // Tell the agent when someone is at the HUD (at most once a minute), so it
   // can say what happened while they were away.
   useEffect(() => {
     let last = 0;
     const signal = () => {
-      const now = Date.now();
-      if (now - last < 60_000) return;
-      last = now;
-      if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify({ type: "presence" }));
+      const t = Date.now();
+      if (t - last < 60_000) return;
+      last = t;
+      tx({ type: "presence" });
     };
     window.addEventListener("pointerdown", signal);
     window.addEventListener("keydown", signal);
@@ -279,35 +367,68 @@ export function App() {
       window.removeEventListener("pointerdown", signal);
       window.removeEventListener("keydown", signal);
     };
-  }, []);
+  }, [tx]);
 
-  // keep the transcript pinned to the bottom unless the reader scrolled up
+  const busy = state?.busy ?? false;
+
+  // keys: F5 to F8 open the records, Escape closes a panel or stops Woody
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const open: Record<string, Panel> = {
+        F2: { kind: "new-goal" }, F5: { kind: "memory" }, F6: { kind: "journal" }, F7: { kind: "identity" }, F8: { kind: "settings" },
+      };
+      if (open[e.key]) {
+        e.preventDefault();
+        setPanel(open[e.key]!);
+      } else if (e.key === "Escape") {
+        if (panel) setPanel(null);
+        else if (busy && approvals.length === 0) tx({ type: "interrupt" });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [panel, busy, approvals.length, tx]);
+
+  // keep the conversation pinned to the bottom unless the reader scrolled up
   useEffect(() => {
     const el = scroller.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [items]);
 
-  const tx = (message: Record<string, unknown>) => {
-    if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(message));
+  const setExpressions = (on: boolean) => {
+    setExpressionsState(on);
+    try {
+      localStorage.setItem("woody-expressions", on ? "on" : "off");
+    } catch {
+      /* not stored: it lasts until the page reloads */
+    }
   };
 
-  const busy = state?.busy ?? false;
-  // A message can be sent while Woody works: it reads it at its next step.
   const canSend = link === "open" && agentUp && draft.trim().length > 0;
-  const mind = state?.mind_state;
-  const needYou = (state?.mind?.goals_need_you ?? 0) + (state?.mind?.identity_pending ?? 0) + approvals.length;
-
   const submit = () => {
     if (!canSend) return;
     stick.current = true;
     tx({ type: "chat", text: draft.trim() });
     setDraft("");
+    setTyping(false);
   };
-
   const decide = (approval: Approval, decision: "approve" | "deny") => {
     setDeciding(approval.approval_id);
     tx({ type: "decide", approval_id: approval.approval_id, action_hash: approval.action_hash, decision });
   };
+
+  const mind = state?.mind_state;
+  const mindName: MindStateName = paused ? "paused" : mind?.state ?? "resting";
+  const hour = new Date(now).getHours();
+  const hold: "listening" | "asleep" | null = typing
+    ? "listening"
+    : mindName === "resting" && mind && now - mind.since > 3_600_000 && (hour >= 23 || hour < 7)
+      ? "asleep"
+      : null;
+
+  const open = useMemo(() => goals.filter((g) => !g.standing && g.status !== "done" && g.status !== "dropped"), [goals]);
+  const duties = useMemo(() => goals.filter((g) => g.standing), [goals]);
+  const needs = approvals.length + inbox.length + (identity?.pending.length ?? 0);
 
   if (link === "no-token") {
     return (
@@ -319,131 +440,334 @@ export function App() {
     );
   }
 
+  const budget = state?.budget;
   const pending = approvals[0];
+  const memUsed = meters.mem_used_kb !== undefined && meters.mem_total_kb ? meters.mem_used_kb / meters.mem_total_kb : undefined;
+  const diskUsed = meters.disk_free_pct !== undefined ? 1 - meters.disk_free_pct / 100 : undefined;
+  const failed = mind?.failed_units ?? [];
 
   return (
     <div className="hud">
-      <header className="bar">
-        <div className="brand">
-          WOODPECKER<span className="dim"> · WOODY</span>
-        </div>
-        <div className="status">
-          <Dot ok={link === "open"} label="hud" />
-          <Dot ok={agentUp} label="agent" />
-          <Dot ok={executorUp} label="executor" />
-        </div>
-        {mind && (
-          <div className={`presence ${paused ? "paused" : mind.state}`} title={mind.focus}>
-            <strong>{paused ? "paused" : MIND_LABEL[mind.state]}</strong>
-            {mind.focus && <span className="dim"> · {mind.focus.length > 110 ? `${mind.focus.slice(0, 110)}…` : mind.focus}</span>}
+      {/* ---- presence: one sentence, then four readouts ---- */}
+      <header className="presence">
+        <div className={`notch sentence ${ALERT_STATES.includes(mindName) ? "alert" : ""}`}>
+          <div className="notch-in">
+            <span className="tab">WOODY</span>
+            <StateMark state={mindName} />
+            <div className="sentence-text">
+              <div className="headline">
+                {STATE_LABEL[mindName]}
+                {mind?.focus && (mindName === "working" || mindName === "attending") ? ` · ${mind.focus.toUpperCase()}` : ""}
+              </div>
+              <div className="sub">
+                {mindName === "paused"
+                  ? "You paused Woody. Only read-only actions run until you resume."
+                  : mindName === "working" || mindName === "attending"
+                    ? `since ${mind ? clock(mind.since) : ""}${mind?.tainted ? " · read web content: observing only" : ""}`
+                    : mind?.focus || (link !== "open" ? "connecting to the HUD gateway…" : !agentUp ? "the agent is not reachable" : "")}
+              </div>
+            </div>
+            <div className="links" title="hud gateway · agent · executor">
+              <span className={link === "open" ? "up" : "down"}>HUD</span>
+              <span className={agentUp ? "up" : "down"}>AGENT</span>
+              <span className={executorUp ? "up" : "down"}>EXEC</span>
+            </div>
           </div>
-        )}
-        <div className="controls">
-          <label className="dim" htmlFor="model">
-            model
-          </label>
-          <select
-            id="model"
-            value={state?.model ?? ""}
-            disabled={!state}
-            onChange={(e) => tx({ type: "set_model", model: e.target.value })}
-          >
-            {(state?.models ?? []).map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label} ({m.note})
-              </option>
-            ))}
-          </select>
-          <button className="ghost" disabled={busy || !agentUp} onClick={() => { tx({ type: "new_session" }); setItems([]); }}>
-            new chat
-          </button>
-          <button className={boardTab === "inbox" ? "on" : "ghost"} onClick={() => setBoardTab(boardTab === "inbox" ? null : "inbox")}>
-            inbox{needYou > 0 ? ` (${needYou})` : ""}
-          </button>
-          <button className={boardTab === "goals" ? "on" : "ghost"} onClick={() => setBoardTab(boardTab === "goals" ? null : "goals")}>
-            goals
-          </button>
-          <button className={boardTab === "journal" ? "on" : "ghost"} onClick={() => setBoardTab(boardTab === "journal" ? null : "journal")}>
-            journal
-          </button>
-          <button
-            className={paused ? "danger" : "ghost"}
-            disabled={!executorUp}
-            title={paused ? "Woody is paused: nothing but read-only actions can run" : "Stop everything Woody does on its own until you resume"}
-            onClick={() => tx({ type: "pause", on: !paused })}
-          >
-            {paused ? "resume" : "pause"}
-          </button>
-          {state && <BudgetMeter budget={state.budget} />}
+        </div>
+        <div className="readouts">
+          <div className="readout">
+            <div className="label">NEXT ALARM</div>
+            <div className="value">{mind?.next_alarm ? clock(mind.next_alarm.due) : "none"}</div>
+            <div className="note">{mind?.next_alarm ? `${until(mind.next_alarm.due, now)} · ${mind.next_alarm.reason}` : "nothing scheduled"}</div>
+          </div>
+          <div className="readout">
+            <div className="label">QUEUE</div>
+            <div className="value">{String((mind?.queue.operator ?? 0) + (mind?.queue.autonomous ?? 0)).padStart(2, "0")}</div>
+            <div className="note">
+              {mind?.queue.operator ?? 0} from you · {mind?.queue.autonomous ?? 0} its own
+            </div>
+          </div>
+          <div className="readout">
+            <div className="label">ALLOWANCE</div>
+            <div className="value">
+              {budget ? money(budget.autonomous_usd ?? 0) : "…"} <span className="unit">free today</span>
+            </div>
+            {budget && <Bar fraction={budget.cap_usd > 0 ? budget.spent_usd / budget.cap_usd : 0} tone={budget.spent_usd / budget.cap_usd > 0.85 ? "red" : "amber"} small />}
+            <div className="note">{budget ? `${money(budget.spent_usd)} of $${budget.cap_usd} this month` : ""}</div>
+          </div>
+          <div className="switches">
+            <button className={paused ? "on-alert" : ""} disabled={!executorUp} onClick={() => tx({ type: "pause", on: !paused })}>
+              {paused ? "RESUME" : "PAUSE"}
+            </button>
+            <button className="stop" disabled={!busy} onClick={() => tx({ type: "interrupt" })}>
+              STOP
+            </button>
+          </div>
         </div>
       </header>
 
-      <div
-        className="transcript"
-        ref={scroller}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-        }}
-      >
-        {items.length === 0 && (
-          <div className="empty">
-            <p>Woody is ready.</p>
-            <p className="dim">Ask about this machine, or ask it to do something. Actions that change the system wait for your approval here.</p>
-          </div>
-        )}
-        {state && !state.has_credential && (
-          <div className="row error">No Claude API key is configured for the agent. See docs/AGENT.md.</div>
-        )}
-        {items.map((it) => (
-          <Row key={it.key} item={it} />
-        ))}
-        {busy && <div className="row working">{mind?.state === "working" ? "working on its own…" : "working…"}</div>}
-      </div>
+      <div className="columns">
+        {/* ---- left: Woody's mind in records ---- */}
+        <aside className="col">
+          <section className={`panel notch-tr ${needs ? "alert" : ""}`}>
+            <PanelHead code="F1" title="NEEDS YOU" alert={needs > 0}>
+              <span className={needs ? "count alert" : "count"}>{String(needs).padStart(2, "0")}</span>
+            </PanelHead>
+            {needs === 0 && <div className="line dim">Nothing needs you.</div>}
+            {approvals.map((a) => (
+              <div key={a.approval_id} className="entry static">
+                <MarkIcon mark="problem" />
+                <span className="entry-text">
+                  <span className="one">approve or deny: {a.action}</span>
+                  <span className="two">shown as a prompt</span>
+                </span>
+              </div>
+            ))}
+            {(identity?.pending ?? []).map((p) => (
+              <button key={`id${p.id}`} className="entry" onClick={() => setPanel({ kind: "identity" })}>
+                <MarkIcon mark="saved" tone="red" />
+                <span className="entry-text">
+                  <span className="one">Woody proposes a change to who it is</span>
+                  <span className="two">{p.reason}</span>
+                </span>
+              </button>
+            ))}
+            {inbox.map((item) => (
+              <button key={item.goal.id} className="entry" onClick={() => setPanel({ kind: "goal", id: item.goal.id })}>
+                <MarkIcon mark={item.kind === "plan" ? "saved" : "said"} tone="red" />
+                <span className="entry-text">
+                  <span className="one">
+                    {String(item.goal.id).padStart(2, "0")} {item.goal.title}
+                  </span>
+                  <span className="two">
+                    {item.kind === "plan" && item.goal.review
+                      ? `plan to accept · ${money(item.goal.review.estimate_usd)} · ${item.goal.review.changes_system ? "changes the system" : "read-only"}`
+                      : item.kind === "blocked"
+                        ? item.goal.waiting_reason
+                        : `Woody proposes · ${item.goal.reasoning}`}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </section>
 
-      <footer className="composer">
-        <textarea
-          value={draft}
-          placeholder={
-            !agentUp
-              ? "Agent offline…"
-              : busy
-                ? "Woody is working. Your message will reach it at its next step (Enter to send)"
-                : "Message Woody (Enter to send, Shift+Enter for a new line)"
-          }
-          rows={2}
-          autoFocus
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+          <section className="panel notch-tr">
+            <PanelHead code="F2" title="GOALS">
+              <button className="ghost mini" onClick={() => setPanel({ kind: "new-goal" })}>
+                + NEW
+              </button>
+            </PanelHead>
+            {open.length === 0 && <div className="line dim">No goals yet. Give Woody something to work towards.</div>}
+            {open.map((g) => (
+              <button key={g.id} className="entry goal" onClick={() => setPanel({ kind: "goal", id: g.id })}>
+                <span className={`goal-mark ${goalMark(g)}`} role="img" aria-label={g.status} />
+                <span className="num">{String(g.id).padStart(2, "0")}</span>
+                <span className="entry-text">
+                  <span className="one">{g.title}</span>
+                  <Bar fraction={g.budget_usd > 0 ? g.spent_usd / g.budget_usd : 0} small />
+                </span>
+                <span className="side">
+                  <span className={goalMark(g) === "half" ? "word alert" : g.status === "active" ? "word amber" : "word"}>{GOAL_WORD[g.status] ?? g.status}</span>
+                  <span className="dim">
+                    {g.budget_usd > 0 ? `${money(g.spent_usd)}/${g.budget_usd.toFixed(2)}` : g.review ? `est. ${money(g.review.estimate_usd)}` : ""}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </section>
+
+          <section className="panel">
+            <PanelHead code="F3" title="DUTIES">
+              <span className="dim mini">NEXT · WEEK</span>
+            </PanelHead>
+            {duties.map((d) => {
+              const s = d.standing!;
+              const due = d.last_worked + s.cadence_minutes * 60_000;
+              return (
+                <button key={d.id} className={`entry duty ${s.enabled ? "" : "off"}`} onClick={() => setPanel({ kind: "goal", id: d.id })}>
+                  <span className="one">{d.title}</span>
+                  <span className="when">{!s.enabled ? "off" : due <= now ? "due" : until(due, now).replace("in ", "")}</span>
+                  <span className="when">{s.enabled && s.weekly_usd > 0 ? `${Math.round((s.week_spent_usd / s.weekly_usd) * 100)} %` : ""}</span>
+                </button>
+              );
+            })}
+          </section>
+
+          <nav className="doors" aria-label="Woody's records">
+            <button onClick={() => setPanel({ kind: "memory" })}>
+              <span className="code">F5</span> MEMORY <span className="dim">{String(state?.mind?.memories ?? 0).padStart(3, "0")}</span>
+            </button>
+            <button onClick={() => setPanel({ kind: "journal" })}>
+              <span className="code">F6</span> JOURNAL <span className="dim">{String(state?.mind?.journal ?? 0).padStart(3, "0")}</span>
+            </button>
+            <button onClick={() => setPanel({ kind: "identity" })}>
+              <span className="code">F7</span> IDENTITY <span className="dim">v{String(identity?.current.version ?? state?.mind?.identity_version ?? 1).padStart(2, "0")}</span>
+            </button>
+            <button onClick={() => setPanel({ kind: "settings" })}>
+              <span className="code">F8</span> SETTINGS
+            </button>
+          </nav>
+        </aside>
+
+        {/* ---- centre: the conversation on a time spine, or an open panel ---- */}
+        <main className="centre">
+          {panel ? (
+            <PanelView
+              panel={panel}
+              setPanel={setPanel}
+              tx={tx}
+              incoming={mindResult}
+              version={version}
+              state={state}
+              identity={identity}
+              smallLimit={smallLimit}
+              expressions={expressions}
+              setExpressions={setExpressions}
+            />
+          ) : (
+            <div
+              className="talk"
+              ref={scroller}
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+              }}
+            >
+              {items.length === 0 && (
+                <div className="line dim empty">
+                  Woody is here. Write to it below, or give it a goal on the left. Actions that change the system wait for your approval.
+                </div>
+              )}
+              {state && !state.has_credential && <div className="line problem">No Claude API key is configured for the agent. See docs/AGENT.md.</div>}
+              {items.map((it) => (
+                <TalkRow key={it.key} item={it} />
+              ))}
+              {busy && <div className="line dim working">{mindName === "working" ? "working on its own…" : "working…"}</div>}
+            </div>
+          )}
+          <form
+            className="composer"
+            onSubmit={(e) => {
               e.preventDefault();
               submit();
-            }
-          }}
-        />
-        <div className="composer-buttons">
-          <button disabled={!canSend} onClick={submit}>
-            send
-          </button>
-          {busy && (
-            <button className="danger" onClick={() => tx({ type: "interrupt" })}>
-              stop
-            </button>
-          )}
-        </div>
-      </footer>
+            }}
+          >
+            <label htmlFor="message">&gt;</label>
+            <textarea
+              id="message"
+              value={draft}
+              rows={1}
+              autoFocus
+              placeholder={
+                !agentUp ? "Agent offline…" : busy ? "Woody is working. Your message reaches it at its next step." : "Message Woody (Enter to send, Shift+Enter for a new line)"
+              }
+              onChange={(e) => {
+                setDraft(e.target.value);
+                setTyping(true);
+                window.clearTimeout(typingTimer.current);
+                typingTimer.current = window.setTimeout(() => setTyping(false), 2500);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+            />
+            <button disabled={!canSend}>SEND</button>
+          </form>
+          <div className="legend">
+            <span><MarkIcon mark="said" size={9} /> said</span>
+            <span><MarkIcon mark="tool" size={9} /> tool</span>
+            <span><MarkIcon mark="woke" size={9} /> woke</span>
+            <span><MarkIcon mark="saved" size={9} /> saved</span>
+            <span><MarkIcon mark="problem" size={9} /> problem</span>
+            <span className="keys">ESC {panel ? "close" : "stop"} · F2 new goal · F5 to F8 records</span>
+          </div>
+        </main>
 
-      {boardTab && (
-        <Board
-          tab={boardTab}
-          setTab={setBoardTab}
-          onClose={() => setBoardTab(null)}
-          tx={tx}
-          incoming={mindResult}
-          version={boardVersion}
-          approvals={approvals.length}
-        />
-      )}
+        {/* ---- right: the mind, then the machine ---- */}
+        <aside className="col">
+          <section className="panel notch-br strong">
+            <PanelHead code="F9" title="MIND">
+              <span className="dim mini">{state?.models.find((m) => m.id === state.model)?.label ?? ""}</span>
+            </PanelHead>
+            <div className="mind">
+              <Lattice state={mindName} overlay={overlay} play={play} hold={hold} expressions={expressions} />
+              <dl>
+                <dt>STEP</dt>
+                <dd>{busy ? `${String(session.steps).padStart(2, "0")}/40` : "–"}</dd>
+                <dt>COST</dt>
+                <dd>{session.cost === null ? "–" : usd(session.cost)}</dd>
+                <dt>MODE</dt>
+                <dd>{mind?.tainted ? "notes" : mind?.mode ?? "–"}</dd>
+              </dl>
+            </div>
+          </section>
+
+          <section className="panel">
+            <PanelHead code="F10" title="ACTIVITY">
+              <span className="dim mini">live</span>
+            </PanelHead>
+            {activity.length === 0 && <div className="line dim">Nothing yet.</div>}
+            {activity.slice(0, 8).map((a, i) => (
+              <div key={`${a.ts}-${i}`} className="act">
+                <span className="dim">{new Date(a.ts).toLocaleTimeString(undefined, { hourCycle: "h23" })}</span>
+                <MarkIcon mark={a.mark} tone={a.text.startsWith("you") ? "amber" : "dim"} size={10} />
+                <span className="one">{a.text}</span>
+              </div>
+            ))}
+          </section>
+
+          <section className="panel">
+            <PanelHead title="MACHINE">
+              <span className="dim mini">
+                {meters.generation ? `gen ${String(meters.generation).padStart(3, "0")}` : ""}
+                {meters.uptime_s ? ` · up ${meters.uptime_s > 172_800 ? `${Math.floor(meters.uptime_s / 86_400)} d` : `${Math.floor(meters.uptime_s / 3600)} h`}` : ""}
+              </span>
+            </PanelHead>
+            <div className="meters">
+              <Meter label="CPU" fraction={meters.cpu_pct !== undefined ? meters.cpu_pct / 100 : undefined} value={meters.cpu_pct !== undefined ? `${meters.cpu_pct} %` : "–"} />
+              <Meter
+                label="MEM"
+                fraction={memUsed}
+                value={meters.mem_used_kb !== undefined ? `${(meters.mem_used_kb / 1_048_576).toFixed(1)} GB` : "–"}
+                alert={memUsed !== undefined && memUsed > 0.9}
+              />
+              <Meter
+                label="DISK"
+                fraction={diskUsed}
+                value={meters.disk_free_pct !== undefined ? `${meters.disk_free_pct.toFixed(0)} % free` : "–"}
+                alert={meters.disk_free_pct !== undefined && meters.disk_free_pct < 10}
+              />
+              <Meter label="NET" fraction={meters.net_kbps !== undefined ? Math.min(1, meters.net_kbps / 1024) : undefined} value={meters.net_kbps !== undefined ? `${meters.net_kbps} kB/s` : "–"} />
+            </div>
+            <div className={`line small ${failed.length ? "problem" : "dim"}`}>
+              {failed.length ? `${String(failed.length).padStart(2, "0")} failed · ${failed.slice(0, 3).join(", ")}` : "no failed services"}
+            </div>
+          </section>
+
+          <section className="panel">
+            <PanelHead title="SCOPE">
+              <span className="dim mini">
+                {scope?.engagement?.name ?? "none"}
+                {scope?.engagement?.expires_ms ? ` · ${scope.engagement.expires_ms > now ? until(scope.engagement.expires_ms, now).replace("in ", "") + " left" : "expired"}` : ""}
+              </span>
+            </PanelHead>
+            <div className={`line small ${scope && !scope.valid ? "problem" : ""}`}>
+              {!scope
+                ? "…"
+                : !scope.valid
+                  ? "The engagement file is invalid: every target is refused."
+                  : !scope.engagement
+                    ? "No engagement is set: every target is refused."
+                    : scope.engagement.active === false || (scope.engagement.expires_ms ?? 0) < now
+                      ? "The engagement is inactive or expired: every target is refused."
+                      : `${(scope.engagement.allow ?? []).length} allowed entries · never ${scope.permanent_deny.length} addresses`}
+            </div>
+          </section>
+        </aside>
+      </div>
 
       {notices.length > 0 && (
         <div className="notices" aria-live="polite">
@@ -475,56 +799,46 @@ export function App() {
       )}
 
       {pending && (
-        <ApprovalModal
-          approval={pending}
-          more={approvals.length - 1}
-          deciding={deciding === pending.approval_id}
-          onDecide={(d) => decide(pending, d)}
-        />
+        <ApprovalModal approval={pending} more={approvals.length - 1} deciding={deciding === pending.approval_id} onDecide={(d) => decide(pending, d)} />
       )}
     </div>
   );
 }
 
-// ---- pieces ---------------------------------------------------------------
-
-function Dot({ ok, label }: { ok: boolean; label: string }) {
+function Meter({ label, fraction, value, alert = false }: { label: string; fraction: number | undefined; value: string; alert?: boolean }) {
   return (
-    <span className={`dot ${ok ? "ok" : "bad"}`} title={`${label}: ${ok ? "up" : "down"}`}>
-      <i />
-      {label}
-    </span>
-  );
-}
-
-function BudgetMeter({ budget }: { budget: Budget }) {
-  const fraction = budget.cap_usd > 0 ? Math.min(1, budget.spent_usd / budget.cap_usd) : 0;
-  return (
-    <div className={`budget ${fraction > 0.8 ? "warn" : ""}`} title={`Claude API spend in ${budget.month}`}>
-      <span>
-        {usd(budget.spent_usd)} / ${budget.cap_usd}
-      </span>
-      <div className="track">
-        <div className="fill" style={{ width: `${fraction * 100}%` }} />
+    <div className={`meter ${alert ? "alert" : ""}`}>
+      <div className="column">
+        <span style={{ height: `${Math.round(Math.min(1, Math.max(0, fraction ?? 0)) * 100)}%` }} />
       </div>
+      <div className="label">{label}</div>
+      <div className="value">{value}</div>
     </div>
   );
 }
 
-function Row({ item }: { item: Item }) {
+/** One line of the conversation: its time, its mark on the spine, and what was said or done. */
+function TalkRow({ item }: { item: Item }) {
+  const time = <span className="time">{clock(item.ts)}</span>;
   switch (item.kind) {
     case "user":
       return (
-        <div className="row user">
-          <span className="who">you</span>
-          <div className="text">{item.text}</div>
+        <div className="talk-row you">
+          {time}
+          <MarkIcon mark="said" tone="amber" />
+          <div className="body">
+            <span className="who">YOU </span>
+            {item.text}
+          </div>
         </div>
       );
     case "assistant":
       return (
-        <div className="row assistant">
-          <span className="who">woody</span>
-          <div className="text">
+        <div className="talk-row">
+          {time}
+          <MarkIcon mark="said" tone="text" />
+          <div className="body">
+            <span className="who">WOODY </span>
             {item.text}
             {item.streaming && <span className="caret">▍</span>}
           </div>
@@ -534,131 +848,37 @@ function Row({ item }: { item: Item }) {
       const name = item.name.startsWith(TOOL_PREFIX) ? item.name.slice(TOOL_PREFIX.length) : item.name;
       const args = JSON.stringify(item.input);
       return (
-        <details className={`row tool ${item.isError ? "failed" : ""}`}>
+        <details className={`talk-row tool ${item.isError ? "failed" : ""}`}>
           <summary>
-            <span className="who">tool</span>
-            <span className="name">{name}</span>
-            <span className="args">{args === "{}" ? "" : args}</span>
-            <span className="state">{item.result === undefined ? "running" : item.isError ? "failed" : "done"}</span>
+            {time}
+            <MarkIcon mark={item.isError ? "problem" : "tool"} />
+            <span className="body small">
+              <span className="name">{name}</span> <span className="args">{args === "{}" ? "" : args}</span>
+              <span className="state">{item.result === undefined ? "running" : item.isError ? "failed" : "done"}</span>
+            </span>
           </summary>
           {item.result !== undefined && <pre>{item.result}</pre>}
         </details>
       );
     }
-    case "meta":
-      return <div className="row meta">{item.text}</div>;
-    case "error":
-      return <div className="row error">{item.text}</div>;
-  }
-}
-
-function ApprovalModal({
-  approval,
-  more,
-  deciding,
-  onDecide,
-}: {
-  approval: Approval;
-  more: number;
-  deciding: boolean;
-  onDecide: (decision: "approve" | "deny") => void;
-}) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, []);
-  const left = Math.max(0, Math.round((approval.expires_ms - now) / 1000));
-  const denyRef = useRef<HTMLButtonElement | null>(null);
-  // Focus starts on Deny so a stray Enter can never approve.
-  useEffect(() => denyRef.current?.focus(), [approval.approval_id]);
-  const change = approval.action === "config.apply" && approval.detail ? approval.detail : null;
-
-  return (
-    <div className="scrim" role="dialog" aria-modal="true" aria-labelledby="approval-title">
-      <div className={change ? "modal wide" : "modal"}>
-        <h2 id="approval-title">Approval needed</h2>
-        <p className="dim">
-          {change
-            ? "Woody is asking to change this system's configuration in a way that touches the locked core."
-            : "Woody is asking to run an action that changes the system."}
-        </p>
-        <dl>
-          <dt>action</dt>
-          <dd className="strong">{approval.action}</dd>
-          {change ? (
-            <>
-              <dt>change</dt>
-              <dd>{change.summary}</dd>
-              <dt>files</dt>
-              <dd>
-                {(change.changed ?? []).map((f) => (
-                  <div key={f.path}>
-                    <span className="dim">{f.kind}</span> {f.path}
-                  </div>
-                ))}
-              </dd>
-              <dt>why it asks</dt>
-              <dd>
-                {(change.locked_paths ?? []).map((p) => (
-                  <div key={p} className="alert-text">locked file: {p}</div>
-                ))}
-                {(change.privilege_changes ?? []).map((p) => (
-                  <div key={p} className="alert-text">privilege change: {p}</div>
-                ))}
-              </dd>
-              <dt>diff</dt>
-              <dd>
-                <pre className="diff">
-                  {(change.diff ?? "").split("\n").map((line, i) => (
-                    <span
-                      key={i}
-                      className={
-                        line.startsWith("+") && !line.startsWith("+++")
-                          ? "add"
-                          : line.startsWith("-") && !line.startsWith("---")
-                            ? "del"
-                            : undefined
-                      }
-                    >
-                      {line + "\n"}
-                    </span>
-                  ))}
-                </pre>
-                {change.diff_truncated && <p className="alert-text">The diff is longer than shown here.</p>}
-              </dd>
-            </>
-          ) : (
-            <>
-              <dt>parameters</dt>
-              <dd>
-                <pre>{JSON.stringify(approval.params, null, 2)}</pre>
-              </dd>
-            </>
-          )}
-          <dt>request</dt>
-          <dd className="dim">
-            {approval.approval_id} · sha256 {approval.action_hash.slice(0, 16)}…
-          </dd>
-          <dt>expires</dt>
-          <dd className="dim">
-            {left > 172800
-              ? `in ${Math.floor(left / 86400)} days`
-              : left > 7200
-                ? `in ${Math.floor(left / 3600)} hours`
-                : `in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`}
-          </dd>
-        </dl>
-        {more > 0 && <p className="dim">{more} more waiting after this one.</p>}
-        <div className="actions">
-          <button ref={denyRef} className="ghost" disabled={deciding} onClick={() => onDecide("deny")}>
-            deny
-          </button>
-          <button className="danger" disabled={deciding} onClick={() => onDecide("approve")}>
-            approve
-          </button>
+    case "meta": {
+      const woke = item.text.startsWith("woke up");
+      const cost = /^(nothing needed · )?\$[\d.]+ · /.test(item.text) || item.text.startsWith("stopped");
+      return (
+        <div className={`talk-row meta ${cost ? "cost" : ""}`}>
+          {time}
+          {cost ? <span className="mark" /> : <MarkIcon mark={woke ? "woke" : "saved"} tone={woke ? "amber" : "dim"} />}
+          <div className="body small">{item.text}</div>
         </div>
-      </div>
-    </div>
-  );
+      );
+    }
+    case "error":
+      return (
+        <div className="talk-row problem">
+          {time}
+          <MarkIcon mark="problem" />
+          <div className="body">{item.text}</div>
+        </div>
+      );
+  }
 }
