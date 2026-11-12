@@ -346,3 +346,10 @@ pre.diff .del { color: var(--red-soft); }
   .frame.with-record .voice { top: 16px; right: 148px; width: calc(100% - 172px); }
   .record-layer { inset: 140px 8px 8px 8px; }
 }
+
+/* The Files record: one line per file, with what can be done with it at the end. */
+.files .file-row { display: flex; align-items: center; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--line); }
+.files .file-row .one { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.files .file-row .row-actions { margin: 0; flex: none; }
+a.button { display: inline-flex; align-items: center; min-height: 32px; padding: 0 14px; border: 1px solid var(--line-strong); color: var(--amber); text-decoration: none; letter-spacing: 0.1em; text-transform: uppercase; font-size: 12px; }
+a.button:hover { background: #1a1204; }

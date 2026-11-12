@@ -10,6 +10,8 @@
 //  * relays the operator's terminal to the kiosk, and only to the kiosk
 //  * keeps the canvas: the things Woody makes, served as sealed documents,
 //    with their versions, what is pinned, and the record of changes (canvas.ts)
+//  * gives files to Woody and hands out its results: the operator's side of
+//    the workbench's folder (files.ts)
 //  * takes Woody's requests about the canvas over a link to the agent, tries
 //    each new thing on the screen before keeping it, and refuses them while
 //    the operator has paused Woody
@@ -26,6 +28,7 @@ import net from "node:net";
 import path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import { Canvas, CanvasError, THING_POLICY, describe, wrapThing, type Actor, type Thing } from "./canvas.js";
+import { Bench, FilesError, sendDownload } from "./files.js";
 import { buildPart, kitCatalogue } from "./kit.js";
 
 const PORT = Number(process.env.WOODY_HUD_PORT ?? "7800");
@@ -149,6 +152,8 @@ function approvalCall(request: Record<string, unknown>): Promise<any> {
 
 /** Opened when the gateway starts serving (not for the command-line modes). */
 let canvas: Canvas;
+/** The workbench's folder, where the operator gives files to Woody and takes its results. */
+const bench = new Bench(process.env.WOODY_BENCH_DIR);
 const THING_SECRET = crypto.randomBytes(32);
 const thingKey = (id: string): string => crypto.createHmac("sha256", THING_SECRET).update(id).digest("hex").slice(0, 32);
 
@@ -769,6 +774,7 @@ function handle(req: http.IncomingMessage, res: http.ServerResponse, host: boole
   } else if (url.pathname.startsWith("/term")) {
     return proxyTerminal(req, res, url);
   }
+  if (url.pathname.startsWith("/files/")) return serveFiles(req, res, url, host);
   if (req.method !== "GET" && req.method !== "HEAD") {
     res.writeHead(405).end();
     return;
@@ -787,6 +793,51 @@ function handle(req: http.IncomingMessage, res: http.ServerResponse, host: boole
     res.writeHead(200, { "content-type": MIME[path.extname(file)] ?? "application/octet-stream", ...securityHeaders(req, host) });
     res.end(req.method === "HEAD" ? undefined : data);
   });
+}
+
+// ---- files given to Woody and taken from it ------------------------------------
+
+/**
+ * The operator's side of the workbench's folder. On the host door the session
+ * was checked before this is reached, and a request that changes something
+ * must come from the HUD's own page. The kiosk has no session: its frame
+ * sends the token it was given.
+ */
+function serveFiles(req: http.IncomingMessage, res: http.ServerResponse, url: URL, host: boolean): void {
+  const json = (status: number, body: unknown) => res.writeHead(status, { "content-type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify(body));
+  const reading = req.method === "GET";
+  const allowed = host ? reading || req.headers.origin === `https://${req.headers.host}` : tokenOk(String(req.headers["x-woody-token"] ?? ""));
+  if (!allowed) return void json(403, { error: "not allowed" });
+  const failed = (err: unknown) => void json(err instanceof FilesError ? err.status : 500, { error: err instanceof Error ? err.message : String(err) });
+  const changed = () => {
+    for (const ws of browsers) send(ws, { type: "files_changed" });
+  };
+  try {
+    if (url.pathname === "/files/list" && reading) {
+      return void json(200, bench.available ? { available: true, ...bench.list() } : { available: false, files: [], truncated: false, free_bytes: null });
+    }
+    if (url.pathname === "/files/get" && reading) return sendDownload(res, bench.resolve(url.searchParams.get("path") ?? ""));
+    if (url.pathname === "/files/put" && req.method === "POST") {
+      bench
+        .receive(req, url.searchParams.get("name") ?? "file")
+        .then((given) => {
+          changed();
+          // Woody is told, and waits: the file is listed in front of it the next time the operator speaks.
+          if (link?.readyState === WebSocket.OPEN) link.send(JSON.stringify({ type: "file_given", path: given.path, bytes: given.bytes }));
+          json(200, given);
+        })
+        .catch(failed);
+      return;
+    }
+    if (url.pathname === "/files/delete" && req.method === "POST") {
+      bench.remove(url.searchParams.get("path") ?? "");
+      changed();
+      return void json(200, { removed: true });
+    }
+    json(404, { error: "no such request" });
+  } catch (err) {
+    failed(err);
+  }
 }
 
 const server = http.createServer((req, res) => handle(req, res, false));

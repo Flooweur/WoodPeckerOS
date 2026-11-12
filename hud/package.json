@@ -11,7 +11,7 @@
   "scripts": {
     "build": "vite build && tsc -p tsconfig.server.json",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit",
-    "test": "node --test dist/server/canvas.test.js dist/server/kit.test.js"
+    "test": "node --test \"dist/server/*.test.js\""
   },
   "engines": {
     "node": ">=22"

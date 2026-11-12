@@ -24,6 +24,7 @@ The only root component Woody can talk to. Source in `executor/`, NixOS module i
 | `screen.capture` | read | `scale` (0.25–1, default 0.5) |
 | `web.fetch` | read | `url` (https, port 443, any public host that is not on the block list) |
 | `web.picture` | read | `url` (as for `web.fetch`); returns the picture re-encoded as WebP |
+| `work.run` | reversible | `script`, `packages`, `python`, `network`, `timeout_s`: a script run in the workbench, as a user that sees nothing else of the machine. See [WORKBENCH.md](WORKBENCH.md) |
 | `web.blocklist` | read | none |
 | `service.start` / `service.stop` / `service.restart` | approval | `unit` (locked-core units are forbidden) |
 | `config.propose` | reversible | `summary`, `files` (`path`, `content`), `delete` |

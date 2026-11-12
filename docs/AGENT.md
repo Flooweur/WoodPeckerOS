@@ -12,6 +12,7 @@ The agent is a loop: it answers when you write, and it also wakes by itself on a
 - **Observe:** `system_info`, `process_list`, `service_list`, `service_status`, `journal_query`, `osquery`.
 - **Operate (approval):** `service_start`, `service_stop`, `service_restart`.
 - **Change the system:** `config_propose`, `config_apply`, `config_status`. Free except for the locked core, which needs approval; see [SELFMOD.md](SELFMOD.md).
+- **Work:** `run` runs a script in the workbench: real programs, in a place that sees nothing else of the machine, with no network unless asked. A run with the network counts as reading the web. `fs_list`, `fs_read` and `fs_write` also work in the workbench's folder, where you give Woody files and take its results. See [WORKBENCH.md](WORKBENCH.md).
 - **Files (local):** `fs_list` and `fs_read` under its workspace, `/etc` and `/nix/store`; `fs_write` only inside its workspace (`/var/lib/woody/workspace`). Symlinks that lead out of those areas are refused.
 - **See the screen:** `screenshot` returns a picture of the kiosk display and saves a copy under `screenshots/` in the workspace.
 - **The canvas:** `canvas_look`, `thing_source`, `kit_place`, `thing_make`, `thing_change`, `thing_place`, `thing_remove`. The canvas is kept by the HUD gateway, which enforces its rules; see "Making things" below and [HUD.md](HUD.md).

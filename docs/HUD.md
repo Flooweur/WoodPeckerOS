@@ -47,6 +47,8 @@ A thing that explains a study, or that shows pictures from the web, carries a ma
 
 A thing gets a picture through the bridge (`woody.picture(id)`), and only a picture it was given when it was made. It still loads nothing from the network.
 
+**Files** (in the lattice menu) is where you give Woody a file and take what it made. A file you give lands in the workbench's `in` folder and Woody is told the next time you speak to it; its results appear under "From Woody" with a download button (in your own browser) and a remove button. In your own browser, files dropped anywhere on the page are given too. See [WORKBENCH.md](WORKBENCH.md).
+
 **Its methods** (in the lattice menu) shows how Woody does its work, one section for each part of it. A section Woody rewrote shows the version before and the current one side by side, with the words that differ marked, and Woody's reason. Every version can be put back with one button. A section Woody added itself has a button to remove it, and removed sections are listed at the end with a button to bring one back. Woody's rules are not in this record: it cannot change them.
 
 **Its face** (in the lattice menu) shows every design the lattice can play, each as a small live lattice: which ones Woody drew itself, when and why, with a button to put the built-in one or an earlier drawing back. The frame's own signals are listed last with what each one says.

@@ -93,6 +93,20 @@ in
     serviceConfig.ReadWritePaths = [ "-${root}/files" ];
   };
 
+  # The HUD gateway is how you give files to Woody and take its results
+  # (hud/server/files.ts). It writes what you give into the "in" folder and
+  # reads what you download; it never runs or opens what is there.
+  users.users.woody-hud.extraGroups = [ "woody-work" ];
+  systemd.services.woody-hud = {
+    after = [ "woody-work-bench.service" ];
+    wants = [ "woody-work-bench.service" ];
+    environment.WOODY_BENCH_DIR = "${root}/files";
+    serviceConfig = {
+      SupplementaryGroups = [ "woody-work" ];
+      ReadWritePaths = [ "-${root}/files" ];
+    };
+  };
+
   # What a run with the network can reach. A run without it has no network
   # device at all, so this rule only matters when the network was asked for.
   networking.nftables.tables.woody_work = {

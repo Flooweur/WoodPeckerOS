@@ -117,6 +117,16 @@ export function createProtocol(core: Core) {
         core.forgetInner();
         break;
       }
+      case "file_given": {
+        // The operator put a file in the workbench for Woody. It is written down and shown in the
+        // conversation; Woody is not woken, and sees the file listed the next time they speak.
+        const file = String(msg.path ?? "").slice(0, 300);
+        if (!file) break;
+        const bytes = Number(msg.bytes) || 0;
+        store.event("file_given", { path: file, bytes }, { actor: "operator" });
+        core.note(`you gave Woody a file: ${file} (${bytes >= 1_048_576 ? `${(bytes / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`})`);
+        break;
+      }
       case "thing_event": {
         // Something happened on a thing (a button pressed, a line typed). The
         // gateway already paces these; the same event twice in a row is one.

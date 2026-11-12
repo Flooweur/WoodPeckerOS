@@ -63,7 +63,7 @@ What Woody changes by itself, with no approval and no rebuild, is data:
 | Its face (the lattice's designs) | `face_design` | Put any version back |
 | Things on the canvas | `thing_make`, `thing_change` and the rest | Undo, pin, the record of changes |
 
-Planned (step C of the review): programs Woody writes for itself run in a workbench, under another user with no access to the agent's files.
+Programs Woody writes for itself run in its workbench, under another user with no access to the agent's files or to the system: see [WORKBENCH.md](WORKBENCH.md).
 
 Inside the agent, the tools are still handed gated versions of the executor, the canvas and the store (`agent/src/core/gate.ts`, `woody-store.ts`), and one table says what a session may do (`agent/src/core/policy.ts`). That is structure, so that a rule is written once; it is not a security boundary against the agent's own code.
 

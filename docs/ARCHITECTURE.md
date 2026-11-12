@@ -11,6 +11,7 @@ This document says how the system works today (2026-11-12, after steps A and B o
 | The HUD gateway (`woody-hud`) | Serves the screen, keeps the canvas, carries your approvals to the executor | `woody-hud` | `hud/server/` |
 | The frame | The fixed part of the screen: the lattice, its menu, the records, the approval prompt | the kiosk's browser | `hud/web/src/frame/` |
 | Things | What Woody puts on the canvas: small programs in sealed frames | the kiosk's browser, sandboxed | kept by the gateway in `/var/lib/woody-hud` |
+| The workbench | Where Woody runs real programs: a user of its own, a disk of its own, no network unless asked | `woody-work`, in a unit per run | `executor/src/work.rs`, `nix/locked/workbench.nix` |
 | The embedding service (`woody-embed`) | A small local model that turns a text into a vector, for recall by meaning. No network | `woody-embed` | `nix/modules/embed.nix` |
 | The system | NixOS, built from this repository, with snapshots before every change | | `flake.nix`, `nix/` |
 
@@ -21,6 +22,7 @@ This document says how the system works today (2026-11-12, after steps A and B o
 | `/run/woody/exec.sock` | The agent's user only | Requests for actions; waiting on approvals |
 | `/run/woody/approve.sock` | The HUD gateway's user, and root | Your decisions, Pause, the block list, the audit log |
 | `/run/woody-agent/agent.sock` | The HUD gateway's group, and root | Whoever speaks here speaks as you: messages, the records, Stop |
+| The workbench's folder (`/var/lib/woody-work/files`) | The workbench's user; Woody and the HUD gateway through its group | Files you give Woody (`in`), its results (`out`), what its programs work on |
 | `/run/woody-embed/embed.sock` | The agent's user (through the service's group) | Texts in, vectors out |
 | The kiosk's browser | Loopback only (policy and a firewall rule) | The frame and the things |
 | The host door (HTTPS, port 7843) | The Windows host's address only, behind a password | The same HUD in your own browser |
@@ -51,6 +53,7 @@ Everything is under `agent/src/`. The whole directory is a locked path: it chang
 | `core/web-tools.ts`, `core/web.ts`, `core/links.ts` | Reading the web: the tools, the quarantined reader, the addresses a session was given |
 | `core/embed.ts` | Recall by meaning: the client of the local embedding service, and how the search by words and the search by meaning are merged |
 | `core/models.ts`, `core/sdk.ts`, `core/config.ts` | The model names, the one place a model is called from, the settings |
+| `core/files.ts` | Woody's own file access: its workspace and the workbench's folder, never through a link that leads out |
 | `tools.ts`, `canvas.ts`, `mind/*.ts` | Woody's tools and what each kind of session is told |
 | `core/testing.ts`, `core/loop.test.ts` | A scripted model and the tests that run the whole loop against it |
 
@@ -79,6 +82,8 @@ Everything is under `agent/src/`. The whole directory is a locked path: it chang
 | self | Identity, methods, face | Refused |
 | memory-edit | Correcting, merging, deleting a memory | Refused |
 | clipboard | Text offered for you to copy | Refused |
+| work | A workbench run without network | Allowed: it changes the workbench's files and has no way out |
+| work-net | A workbench run with the network | Refused. Such a run itself counts as reading the web |
 | system | Services, the configuration | Refused |
 
 An action with no kind is refused, and a test checks that every tool is in the table. The review decided that "canvas" and "plan" become allowed after reading; that is one edit in this table (step E).
@@ -113,11 +118,11 @@ Measured in the VM on 2026-11-12: each new session sends about 27,500 tokens of 
 
 | What | Where | How to run |
 |---|---|---|
-| The agent: the store, the gates, the policy, the loop against a scripted model (107 tests) | `agent/src/**/*.test.ts` | `cd agent && npm run build && npm test` |
+| The agent: the store, the gates, the policy, recall, the loop against a scripted model (113 tests) | `agent/src/**/*.test.ts` | `cd agent && npm run build && npm test` |
 | The agent starts and answers | `agent/dev/smoke.cjs` | `node dev/smoke.cjs .` |
-| The canvas store and the kit (14 tests) | `hud/server/*.test.ts` | `cd hud && npm run build && npm test` |
-| The HUD in a real browser, with a hostile thing (122 checks) | `hud/dev/check/` | See the top of `hud/dev/check/run.sh` |
-| The executor (55 tests) | `executor/src/` | `cargo test -- --test-threads=1` |
+| The canvas store, the kit and the file exchange (18 tests) | `hud/server/*.test.ts` | `cd hud && npm run build && npm test` |
+| The HUD in a real browser, with a hostile thing (130 checks) | `hud/dev/check/` | See the top of `hud/dev/check/run.sh` |
+| The executor (44 tests) | `executor/src/` | `cargo test -- --test-threads=1` |
 | All of it on every push | `.github/workflows/ci.yml` | |
 
 No test runs a real model. What a real model does with the rules and the tools is checked in the VM.

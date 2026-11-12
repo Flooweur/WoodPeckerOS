@@ -224,6 +224,7 @@ What follows from it:
 |---|---|
 | A | Done, tested in the VM (commit `46e03f2`). Not done: one snapshot script instead of two, a formatter and a linter |
 | B | Done: the session object, the policy table, the loop under test (9 tests against a scripted model), the loop's file split in eight, the in-process checker removed, two ledgers, the tokens of each session recorded, recall by meaning with a local model (bge-m3). The rules text is drafted for the operator to read ([RULES-DRAFT.md](RULES-DRAFT.md)). Not done: the gateway (1,261 lines) and the frame's main file (1,125 lines) are not split yet |
+| C | Done and tested in the VM: the workbench (the action `work.run`, a user and a disk of its own, named programs, limits, the network rule) and the exchange of files in the HUD. See [WORKBENCH.md](WORKBENCH.md). Not built: long jobs in the background; the folder shared with the Windows host (decided against); upload from a phone (step F) |
 
 ### The order that follows
 

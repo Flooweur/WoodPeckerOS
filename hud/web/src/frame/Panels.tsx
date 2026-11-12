@@ -28,6 +28,7 @@ export type Panel =
   | { kind: "life" }
   | { kind: "face" }
   | { kind: "studies" }
+  | { kind: "files" }
   | { kind: "methods" };
 
 const STATUS: Record<string, string> = {
@@ -102,6 +103,7 @@ export function PanelView({
     : panel.kind === "life" ? "WOODY'S OWN LIFE"
     : panel.kind === "face" ? "WOODY'S FACE"
     : panel.kind === "studies" ? "STUDIES"
+    : panel.kind === "files" ? "FILES"
     : panel.kind === "methods" ? "HOW WOODY WORKS"
     : "SETTINGS";
   // The conversation scrolls by itself, like the terminal: it gets no padded body.

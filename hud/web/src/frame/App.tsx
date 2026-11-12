@@ -15,6 +15,7 @@ import { LifeRecord } from "./Life";
 import { FaceRecord } from "./Face";
 import { StudiesRecord } from "./Studies";
 import { MethodsRecord } from "./Methods";
+import { FilesRecord } from "./Files";
 import { ownDesigns, type Design } from "./faceData";
 import { PanelView, type Panel } from "./Panels";
 import type {
@@ -124,6 +125,10 @@ export function App() {
   const [gatewayResult, setGatewayResult] = useState<GatewayResult | null>(null);
   const [door, setDoor] = useState<Door>({ kiosk: true, terminal: false });
   const [version, setVersion] = useState(0);
+  /** Changes when the workbench's folder may have changed: the Files record then asks for it again. */
+  const [filesTick, setFilesTick] = useState(0);
+  /** Files dropped on the screen, on their way to Woody's workbench. */
+  const [dropped, setDropped] = useState<File[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [smallLimit, setSmallLimit] = useState(1);
   const [inbox, setInbox] = useState<InboxItem[]>([]);
@@ -227,6 +232,8 @@ export function App() {
           return;
       }
       if (["result", "note", "goals_changed", "user_text", "tool_use", "turn_start"].includes(msg.type)) reload();
+      // Woody may have made a file during its session, or the operator gave one from another screen.
+      if (msg.type === "files_changed" || msg.type === "result") setFilesTick((n) => n + 1);
 
       // ---- activity in a goal's thread is shown in that goal, not in the main conversation ----
       if (typeof msg.thread === "number" && mainThread.current !== null && msg.thread !== mainThread.current && msg.type !== "history") return;
@@ -571,6 +578,27 @@ export function App() {
     setPanel(p);
   };
 
+  // A file dropped anywhere on the screen is given to Woody: the Files record opens and takes it.
+  useEffect(() => {
+    const over = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+    };
+    const drop = (e: DragEvent) => {
+      const files = [...(e.dataTransfer?.files ?? [])];
+      if (!files.length) return;
+      e.preventDefault();
+      setMenu(false);
+      setPanel({ kind: "files" });
+      setDropped(files);
+    };
+    window.addEventListener("dragover", over);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.removeEventListener("dragover", over);
+      window.removeEventListener("drop", drop);
+    };
+  }, []);
+
   // ---- records whose data the frame holds ----
   const needsBody = (
     <div className="stack wide">
@@ -798,6 +826,7 @@ export function App() {
     life: <LifeRecord tx={tx} incoming={mindResult} version={version} canvas={canvas} />,
     face: <FaceRecord tx={tx} incoming={mindResult} faceVersion={state?.face ?? 0} />,
     methods: <MethodsRecord tx={tx} incoming={mindResult} version={version} />,
+    files: <FilesRecord tick={filesTick} dropped={dropped} />,
     studies: <StudiesRecord tx={tx} incoming={mindResult} version={version} openThing={(id) => openRecord({ kind: "things", id })} />,
   };
   const count = (n: number, width = 2) => String(n).padStart(width, "0");
@@ -902,6 +931,9 @@ export function App() {
               </button>
               <button onClick={() => openRecord({ kind: "studies" })}>
                 <span className="code" /> STUDIES <span className="n">{state?.mind?.studies_open ? count(state.mind.studies_open) : ""}</span>
+              </button>
+              <button onClick={() => openRecord({ kind: "files" })}>
+                <span className="code" /> FILES
               </button>
               <button onClick={() => openRecord({ kind: "methods" })}>
                 <span className="code" /> ITS METHODS

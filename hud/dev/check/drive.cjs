@@ -16,7 +16,12 @@ const RUN = "/tmp/hud-run";
 const OUT = "/out/canvas";
 const AGENT_SOCK = "/tmp/check-agent.sock";
 const EXEC_SOCK = "/tmp/check-exec.sock";
-const env = { ...process.env, WOODY_HUD_STATE_DIR: STATE, WOODY_HUD_RUNTIME_DIR: RUN, WOODY_HUD_PORT: "7800", WOODY_AGENT_SOCKET: AGENT_SOCK, WOODY_APPROVE_SOCKET: EXEC_SOCK };
+// The workbench's folder, as the system prepares it, with a result Woody left.
+const BENCH = "/tmp/hud-bench";
+fs.mkdirSync(`${BENCH}/in`, { recursive: true });
+fs.mkdirSync(`${BENCH}/out`, { recursive: true });
+fs.writeFileSync(`${BENCH}/out/report.txt`, "The average is 12.0.\n");
+const env = { ...process.env, WOODY_HUD_STATE_DIR: STATE, WOODY_HUD_RUNTIME_DIR: RUN, WOODY_HUD_PORT: "7800", WOODY_AGENT_SOCKET: AGENT_SOCK, WOODY_APPROVE_SOCKET: EXEC_SOCK, WOODY_BENCH_DIR: BENCH };
 const net = require("net");
 
 // ---- a stand-in for the executor's approval socket: it only knows Pause ----
@@ -43,6 +48,8 @@ const canvasEvents = [];
 // answers for Woody's face and identity, and keeps what the operator asked of it.
 const browsers = new Set();
 const mindCalls = [];
+/** What the gateway told the agent besides canvas traffic (a file the operator gave). */
+const agentGot = [];
 let agentState = null;
 let faceAnswer = null;
 let identityAnswer = null;
@@ -71,6 +78,7 @@ new WebSocket.Server({ server: agentHttp }).on("connection", (ws) => {
     if (m.type === "canvas_link") { linkSocket = ws; browsers.delete(ws); }
     else if (m.type === "canvas_reply") { linkWaiting.get(m.rid)?.(m); linkWaiting.delete(m.rid); }
     else if (m.type === "thing_event") thingEvents.push(m);
+    else if (m.type === "file_given") agentGot.push(m);
     else if (m.type === "canvas_event") canvasEvents.push(m.change);
   });
   ws.on("close", () => { browsers.delete(ws); if (linkSocket === ws) linkSocket = null; });
@@ -498,6 +506,28 @@ function startGateway() {
   await sleep(400);
   check("and start one", mindCalls.some((m) => m.op === "study_add" && m.subject === "How clocks keep time" && m.size === "medium"));
   await shot("12-studies");
+  await js(`document.querySelector(".panel-head button.ghost").click()`);
+
+  // ---- files given to Woody and taken from it (review step C) ----
+  await js(`document.querySelector(".lattice-button").click()`);
+  await until(`!!document.querySelector(".menu-list")`);
+  await js(`[...document.querySelectorAll(".menu-list button")].find((b) => b.textContent.includes("FILES")).click()`);
+  check("the Files record lists what Woody left in its out folder", await until(`document.querySelector(".files")?.textContent.includes("report.txt")`));
+  // The page gives a file, as the "give Woody a file" button does.
+  const put = await js(`fetch("/files/put?name=" + encodeURIComponent("../notes d'été.txt"), { method: "POST", headers: { "x-woody-token": sessionStorage.getItem("woody-token") }, body: "bonjour" }).then((r) => r.json())`);
+  check("a given file lands in the in folder under a plain name", put.path === "in/notes d'été.txt" && fs.readFileSync(`${BENCH}/in/notes d'été.txt`, "utf8") === "bonjour", JSON.stringify(put));
+  check("the record shows it at once, under what was given", await until(`[...document.querySelectorAll(".files .file-row")].some((r) => r.textContent.includes("notes d'été.txt"))`));
+  check("the agent is told that a file was given", agentGot.some((m) => m.type === "file_given" && m.path === "in/notes d'été.txt" && m.bytes === 7));
+  await shot("15-files");
+  const noToken = await js(`fetch("/files/list").then((r) => r.status)`);
+  const badToken = await js(`fetch("/files/put?name=x.txt", { method: "POST", headers: { "x-woody-token": "0".repeat(64) }, body: "x" }).then((r) => r.status)`);
+  check("without the token nothing is listed or taken", noToken === 403 && badToken === 403, `${noToken} ${badToken}`);
+  const taken = await js(`fetch("/files/get?path=out/report.txt", { headers: { "x-woody-token": sessionStorage.getItem("woody-token") } }).then(async (r) => ({ status: r.status, type: r.headers.get("content-type"), how: r.headers.get("content-disposition"), body: await r.text() }))`);
+  check("a result is handed out as a file to save, never as a page", taken.status === 200 && taken.type === "application/octet-stream" && /^attachment; filename="report.txt"/.test(taken.how) && taken.body.startsWith("The average"), JSON.stringify(taken).slice(0, 200));
+  const outside = await js(`Promise.all(["../hud-state/token", "/etc/passwd", "out"].map((p) => fetch("/files/get?path=" + encodeURIComponent(p), { headers: { "x-woody-token": sessionStorage.getItem("woody-token") } }).then((r) => r.status)))`);
+  check("nothing outside the workbench's folder can be taken", outside.every((s) => s === 403 || s === 400), outside.join(" "));
+  await js(`[...document.querySelectorAll(".files .file-row")].find((r) => r.textContent.includes("notes d'été.txt")).querySelector("button.ghost").click()`);
+  check("the operator removes a file", (await until(`![...document.querySelectorAll(".files .file-row")].some((r) => r.textContent.includes("notes d'été.txt"))`)) && !fs.existsSync(`${BENCH}/in/notes d'été.txt`));
   await js(`document.querySelector(".panel-head button.ghost").click()`);
 
   // ---- Woody's methods (Phase 10b) ----
