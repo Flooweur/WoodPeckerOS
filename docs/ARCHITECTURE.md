@@ -94,7 +94,7 @@ Every model call's cost goes to a ledger (`/var/lib/woody/usage.jsonl`), with th
 - **Woody's own share** (`ownShare`, a quarter by default) is counted apart and released day by day. Your conversations do not use it up.
 - **One session** may cost at most `perTurnCapUsd`, a moment of Woody's own at most 40 cents.
 
-Measured in the VM on 2026-11-12: each new session sends about 27,500 tokens of fixed text before anything else (the rules, the methods and, for about three quarters of it, the descriptions of the 65 tools). That is about 7 cents a session on the everyday model. The Agent SDK itself adds about 360 tokens.
+Measured in the VM on 2026-11-12: each new session sends about 27,500 tokens of fixed text before anything else (the rules, the methods and, for about three quarters of it, the descriptions of the 65 tools). That is 7 to 14 cents a session on the everyday model when nothing is cached (two messages measured). The Agent SDK itself adds about 360 tokens.
 
 ## What is stored where
 
