@@ -240,6 +240,18 @@ pre { font: 12px/1.45 var(--font); color: var(--soft); background: var(--bg); bo
 .settings input[type="number"], .settings input[type="time"], .settings select { max-width: 320px; }
 textarea { resize: vertical; }
 
+.stack.wide { max-width: none; }
+.search.three { grid-template-columns: minmax(0, 1fr) auto auto; }
+.record.inline { grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: 5px 0; }
+.log { font-size: 12px; display: grid; gap: 1px; }
+.log > div { display: grid; grid-template-columns: 62px minmax(0, 190px) minmax(0, 1fr); gap: 10px; padding: 1px 0; }
+.log .unit { color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log .msg { overflow-wrap: anywhere; white-space: pre-wrap; }
+.log .warn .msg { color: var(--amber); }
+.terminal { flex: 1; min-height: 0; width: 100%; border: 0; border-top: 1px solid var(--line); background: var(--bg); }
+.doors.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.col > .doors + .doors, .col > .panel + .doors { margin-top: auto; }
+
 /* ---- notices from Woody ---- */
 .notices { position: fixed; top: 96px; right: 20px; width: min(380px, calc(100% - 40px)); display: flex; flex-direction: column; gap: 8px; z-index: 5; }
 .notice { display: grid; gap: 4px; padding: 10px 12px; background: var(--panel); color: var(--text); border: 1px solid var(--line-strong); }

@@ -8,12 +8,14 @@ import { ApprovalModal } from "./Approval";
 import { Lattice, type MindStateName, type Overlay, type Play } from "./Lattice";
 import { PanelView, type Panel } from "./Panels";
 import type {
-  ActivityRow, AgentState, Approval, Goal, Identity, InboxItem, Item, Mark, Meters, MindResult, Scope,
+  ActivityRow, AgentState, Approval, GatewayResult, Goal, Identity, InboxItem, Item, Mark, Meters, MindResult, Scope,
 } from "./types";
 import { TOOL_PREFIX, clock, money, until, usd } from "./types";
 
 type Notice = { key: number; title: string; body: string; level: "info" | "warn" | "alert"; copy?: string; copied?: boolean };
 type Link = "connecting" | "open" | "closed" | "no-token";
+/** Which door the page came through: the VM's own screen, or the operator's browser on the host. */
+type Door = { kiosk: boolean; terminal: boolean };
 
 function takeToken(): string | null {
   const match = /[#&]t=([0-9a-f]{64})/.exec(location.hash);
@@ -116,6 +118,8 @@ export function App() {
   const [paused, setPaused] = useState(false);
   const [panel, setPanel] = useState<Panel | null>(null);
   const [mindResult, setMindResult] = useState<MindResult | null>(null);
+  const [gatewayResult, setGatewayResult] = useState<GatewayResult | null>(null);
+  const [door, setDoor] = useState<Door>({ kiosk: true, terminal: false });
   const [version, setVersion] = useState(0);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [smallLimit, setSmallLimit] = useState(1);
@@ -208,6 +212,13 @@ export function App() {
         case "state":
           setState(msg as unknown as AgentState);
           setAgentUp(true);
+          break;
+        case "hello":
+          setDoor({ kiosk: Boolean(msg.kiosk), terminal: Boolean(msg.terminal) });
+          break;
+        case "logs":
+        case "web_list":
+          setGatewayResult({ ...(msg as GatewayResult), seq: ++mindSeq.current });
           break;
         case "agent_up":
           setAgentUp(true);
@@ -311,19 +322,25 @@ export function App() {
 
   // connection, with reconnect
   useEffect(() => {
+    const secure = location.protocol === "https:";
     const token = takeToken();
-    if (!token) {
+    if (!token && !secure) {
       setLink("no-token");
       return;
     }
     let stopped = false;
     let timer: number | undefined;
+    let refused = 0;
     const connect = () => {
       if (stopped) return;
       setLink("connecting");
-      const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws?t=${token}`);
+      // The kiosk proves itself with its token; the host browser with the session cookie from signing in.
+      const ws = new WebSocket(secure ? `wss://${location.host}/ws` : `ws://${location.host}/ws?t=${token}`);
       socket.current = ws;
-      ws.onopen = () => setLink("open");
+      ws.onopen = () => {
+        refused = 0;
+        setLink("open");
+      };
       ws.onmessage = (ev) => {
         try {
           onMessage(JSON.parse(ev.data));
@@ -334,6 +351,11 @@ export function App() {
       ws.onclose = () => {
         setLink("closed");
         setAgentUp(false);
+        // On the host door, being refused twice in a row means the session is over: sign in again.
+        if (secure && ws.readyState === WebSocket.CLOSED && ++refused >= 2) {
+          location.replace("/login");
+          return;
+        }
         timer = window.setTimeout(connect, 2000);
       };
     };
@@ -617,6 +639,8 @@ export function App() {
               setPanel={setPanel}
               tx={tx}
               incoming={mindResult}
+              gateway={gatewayResult}
+              door={door}
               version={version}
               state={state}
               identity={identity}
@@ -754,7 +778,7 @@ export function App() {
                 {scope?.engagement?.expires_ms ? ` · ${scope.engagement.expires_ms > now ? until(scope.engagement.expires_ms, now).replace("in ", "") + " left" : "expired"}` : ""}
               </span>
             </PanelHead>
-            <div className={`line small ${scope && !scope.valid ? "problem" : ""}`}>
+            <div className={`line small ${scope && !scope.valid ? "problem" : ""}`} style={{ paddingBottom: 10 }}>
               {!scope
                 ? "…"
                 : !scope.valid
@@ -766,6 +790,11 @@ export function App() {
                       : `${(scope.engagement.allow ?? []).length} allowed entries · never ${scope.permanent_deny.length} addresses`}
             </div>
           </section>
+          <nav className={`doors ${door.terminal ? "three" : ""}`} aria-label="The machine">
+            <button onClick={() => setPanel({ kind: "logs" })}>LOGS</button>
+            <button onClick={() => setPanel({ kind: "web" })}>WEB LIST</button>
+            {door.terminal && <button onClick={() => setPanel({ kind: "terminal" })}>TERMINAL</button>}
+          </nav>
         </aside>
       </div>
 

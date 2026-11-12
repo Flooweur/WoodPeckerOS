@@ -7,8 +7,20 @@
 #
 # The session opens the bootstrap page written by the HUD gateway
 # (nix/locked/hud.nix), which loads the HUD with its access token.
-{ lib, pkgs, ... }:
+{ lib, pkgs, settings, ... }:
 let
+  # The login screen shown before the HUD when settings.kioskLogin is on.
+  tuigreet = pkgs.tuigreet or pkgs.greetd.tuigreet;
+  greeter = lib.concatStringsSep " " [
+    "${tuigreet}/bin/tuigreet"
+    "--time"
+    "--asterisks"
+    "--remember"
+    "--greeting 'WOODPECKER'"
+    "--theme 'border=yellow;text=yellow;prompt=yellow;time=yellow;action=yellow;button=yellow;container=black;input=white'"
+    "--cmd ${session}"
+  ];
+
   page = "file:///run/woody-hud/boot.html";
 
   session = pkgs.writeShellScript "woody-kiosk" ''
@@ -35,11 +47,16 @@ in
 
   services.greetd = {
     enable = true;
-    settings = {
-      # Auto-login into the kiosk. A real greeter comes in Phase 5.
-      initial_session = { command = "${session}"; user = "kiosk"; };
-      default_session = { command = "${session}"; user = "kiosk"; };
-    };
+    settings =
+      if settings.kioskLogin then {
+        # A login prompt first: sign in as "kiosk" with the password you set
+        # for it (sudo passwd kiosk). The HUD then opens as that user.
+        default_session = { command = greeter; user = "greeter"; };
+      } else {
+        # Straight into the HUD.
+        initial_session = { command = "${session}"; user = "kiosk"; };
+        default_session = { command = "${session}"; user = "kiosk"; };
+      };
   };
 
   fonts.packages = [ pkgs.jetbrains-mono ];

@@ -67,6 +67,10 @@ pub struct Screen {
     pub grim: String,
     pub setpriv: String,
     pub timeout: String,
+    /// While this file exists, screenshots are refused: the operator has a
+    /// terminal open on the display, and what is typed there is not Woody's to see.
+    #[serde(default)]
+    pub block_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

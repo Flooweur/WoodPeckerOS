@@ -15,6 +15,16 @@
   # accepted from this subnet.
   labSubnet = "192.168.222.0/24";
 
+  # The Windows host's own address on the host-only network. The HUD is
+  # served to this address only (never to the lab's target machines), over
+  # HTTPS on the port below.
+  hostAddress = "192.168.222.1";
+  hudHostPort = 7843;
+
+  # Ask for the kiosk user's password before the HUD opens on the VM's own
+  # screen. Set that password first: sudo passwd kiosk
+  kioskLogin = true;
+
   # Addresses that can never be a security-tool target, whatever an engagement
   # says: the Windows host on both VMware networks, the NAT gateway/DNS, and
   # VMware's DHCP servers.

@@ -64,7 +64,7 @@ let
     web = {
       allow_path = "/var/lib/woody-execd/web-allow.json";
       user = "woody-web";
-      curl = "${pkgs.curl}/bin/curl";
+      curl = "${lib.getBin pkgs.curl}/bin/curl";
       setpriv = "${pkgs.util-linux}/bin/setpriv";
       timeout = "${pkgs.coreutils}/bin/timeout";
       ca_bundle = "/etc/ssl/certs/ca-certificates.crt";
@@ -76,6 +76,8 @@ let
       grim = "${pkgs.grim}/bin/grim";
       setpriv = "${pkgs.util-linux}/bin/setpriv";
       timeout = "${pkgs.coreutils}/bin/timeout";
+      # Written by the HUD gateway while the operator's terminal is open.
+      block_file = "/run/woody-hud/terminal-open";
     };
 
     # Self-modification (see docs/SELFMOD.md). Woody may propose changes to

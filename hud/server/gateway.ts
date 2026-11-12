@@ -5,13 +5,18 @@
 //  * relays chat between the browser and the agent's socket
 //  * carries the human's approve/deny decisions to the executor's approval
 //    socket, which the agent itself cannot open
+//  * serves the same HUD to the operator's own browser on the host-only
+//    network, over HTTPS and behind a password (no terminal there)
+//  * relays the operator's terminal to the kiosk, and only to the kiosk
 //
 // Because it carries approvals, access is gated by a secret token. The token
 // reaches the kiosk browser through a bootstrap file only the kiosk user can
 // read, never through a command line or an unauthenticated URL.
+import { execFile } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import https from "node:https";
 import net from "node:net";
 import path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
@@ -24,6 +29,14 @@ const STATE_DIR = process.env.WOODY_HUD_STATE_DIR ?? "/var/lib/woody-hud";
 const RUNTIME_DIR = process.env.WOODY_HUD_RUNTIME_DIR ?? "/run/woody-hud";
 const WEB_ROOT = path.resolve(import.meta.dirname, "../web");
 const ORIGINS = (process.env.WOODY_HUD_ORIGINS ?? `http://127.0.0.1:${PORT}`).split(",");
+/** HTTPS port for the operator's browser on the host-only network. 0 turns it off. */
+const HOST_PORT = Number(process.env.WOODY_HUD_HOST_PORT ?? "0");
+const TLS_DIR = process.env.WOODY_HUD_TLS_DIR ?? path.join(STATE_DIR, "tls");
+const PASSWORD_FILE = path.join(STATE_DIR, "host-password");
+/** Unix socket of the terminal service. Empty: no terminal. */
+const TERM_SOCKET = process.env.WOODY_TERM_SOCKET ?? "";
+const TERMINAL_FLAG = path.join(RUNTIME_DIR, "terminal-open");
+const JOURNALCTL = process.env.WOODY_JOURNALCTL ?? "journalctl";
 
 /** Messages the browser may send on to the agent unchanged. */
 const AGENT_BOUND = new Set(["chat", "set_model", "new_session", "interrupt", "get_state", "get_history", "mind", "presence"]);
@@ -118,6 +131,242 @@ function approvalCall(request: Record<string, unknown>): Promise<any> {
   });
 }
 
+// ---- who is asking --------------------------------------------------------
+//
+// Two doors:
+//  * the kiosk: plain HTTP on loopback, gated by the token the kiosk session
+//    receives through its bootstrap file. Only this door has the terminal.
+//  * the host: HTTPS on the host-only network, gated by a password the
+//    operator sets and a session cookie. No terminal there, ever.
+
+const SESSION_MS = 12 * 3600 * 1000;
+const sessions = new Map<string, number>();
+const loginFailures: number[] = [];
+
+function cookies(req: http.IncomingMessage): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of (req.headers.cookie ?? "").split(";")) {
+    const i = part.indexOf("=");
+    if (i > 0) out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+  }
+  return out;
+}
+
+function hostSession(req: http.IncomingMessage): boolean {
+  const id = cookies(req).woody_session;
+  const expires = id ? sessions.get(id) : undefined;
+  if (!id || !expires) return false;
+  if (expires < Date.now()) {
+    sessions.delete(id);
+    return false;
+  }
+  return true;
+}
+
+function hashPassword(password: string, salt = crypto.randomBytes(16)): string {
+  const hash = crypto.scryptSync(password, salt, 32, { N: 32768, r: 8, p: 1, maxmem: 128 * 1024 * 1024 });
+  return `scrypt$${salt.toString("hex")}$${hash.toString("hex")}`;
+}
+
+function passwordIsSet(): boolean {
+  return fs.existsSync(PASSWORD_FILE);
+}
+
+function checkPassword(password: string): boolean {
+  let stored: string;
+  try {
+    stored = fs.readFileSync(PASSWORD_FILE, "utf8").trim();
+  } catch {
+    return false;
+  }
+  const [scheme, salt, hash] = stored.split("$");
+  if (scheme !== "scrypt" || !salt || !hash) return false;
+  const candidate = hashPassword(password, Buffer.from(salt, "hex")).split("$")[2]!;
+  return candidate.length === hash.length && crypto.timingSafeEqual(Buffer.from(candidate), Buffer.from(hash));
+}
+
+/** Five wrong passwords in ten minutes close the door for ten minutes. */
+function loginLocked(): boolean {
+  const cutoff = Date.now() - 10 * 60_000;
+  while (loginFailures.length && loginFailures[0]! < cutoff) loginFailures.shift();
+  return loginFailures.length >= 5;
+}
+
+const LOGIN_PAGE = `<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WoodPecker</title>
+<style>
+  html,body{height:100%;margin:0;background:#050403;color:#f2d9a0;font:14px/1.5 "JetBrains Mono",ui-monospace,Consolas,monospace}
+  form{height:100%;display:grid;place-content:center;gap:10px;padding:20px;max-width:360px;margin:auto}
+  h1{margin:0;color:#ffb000;letter-spacing:.3em;font-size:20px}
+  label{font-size:12px;color:#a98a45;letter-spacing:.1em}
+  input,button{font:inherit;min-height:44px;padding:0 12px;background:#050403;color:#f2d9a0;border:1px solid #6b4a05;border-radius:0}
+  button{background:#ffb000;color:#050403;font-weight:700;letter-spacing:.14em;border-color:#ffb000;cursor:pointer}
+  p{margin:0;min-height:1.5em;color:#ff8a80;font-size:12px}
+</style>
+<form id="f">
+  <h1>WOODPECKER</h1>
+  <label for="p">PASSWORD</label>
+  <input id="p" type="password" autocomplete="current-password" autofocus required>
+  <button>OPEN</button>
+  <p id="m" role="alert"></p>
+</form>
+<script>
+  document.getElementById("f").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const m = document.getElementById("m");
+    m.textContent = "";
+    const r = await fetch("/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: document.getElementById("p").value }) });
+    if (r.ok) location.replace("/");
+    else m.textContent = await r.text();
+  });
+</script>
+</html>`;
+
+function securityHeaders(req: http.IncomingMessage, host: boolean): Record<string, string> {
+  const connect = host ? `'self' wss://${req.headers.host ?? ""}` : `'self' ws://127.0.0.1:${PORT} ws://localhost:${PORT}`;
+  return {
+    "Content-Security-Policy": [
+      "default-src 'self'",
+      `connect-src ${connect}`,
+      "img-src 'self' data:",
+      "style-src 'self' 'unsafe-inline'",
+      "frame-ancestors 'none'",
+      "base-uri 'none'",
+      "form-action 'none'",
+    ].join("; "),
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store",
+    ...(host ? { "Strict-Transport-Security": "max-age=31536000" } : {}),
+  };
+}
+
+function handleLogin(req: http.IncomingMessage, res: http.ServerResponse): void {
+  const plain = { "content-type": "text/plain; charset=utf-8", "Cache-Control": "no-store" };
+  if (req.method === "GET" || req.method === "HEAD") {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'self' 'unsafe-inline'; frame-ancestors 'none'" });
+    res.end(req.method === "HEAD" ? undefined : LOGIN_PAGE);
+    return;
+  }
+  if (req.method !== "POST") {
+    res.writeHead(405).end();
+    return;
+  }
+  // The form must come from this very page.
+  if (req.headers.origin !== `https://${req.headers.host}`) {
+    res.writeHead(403, plain).end("Wrong origin.");
+    return;
+  }
+  if (!passwordIsSet()) {
+    res.writeHead(503, plain).end("No password is set yet. On the VM, run: sudo -u woody-hud woody-hud set-password");
+    return;
+  }
+  if (loginLocked()) {
+    res.writeHead(429, plain).end("Too many wrong passwords. Wait ten minutes.");
+    return;
+  }
+  let body = "";
+  req.setEncoding("utf8");
+  req.on("data", (chunk: string) => {
+    body += chunk;
+    if (body.length > 4096) req.destroy();
+  });
+  req.on("end", () => {
+    let password = "";
+    try {
+      password = String(JSON.parse(body).password ?? "");
+    } catch {
+      /* treated as a wrong password */
+    }
+    if (!password || !checkPassword(password)) {
+      loginFailures.push(Date.now());
+      console.log("woody-hud: a host login failed");
+      res.writeHead(401, plain).end("Wrong password.");
+      return;
+    }
+    const id = crypto.randomBytes(32).toString("hex");
+    sessions.set(id, Date.now() + SESSION_MS);
+    console.log("woody-hud: a host session was opened");
+    res.writeHead(204, { "Set-Cookie": `woody_session=${id}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}`, "Cache-Control": "no-store" }).end();
+  });
+}
+
+// ---- the terminal ---------------------------------------------------------
+//
+// A real shell for the operator, served by a separate root service (ttyd
+// running \`login\`) on a Unix socket only this gateway can open. The gateway
+// relays it to the kiosk and nowhere else. While a terminal is open, a flag
+// file tells the executor to refuse screenshots, so Woody cannot look at it.
+
+let terminals = 0;
+function terminalFlag(): void {
+  try {
+    if (terminals > 0) fs.writeFileSync(TERMINAL_FLAG, "open\n", { mode: 0o644 });
+    else fs.rmSync(TERMINAL_FLAG, { force: true });
+  } catch {
+    /* the runtime directory is gone: the service is stopping */
+  }
+}
+
+function terminalAllowed(req: http.IncomingMessage, url: URL): boolean {
+  return Boolean(TERM_SOCKET) && (tokenOk(url.searchParams.get("t")) || tokenOk(cookies(req).woody_term ?? null));
+}
+
+function proxyTerminal(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
+  if (!terminalAllowed(req, url)) {
+    res.writeHead(403, { "content-type": "text/plain" }).end("forbidden\n");
+    return;
+  }
+  const upstream = http.request({ socketPath: TERM_SOCKET, path: req.url, method: req.method, headers: req.headers }, (up) => {
+    const headers: http.OutgoingHttpHeaders = { ...up.headers, "Cache-Control": "no-store" };
+    // The page's own requests carry no token, so hand the browser a cookie scoped to the terminal.
+    if (tokenOk(url.searchParams.get("t"))) headers["Set-Cookie"] = `woody_term=${TOKEN}; HttpOnly; SameSite=Strict; Path=/term`;
+    res.writeHead(up.statusCode ?? 502, headers);
+    up.pipe(res);
+  });
+  upstream.on("error", () => {
+    if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" });
+    res.end("The terminal service is not running.\n");
+  });
+  req.pipe(upstream);
+}
+
+function proxyTerminalUpgrade(req: http.IncomingMessage, socket: import("node:stream").Duplex, head: Buffer, url: URL): void {
+  const origin = req.headers.origin ?? "";
+  if (!terminalAllowed(req, url) || !ORIGINS.includes(origin)) {
+    socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+  const upstream = net.createConnection(TERM_SOCKET);
+  let counted = false;
+  const close = () => {
+    if (counted) {
+      counted = false;
+      terminals -= 1;
+      terminalFlag();
+    }
+    socket.destroy();
+    upstream.destroy();
+  };
+  upstream.on("connect", () => {
+    counted = true;
+    terminals += 1;
+    terminalFlag();
+    let request = `${req.method} ${req.url} HTTP/1.1\r\n`;
+    for (let i = 0; i < req.rawHeaders.length; i += 2) request += `${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}\r\n`;
+    upstream.write(request + "\r\n");
+    if (head.length) upstream.write(head);
+    socket.pipe(upstream);
+    upstream.pipe(socket);
+  });
+  upstream.on("error", close);
+  upstream.on("close", close);
+  socket.on("error", close);
+  socket.on("close", close);
+}
+
 // ---- static files ---------------------------------------------------------
 
 const MIME: Record<string, string> = {
@@ -130,29 +379,28 @@ const MIME: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
-const SECURITY_HEADERS = {
-  "Content-Security-Policy": [
-    "default-src 'self'",
-    `connect-src 'self' ws://127.0.0.1:${PORT} ws://localhost:${PORT}`,
-    "img-src 'self' data:",
-    "style-src 'self' 'unsafe-inline'",
-    "frame-ancestors 'none'",
-    "base-uri 'none'",
-    "form-action 'none'",
-  ].join("; "),
-  "X-Content-Type-Options": "nosniff",
-  "Referrer-Policy": "no-referrer",
-  "Cache-Control": "no-store",
-};
-
-const server = http.createServer((req, res) => {
+function handle(req: http.IncomingMessage, res: http.ServerResponse, host: boolean): void {
   const url = new URL(req.url ?? "/", "http://localhost");
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    res.writeHead(405).end();
-    return;
-  }
   if (url.pathname === "/healthz") {
     res.writeHead(200, { "content-type": "text/plain", "Cache-Control": "no-store" }).end("ok\n");
+    return;
+  }
+  if (host) {
+    if (url.pathname === "/login") return handleLogin(req, res);
+    if (url.pathname.startsWith("/term")) {
+      res.writeHead(404, { "content-type": "text/plain" }).end("not found\n");
+      return;
+    }
+    if (!hostSession(req)) {
+      if (url.pathname === "/") res.writeHead(302, { Location: "/login", "Cache-Control": "no-store" }).end();
+      else res.writeHead(401, { "content-type": "text/plain" }).end("sign in first\n");
+      return;
+    }
+  } else if (url.pathname.startsWith("/term")) {
+    return proxyTerminal(req, res, url);
+  }
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.writeHead(405).end();
     return;
   }
   const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname).replace(/^\/+/, "");
@@ -166,36 +414,43 @@ const server = http.createServer((req, res) => {
       res.writeHead(404, { "content-type": "text/plain" }).end("not found\n");
       return;
     }
-    res.writeHead(200, {
-      "content-type": MIME[path.extname(file)] ?? "application/octet-stream",
-      ...SECURITY_HEADERS,
-    });
+    res.writeHead(200, { "content-type": MIME[path.extname(file)] ?? "application/octet-stream", ...securityHeaders(req, host) });
     res.end(req.method === "HEAD" ? undefined : data);
   });
-});
+}
+
+const server = http.createServer((req, res) => handle(req, res, false));
 
 // ---- browser sessions -----------------------------------------------------
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 const browsers = new Set<WebSocket>();
 
-server.on("upgrade", (req, socket, head) => {
+function upgrade(req: http.IncomingMessage, socket: import("node:stream").Duplex, head: Buffer, host: boolean): void {
   const url = new URL(req.url ?? "/", "http://localhost");
   const origin = req.headers.origin ?? "";
-  if (url.pathname !== "/ws" || !ORIGINS.includes(origin) || !tokenOk(url.searchParams.get("t"))) {
+  if (!host && url.pathname.startsWith("/term")) return proxyTerminalUpgrade(req, socket, head, url);
+  const allowed = host
+    ? origin === `https://${req.headers.host}` && hostSession(req)
+    : ORIGINS.includes(origin) && tokenOk(url.searchParams.get("t"));
+  if (url.pathname !== "/ws" || !allowed) {
     socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
     socket.destroy();
     return;
   }
-  wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws));
-});
+  wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, host));
+}
+
+server.on("upgrade", (req, socket, head) => upgrade(req, socket, head, false));
 
 function send(ws: WebSocket, message: Record<string, unknown>): void {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
 }
 
-wss.on("connection", (browser) => {
+wss.on("connection", (browser: WebSocket, host: boolean) => {
   browsers.add(browser);
+  // Tell the page which door it came through: the terminal exists only on the kiosk.
+  send(browser, { type: "hello", kiosk: !host, terminal: !host && Boolean(TERM_SOCKET) });
   let upstream: WebSocket | undefined;
   let closed = false;
   let retry: NodeJS.Timeout | undefined;
@@ -286,6 +541,49 @@ wss.on("connection", (browser) => {
       }
       lastApprovals = "";
       void pollApprovals();
+      return;
+    }
+
+    if (type === "logs") {
+      // The system journal, for the operator's eyes. Every argument is checked;
+      // nothing the browser sends reaches a shell.
+      const args = ["-o", "json", "--no-pager", "-n", String(Math.min(500, Math.max(10, Number(msg.lines) || 200)))];
+      if (typeof msg.unit === "string" && /^[A-Za-z0-9@_.-]{1,120}\.(service|socket|timer|target)$/.test(msg.unit)) args.push(`--unit=${msg.unit}`);
+      const priority = Number(msg.priority);
+      if (Number.isInteger(priority) && priority >= 0 && priority <= 7) args.push(`--priority=${priority}`);
+      if (typeof msg.since === "string" && /^-\d{1,4}[smhd]$/.test(msg.since)) args.push(`--since=${msg.since}`);
+      execFile(JOURNALCTL, args, { timeout: 8000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
+        if (err && !stdout) {
+          send(browser, { type: "logs", ok: false, error: "The journal could not be read.", entries: [] });
+          return;
+        }
+        const entries: Array<Record<string, unknown>> = [];
+        for (const line of stdout.split("\n")) {
+          if (!line) continue;
+          try {
+            const j = JSON.parse(line);
+            entries.push({
+              ts: Math.round(Number(j.__REALTIME_TIMESTAMP ?? 0) / 1000),
+              unit: j._SYSTEMD_UNIT ?? j.SYSLOG_IDENTIFIER ?? "kernel",
+              priority: Number(j.PRIORITY ?? 6),
+              message: typeof j.MESSAGE === "string" ? j.MESSAGE.slice(0, 2000) : "[binary]",
+            });
+          } catch {
+            /* skip a damaged line */
+          }
+        }
+        send(browser, { type: "logs", ok: true, entries });
+      });
+      return;
+    }
+
+    if (type === "web_list" || type === "web_add" || type === "web_remove") {
+      try {
+        const reply = await approvalCall(type === "web_list" ? { op: "web_list" } : { op: type, domain: String(msg.domain ?? "") });
+        send(browser, { type: "web_list", ok: reply.status === "ok", domains: reply.result?.domains ?? null, error: reply.error ?? null });
+      } catch (err) {
+        send(browser, { type: "web_list", ok: false, domains: null, error: err instanceof Error ? err.message : String(err) });
+      }
       return;
     }
 
@@ -427,10 +725,79 @@ setInterval(() => void pushScope(), 30_000).unref();
 
 // ---- start ----------------------------------------------------------------
 
+/** Input that arrived after the line just read (piped input delivers several lines at once). */
+let pendingInput = "";
+
+/** Reads a line from the terminal without showing it. */
+function readHidden(prompt: string): Promise<string> {
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    process.stdout.write(prompt);
+    if (stdin.isTTY) stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding("utf8");
+    let value = "";
+    const onData = (chunk: string) => {
+      const text = pendingInput + chunk;
+      pendingInput = "";
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i]!;
+        if (ch === "\r" || ch === "\n") {
+          stdin.off("data", onData);
+          if (stdin.isTTY) stdin.setRawMode(false);
+          stdin.pause();
+          process.stdout.write("\n");
+          pendingInput = text.slice(i + 1).replace(/^\n/, "");
+          resolve(value);
+          return;
+        }
+        if (ch === "\u0003") process.exit(1);
+        if (ch === "\u007f" || ch === "\b") value = value.slice(0, -1);
+        else value += ch;
+      }
+    };
+    stdin.on("data", onData);
+    if (pendingInput) onData("");
+  });
+}
+
+if (process.argv[2] === "set-password") {
+  // sudo -u woody-hud woody-hud set-password
+  const first = await readHidden("New password for the HUD from your own browser: ");
+  if (first.length < 10) {
+    console.error("Use at least 10 characters.");
+    process.exit(1);
+  }
+  if ((await readHidden("Again: ")) !== first) {
+    console.error("The two did not match.");
+    process.exit(1);
+  }
+  fs.writeFileSync(PASSWORD_FILE, hashPassword(first) + "\n", { mode: 0o600 });
+  console.log(`Saved. Open https://<the VM's host-only address>:${HOST_PORT || 7843}/ in your browser.`);
+  process.exit(0);
+}
+
+terminalFlag();
+
 server.listen(PORT, BIND, () => {
   writeBootstrap();
   console.log(`woody-hud: serving ${WEB_ROOT} on http://${BIND}:${PORT}`);
 });
+
+if (HOST_PORT > 0) {
+  try {
+    const hostServer = https.createServer(
+      { key: fs.readFileSync(path.join(TLS_DIR, "key.pem")), cert: fs.readFileSync(path.join(TLS_DIR, "cert.pem")), minVersion: "TLSv1.2" },
+      (req, res) => handle(req, res, true),
+    );
+    hostServer.on("upgrade", (req, socket, head) => upgrade(req, socket, head, true));
+    hostServer.listen(HOST_PORT, "0.0.0.0", () => {
+      console.log(`woody-hud: host access on https port ${HOST_PORT}${passwordIsSet() ? "" : " (no password set yet: nobody can sign in)"}`);
+    });
+  } catch (err) {
+    console.error("woody-hud: host access is off:", err instanceof Error ? err.message : err);
+  }
+}
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {

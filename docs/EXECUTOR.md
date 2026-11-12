@@ -38,7 +38,9 @@ The only root component Woody can talk to. Source in `executor/`, NixOS module i
 
 **Web.** `web.fetch` reads one page from an allow-listed host: it resolves the name itself, refuses non-public addresses, pins the connection, does not follow redirects, and runs `curl` as the unprivileged user `woody-web`. The allow-list is `/var/lib/woody-execd/web-allow.json`, root-owned; edit it as root, or approve Woody's requests. See MIND.md for how the agent handles what comes back.
 
-**Screenshots.** `screen.capture` runs `grim` as the kiosk user against that user's display and returns a JPEG. The audit log records its size and hash, not the picture.
+**Web list by hand.** `sudo woodyctl web-list`, `web-add <domain>` and `web-remove <domain>` read and edit the allow-list; the HUD's WEB LIST view does the same. Each change is audited.
+
+**Screenshots.** While the operator's terminal is open in the HUD, `screen.capture` is refused. `screen.capture` runs `grim` as the kiosk user against that user's display and returns a JPEG. The audit log records its size and hash, not the picture.
 
 **Files are not an executor action.** The agent reads world-readable files under `/etc` and `/nix/store` and writes only in its own workspace, using its own unprivileged process (see AGENT.md).
 

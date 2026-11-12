@@ -134,6 +134,12 @@ export type Scope = {
   permanent_deny: string[];
 };
 
+export type LogEntry = { ts: number; unit: string; priority: number; message: string };
+/** Answers from the gateway itself (not the agent): the journal and the web allow-list. */
+export type GatewayResult =
+  | { seq: number; type: "logs"; ok: boolean; entries: LogEntry[]; error?: string }
+  | { seq: number; type: "web_list"; ok: boolean; domains: string[] | null; error?: string | null };
+
 export type MindResult = { seq: number; op: string; ok: boolean; result?: any; error?: string };
 export type Send = (message: Record<string, unknown>) => void;
 

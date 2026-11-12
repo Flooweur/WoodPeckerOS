@@ -379,6 +379,9 @@ const MAX_SCREENSHOT_BYTES: usize = 6 * 1024 * 1024;
 /// Runs grim as the kiosk user against that user's Wayland session.
 fn screen_capture(cfg: &Config, scale: f64) -> Result<Value, String> {
     let sc = cfg.screen.as_ref().ok_or("screenshots are not configured on this system")?;
+    if sc.block_file.as_deref().is_some_and(|f| std::path::Path::new(f).exists()) {
+        return Err("the operator has a terminal open on the display; screenshots are off until they close it".into());
+    }
     let user = User::from_name(&sc.user)
         .map_err(|e| format!("lookup user {}: {e}", sc.user))?
         .ok_or_else(|| format!("user {} does not exist", sc.user))?;

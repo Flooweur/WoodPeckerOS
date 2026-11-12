@@ -12,6 +12,7 @@ use crate::catalog::{self, Tier};
 use crate::config::Config;
 use crate::scope::{self, Decision, Engagement, Scope};
 use crate::util::{now_ms, random_id, sha256_hex};
+use crate::web;
 use ipnet::IpNet;
 use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
 use nix::unistd::{chown, Gid, Group, Uid, User};
@@ -348,6 +349,25 @@ impl State {
             }
             Some("decide") => self.op_decide(req, uid),
             Some("status") => json!({ "status": "ok", "result": self.status() }),
+            // The web allow-list is the human's: they can read and edit it here directly.
+            Some("web_list") => match web::allowlist(&self.cfg) {
+                Ok(v) => json!({ "status": "ok", "result": v }),
+                Err(e) => json!({ "status": "error", "error": e }),
+            },
+            Some(op @ ("web_add" | "web_remove")) => {
+                let domain = req.get("domain").and_then(Value::as_str).unwrap_or("").to_ascii_lowercase();
+                if !web::valid_entry(&domain) {
+                    return json!({ "status": "error", "error": "not a valid host name (example.org, or *.example.org for its subdomains)" });
+                }
+                let done = if op == "web_add" { web::allow_add(&self.cfg, &domain) } else { web::allow_remove(&self.cfg, &domain) };
+                match done {
+                    Ok(v) => {
+                        self.audit("web_allowlist_changed", json!({ "op": op, "domain": domain, "by_uid": uid }));
+                        json!({ "status": "ok", "result": v })
+                    }
+                    Err(e) => json!({ "status": "error", "error": e }),
+                }
+            }
             Some("pause") => {
                 let on = req.get("on").and_then(Value::as_bool).unwrap_or(true);
                 let path = &self.cfg.pause_path;

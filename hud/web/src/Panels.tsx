@@ -1,7 +1,7 @@
 // The views that open over the conversation: one goal, a new goal, the
 // journal, memory, who Woody is, and the settings.
 import { useEffect, useState } from "react";
-import type { AgentState, Goal, Identity, JournalEntry, Memory, MindResult, Send } from "./types";
+import type { AgentState, GatewayResult, Goal, Identity, JournalEntry, LogEntry, Memory, MindResult, Send } from "./types";
 import { TOOL_PREFIX, day, money } from "./types";
 
 export type Panel =
@@ -10,7 +10,10 @@ export type Panel =
   | { kind: "journal" }
   | { kind: "memory" }
   | { kind: "identity" }
-  | { kind: "settings" };
+  | { kind: "settings" }
+  | { kind: "logs" }
+  | { kind: "web" }
+  | { kind: "terminal" };
 
 const STATUS: Record<string, string> = {
   inbox: "to be reviewed",
@@ -32,6 +35,8 @@ export function PanelView({
   setPanel,
   tx,
   incoming,
+  gateway,
+  door,
   version,
   state,
   identity,
@@ -43,6 +48,8 @@ export function PanelView({
   setPanel: (p: Panel | null) => void;
   tx: Send;
   incoming: MindResult | null;
+  gateway: GatewayResult | null;
+  door: { kiosk: boolean; terminal: boolean };
   /** Bumped whenever the agent says something changed. */
   version: number;
   state: AgentState | null;
@@ -64,6 +71,9 @@ export function PanelView({
     : panel.kind === "journal" ? "JOURNAL"
     : panel.kind === "memory" ? "MEMORY"
     : panel.kind === "identity" ? "WHO WOODY IS"
+    : panel.kind === "logs" ? "SYSTEM LOG"
+    : panel.kind === "web" ? "WEB ALLOW-LIST"
+    : panel.kind === "terminal" ? "TERMINAL"
     : "SETTINGS";
 
   return (
@@ -72,11 +82,14 @@ export function PanelView({
         <span className="tab">{title}</span>
         <span className="leader" />
         <button className="ghost" onClick={() => setPanel(null)}>
-          close · esc
+          {panel.kind === "terminal" ? "close" : "close · esc"}
         </button>
       </header>
       {error && <div className="line problem">{error}</div>}
-      <div className="overlay-body">
+      {panel.kind === "terminal" && <Terminal available={door.terminal} />}
+      <div className="overlay-body" hidden={panel.kind === "terminal"}>
+        {panel.kind === "logs" && <Logs tx={tx} gateway={gateway} />}
+        {panel.kind === "web" && <WebList tx={tx} gateway={gateway} />}
         {panel.kind === "goal" && <GoalDetail id={panel.id} mind={mind} incoming={incoming} version={version} />}
         {panel.kind === "new-goal" && <NewGoal mind={mind} incoming={incoming} smallLimit={smallLimit} onDone={(id) => setPanel({ kind: "goal", id })} />}
         {panel.kind === "journal" && <Journal mind={mind} incoming={incoming} version={version} />}
@@ -91,6 +104,121 @@ export function PanelView({
 }
 
 type MindFn = (op: string, extra?: Record<string, unknown>) => void;
+
+/** The system journal, read by the gateway. Woody has its own, narrower way to search it. */
+function Logs({ tx, gateway }: { tx: Send; gateway: GatewayResult | null }) {
+  const [entries, setEntries] = useState<LogEntry[]>([]);
+  const [unit, setUnit] = useState("");
+  const [priority, setPriority] = useState("4");
+  const [follow, setFollow] = useState(true);
+  const [error, setError] = useState("");
+  const load = () => tx({ type: "logs", lines: 200, unit: unit.trim() || undefined, priority: priority === "all" ? undefined : Number(priority) });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [priority]);
+  useEffect(() => {
+    if (!follow) return;
+    const id = window.setInterval(load, 5000);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [follow, unit, priority]);
+  useEffect(() => {
+    if (gateway?.type !== "logs") return;
+    setError(gateway.ok ? "" : gateway.error ?? "The journal could not be read.");
+    if (gateway.ok) setEntries([...gateway.entries].reverse());
+  }, [gateway]);
+  return (
+    <div className="stack wide">
+      <form className="search three" onSubmit={(e) => { e.preventDefault(); load(); }}>
+        <label className="small dim" htmlFor="log-unit">One unit (for example sshd.service), or empty for all</label>
+        <input id="log-unit" value={unit} onChange={(e) => setUnit(e.target.value)} />
+        <select aria-label="Severity" value={priority} onChange={(e) => setPriority(e.target.value)}>
+          <option value="3">errors</option>
+          <option value="4">warnings and errors</option>
+          <option value="all">everything</option>
+        </select>
+        <button>refresh</button>
+      </form>
+      <label className="small dim">
+        <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> refresh every five seconds
+      </label>
+      {error && <p className="problem">{error}</p>}
+      {entries.length === 0 && !error && <p className="dim">Nothing at this severity.</p>}
+      <div className="log">
+        {entries.map((e, i) => (
+          <div key={`${e.ts}-${i}`} className={e.priority <= 3 ? "problem" : e.priority === 4 ? "warn" : ""}>
+            <span className="dim">{new Date(e.ts).toLocaleTimeString(undefined, { hourCycle: "h23" })}</span>
+            <span className="unit">{e.unit}</span>
+            <span className="msg">{e.message}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** The sites Woody may read. The list is yours: Woody can only ask to add one. */
+function WebList({ tx, gateway }: { tx: Send; gateway: GatewayResult | null }) {
+  const [domains, setDomains] = useState<string[] | null>(null);
+  const [adding, setAdding] = useState("");
+  const [error, setError] = useState("");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => tx({ type: "web_list" }), []);
+  useEffect(() => {
+    if (gateway?.type !== "web_list") return;
+    setError(gateway.ok ? "" : gateway.error ?? "The list could not be changed.");
+    if (gateway.domains) setDomains(gateway.domains);
+  }, [gateway]);
+  return (
+    <div className="stack">
+      <p className="dim small">
+        Woody can fetch https pages only from these sites. An entry starting with *. covers every subdomain. Web search is separate and can return any site,
+        but opening a result still needs its site to be here.
+      </p>
+      <form
+        className="search"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (adding.trim()) tx({ type: "web_add", domain: adding.trim().toLowerCase() });
+          setAdding("");
+        }}
+      >
+        <label className="small dim" htmlFor="web-add">Add a site (example.org, or *.example.org)</label>
+        <input id="web-add" value={adding} onChange={(e) => setAdding(e.target.value)} />
+        <button disabled={!adding.trim()}>add</button>
+      </form>
+      {error && <p className="problem">{error}</p>}
+      {domains === null ? <p className="dim">Loading…</p> : domains.length === 0 ? <p className="dim">The list is empty: Woody cannot read any site.</p> : null}
+      {(domains ?? []).map((d) => (
+        <div key={d} className="record inline">
+          <span>{d}</span>
+          <button className="ghost mini" onClick={() => tx({ type: "web_remove", domain: d })}>remove</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A real shell on the VM, as you. It exists only on the VM's own screen, asks
+ * for your password, and while it is open Woody cannot take screenshots.
+ */
+function Terminal({ available }: { available: boolean }) {
+  if (!available) return <p className="line problem">The terminal is only available on the VM's own screen.</p>;
+  let token = "";
+  try {
+    token = sessionStorage.getItem("woody-token") ?? "";
+  } catch {
+    /* no token: the frame will be refused */
+  }
+  return (
+    <>
+      <p className="line small dim">
+        A shell on this machine, as you: sign in with your own password. It is not shown to Woody, and screenshots are off while it is open.
+      </p>
+      <iframe className="terminal" title="Terminal" src={`/term/?t=${token}`} />
+    </>
+  );
+}
 
 function GoalDetail({ id, mind, incoming, version }: { id: number; mind: MindFn; incoming: MindResult | null; version: number }) {
   const [detail, setDetail] = useState<{ goal: Goal; messages: ThreadItem[] } | null>(null);

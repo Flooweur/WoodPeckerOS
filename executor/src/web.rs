@@ -150,6 +150,22 @@ pub fn add_domain(path: &str, entry: &str) -> Result<Vec<String>, String> {
     Ok(list)
 }
 
+/// Removes one entry from the allow-list (the human's decision, from the HUD or woodyctl).
+pub fn remove_domain(path: &str, entry: &str) -> Result<Vec<String>, String> {
+    let entry = entry.to_ascii_lowercase();
+    let mut list = load_allowlist(path)?;
+    let before = list.len();
+    list.retain(|d| d != &entry);
+    if list.len() == before {
+        return Err(format!("{entry} is not on the list"));
+    }
+    let tmp = format!("{path}.tmp");
+    let text = serde_json::to_string_pretty(&json!({ "domains": list })).map_err(|e| e.to_string())?;
+    std::fs::write(&tmp, text + "\n").map_err(|e| format!("write allow-list: {e}"))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("write allow-list: {e}"))?;
+    Ok(list)
+}
+
 pub struct Response {
     pub status: u16,
     pub content_type: String,
@@ -283,6 +299,11 @@ pub fn fetch(cfg: &Config, url: &str) -> Result<Value, String> {
     }))
 }
 
+pub fn allow_remove(cfg: &Config, entry: &str) -> Result<Value, String> {
+    let w = settings(cfg)?;
+    Ok(json!({ "removed": entry.to_ascii_lowercase(), "domains": remove_domain(&w.allow_path, entry)? }))
+}
+
 pub fn allow_add(cfg: &Config, entry: &str) -> Result<Value, String> {
     let w = settings(cfg)?;
     Ok(json!({ "added": entry.to_ascii_lowercase(), "domains": add_domain(&w.allow_path, entry)? }))
@@ -373,6 +394,8 @@ mod tests {
         assert_eq!(add_domain(&path, "NixOS.org").unwrap(), vec!["nixos.org"]);
         assert_eq!(add_domain(&path, "*.github.com").unwrap(), vec!["*.github.com", "nixos.org"]);
         assert_eq!(add_domain(&path, "nixos.org").unwrap().len(), 2); // no duplicates
+        assert_eq!(remove_domain(&path, "NixOS.org").unwrap(), vec!["*.github.com"]);
+        assert!(remove_domain(&path, "nixos.org").is_err()); // already gone
         std::fs::write(&path, r#"{"domains": ["ok.example.org", "10.0.0.1", 7, "bad host"]}"#).unwrap();
         assert_eq!(load_allowlist(&path).unwrap(), vec!["ok.example.org"]); // invalid entries are ignored
         let _ = std::fs::remove_file(&path);
