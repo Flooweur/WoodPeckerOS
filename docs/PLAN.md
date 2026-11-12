@@ -40,7 +40,7 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 | 6 | Change of goal: security material removed, documents rewritten | Done (2026-11-12); awaits the VM rebuild |
 | 7 | **The canvas**: the frame, things, the kit, making | Done (7a to 7d), tested in the VM |
 | 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | 8a (inner state) done, tested in the VM. 8b (a life of its own) and 8c (identity and face) built; they await the VM test |
-| 9 | **Learning and showing**: open reading, studies, explainers, web pictures | 9a (open reading) and 9b (studies and explainers) built; they await the VM test. 9c (web pictures) is next |
+| 9 | **Learning and showing**: open reading, studies, explainers, web pictures | Built in three steps (9a open reading, 9b studies and explainers, 9c web pictures); awaits the VM test |
 | 10 | **Reshaping itself**: free change of its own program | Planned |
 | 11 | **Sound and voice** | Planned |
 | 12 | **Programs on the canvas** | Planned |
@@ -310,6 +310,24 @@ Built in 9a (a change to the locked core, which you apply by rebuilding):
   - The explainer contains what Woody understood. The reader and Woody can both be wrong; the sources are there so that you can check.
   - A study you asked for runs at any hour and back to back, bounded by its budget and by the ceiling of twelve sessions an hour.
 
+## Phase 9c results (2026-11-12): pictures from the web
+
+- **`web.picture`** is a new executor action (a change to the locked core). It fetches a picture under the same rules as a page, accepts only JPEG, PNG, GIF and WebP (the server's word and the file's first bytes must agree; SVG is refused, since it is a program), and has it decoded and written out again as WebP: pixels only, no metadata, 1280 pixels a side at most.
+- **The converter** is libvips (`vipsthumbnail`), run as the user with no rights (`woody-web`) in a directory of its own, with limits on memory (3 GB of address space), processor time (15 s), output size and wall time (20 s).
+- **Woody never sees a picture.** `web_picture` hands it to a reader model that cannot act, which says in words what it shows. Woody gets that description and an id.
+- **The canvas keeps the picture** with the address it came from (200 at most; the oldest one no thing shows makes room). The name of a picture is the fingerprint of its bytes, and the canvas checks it.
+- **A thing is given pictures by their id** when it is made or changed. It loads them through the bridge (`woody.picture(id)`); the gateway hands a thing only the pictures it was given. Things still load nothing from the network.
+- **The frame shows the source.** "sources · N" on a thing now counts its pictures too, and the thing's record lists where each picture came from.
+- **The reader may point to pictures** on a page it reads, by what the page says about them. Their addresses count as given, so a reading session can fetch them.
+- **Tests:** 39 executor tests (2 new), 84 agent tests (2 new), 14 gateway tests (1 new) and 116 scripted browser checks (9 new) pass in containers. The converter was run in the container with its real limits on a real picture; the Nix builds succeed.
+- **Not tested:** a real `web.picture` call from fetch to canvas, the reader's descriptions, and how good Woody's choice of pictures is. All need the VM.
+- **Known limits:**
+  - The system now includes libvips, which adds to the size of a rebuild.
+  - Re-encoding removes what is hidden in a file, not what a picture shows. A misleading or unpleasant picture is still a picture; the reader is asked to say so, and you can remove the thing.
+  - Animated pictures become their first frame.
+  - Pictures are for showing on your own screen. Nothing here judges whether a picture may be reused elsewhere.
+- **Also fixed:** the executor's tests now run one at a time in the build. Run in parallel, one of them failed now and then with "Text file busy".
+
 ## Architecture
 
 Today:
@@ -425,7 +443,7 @@ The whole of it:
 
 ### Phase 9: learning and showing
 
-Built in three steps: 9a open reading (built: see "Phase 9a results"), 9b studies and explainers (built: see "Phase 9b results"), 9c web pictures.
+Built in three steps: 9a open reading (built: see "Phase 9a results"), 9b studies and explainers (built: see "Phase 9b results"), 9c web pictures (built: see "Phase 9c results").
 
 - **Open reading:** the executor's allow-list becomes a block list; any public site may be read through the quarantined reader. This is a change to the locked core, approved by the operator. With it, the fetch user gets its own firewall rule (it may reach public addresses on port 443 only).
 - **Studies:** a subject to learn becomes a dossier of notes with their sources, built over reading sessions.

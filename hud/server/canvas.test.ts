@@ -1,5 +1,6 @@
 // The rules of the canvas store. They run in the build: a failure stops it.
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -178,6 +179,49 @@ test("an explainer keeps the study it explains and the pages that were read", ()
   assert.equal(canvas.make("you", { title: "Mine", source: CLOCK, study }).study, undefined);
   const many = canvas.make("woody", { title: "Many", source: CLOCK, study: { id: 4, subject: "s", sources: Array.from({ length: 500 }, (_, i) => ({ url: `https://example.org/${i}`, title: "" })) } });
   assert.equal(many.study!.sources.length, 200);
+});
+
+test("pictures from the web: kept as the executor converted them, shown only by the thing they were given to", () => {
+  const { canvas } = fresh();
+  // The smallest file that says it is WebP; its name is its own fingerprint.
+  const bytes = Buffer.concat([Buffer.from("RIFF"), Buffer.from([4, 0, 0, 0]), Buffer.from("WEBPVP8 "), Buffer.alloc(18)]);
+  const id = `p-${crypto.createHash("sha256").update(bytes).digest("hex").slice(0, 16)}`;
+  const picture = { id, base64: bytes.toString("base64"), source: "https://example.org/tides.png", width: 640, height: 480, about: "A diagram of the two tidal bulges." };
+  assert.throws(() => canvas.putPicture("you", picture), /not from a screen/);
+  assert.throws(() => canvas.putPicture("woody", { ...picture, id: "p-0000000000000000" }), /does not match its name/);
+  assert.throws(() => canvas.putPicture("woody", { ...picture, id: "../../etc/passwd" }), /not a picture/);
+  assert.throws(() => canvas.putPicture("woody", { ...picture, source: "javascript:alert(1)" }), /address it came from/);
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.throws(() => canvas.putPicture("woody", { ...picture, id: `p-${crypto.createHash("sha256").update(png).digest("hex").slice(0, 16)}`, base64: png.toString("base64") }), /only re-encoded WebP/);
+  const kept = canvas.putPicture("woody", picture);
+  assert.deepEqual([kept.id, kept.source, kept.width, kept.bytes], [id, "https://example.org/tides.png", 640, bytes.length]);
+  assert.equal(canvas.pictureList().length, 1);
+  canvas.putPicture("woody", picture); // the same picture twice is one picture
+  assert.equal(canvas.pictureList().length, 1);
+
+  // A thing is given pictures by their id; an unknown one is refused before anything is made.
+  assert.throws(() => canvas.make("woody", { title: "Tides", source: CLOCK, pictures: ["p-ffffffffffffffff"] }), /no picture .* is kept/);
+  const before = canvas.list().length;
+  const thing = canvas.make("woody", { title: "Tides", source: CLOCK, pictures: [id, id] });
+  assert.deepEqual(thing.pictures, [{ id, source: "https://example.org/tides.png" }]);
+  assert.equal(canvas.list().length, before + 1);
+  const other = canvas.make("woody", { title: "Other", source: CLOCK });
+  assert.equal(other.pictures, undefined);
+  assert.equal(canvas.make("you", { title: "Mine", source: CLOCK, pictures: [id] }).pictures, undefined);
+
+  // Only the thing it was given to can load it.
+  assert.equal(canvas.pictureFor(thing.id, id), `data:image/webp;base64,${bytes.toString("base64")}`);
+  assert.throws(() => canvas.pictureFor(other.id, id), /was not given to this thing/);
+  assert.throws(() => canvas.pictureFor(thing.id, "../canvas.json"), /was not given to this thing/);
+  // A change can give a thing other pictures, or none.
+  assert.deepEqual(canvas.change("woody", { id: other.id, source: CLOCK.replace("c", "d"), pictures: [id] }).pictures, [{ id, source: "https://example.org/tides.png" }]);
+  assert.equal(canvas.change("woody", { id: other.id, source: CLOCK, pictures: [] }).pictures, undefined);
+  assert.equal(canvas.change("woody", { id: thing.id, source: CLOCK.replace("c", "e") }).pictures?.length, 1); // left alone when not mentioned
+
+  // They survive a restart.
+  const again = new Canvas(canvas["dir" as keyof Canvas] as unknown as string);
+  assert.equal(again.pictureList()[0]!.about, "A diagram of the two tidal bulges.");
+  assert.equal(again.pictureFor(thing.id, id).length > 30, true);
 });
 
 test("what Woody adds on its own: marked, with a note, within the operator's daily limit", () => {

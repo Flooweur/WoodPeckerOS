@@ -57,6 +57,11 @@ pub struct Web {
     pub setpriv: String,
     pub timeout: String,
     pub ca_bundle: String,
+    /// The picture converter (libvips) and the tool that limits what it may use. web.picture is refused when unset.
+    #[serde(default)]
+    pub vipsthumbnail: Option<String>,
+    #[serde(default)]
+    pub prlimit: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

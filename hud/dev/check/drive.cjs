@@ -499,6 +499,32 @@ function startGateway() {
   await shot("12-studies");
   await js(`document.querySelector(".panel-head button.ghost").click()`);
 
+  // ---- pictures from the web (Phase 9c) ----
+  // A picture is kept by the canvas as the executor converted it, and reaches only the thing it was given to, through the bridge.
+  const WEBP = Buffer.from("UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==", "base64"); // one pixel
+  const PIC = `p-${require("crypto").createHash("sha256").update(WEBP).digest("hex").slice(0, 16)}`;
+  const kept = await woody("picture_put", { id: PIC, base64: WEBP.toString("base64"), source: "https://oceanservice.example/img/bulges.png", width: 1, height: 1, about: "A diagram of the two tidal bulges." });
+  check("the canvas keeps a picture handed over by the agent", kept.ok && kept.result.id === PIC, kept.ok ? "" : kept.error);
+  const forged = await woody("picture_put", { id: "p-0000000000000000", base64: WEBP.toString("base64"), source: "https://oceanservice.example/x.png" });
+  check("a picture that is not what its name says is refused", !forged.ok && /does not match its name/.test(forged.error), forged.error);
+  const SHOWS = `<img id="i"><script>woody.picture("${PIC}").then((u) => { const i = document.getElementById("i"); i.onload = () => { document.body.dataset.loaded = String(i.naturalWidth); woody.ready(); }; i.onerror = () => { document.body.dataset.loaded = "error"; woody.ready(); }; i.src = u; }, (e) => { document.body.dataset.loaded = "refused: " + e.message; woody.ready(); });</script>`;
+  const withPic = await woody("make", { title: "With a picture", source: SHOWS, why: "to show the diagram", pictures: [PIC] });
+  check("a thing is made with the pictures it may show", withPic.ok && withPic.result.started === true && withPic.result.thing.pictures?.[0]?.source === "https://oceanservice.example/img/bulges.png", withPic.ok ? "" : withPic.error);
+  const picThing = withPic.ok ? withPic.result.thing.id : "none";
+  check("it loads its picture through the bridge, with no network", (await inThing(picThing, "document.body.dataset.loaded")).value === "1", JSON.stringify(await inThing(picThing, "document.body.dataset.loaded")));
+  const without = await woody("make", { title: "Without it", source: SHOWS, why: "to try" });
+  const nosy = without.ok ? without.result.thing.id : "none";
+  check("a thing that was not given the picture cannot have it", /^refused: .*was not given to this thing/.test((await inThing(nosy, "document.body.dataset.loaded")).value || ""), JSON.stringify(await inThing(nosy, "document.body.dataset.loaded")));
+  const noSuch = await woody("make", { title: "Unknown picture", source: SHOWS, why: "to try", pictures: ["p-ffffffffffffffff"] });
+  check("a picture that is not kept cannot be given to a thing", !noSuch.ok && /is kept/.test(noSuch.error), noSuch.error);
+  check("the frame counts the picture among the thing's sources", await until(`document.querySelector('[data-thing="${picThing}"] .thing-sources')?.textContent.trim() === "sources · 1"`));
+  await js(`document.querySelector('[data-thing="${picThing}"] .thing-sources').click()`);
+  check("and its record says where the picture came from", await until(`document.querySelector(".sources.pictures")?.textContent.includes("https://oceanservice.example/img/bulges.png")`));
+  await shot("13-picture");
+  await js(`document.querySelector(".panel-head button.ghost").click()`);
+  const lookPics = await woody("look");
+  check("Woody sees which pictures are kept and which thing shows each", lookPics.ok && lookPics.result.pictures?.[0]?.id === PIC && lookPics.result.pictures[0].used_by.includes(picThing) && /tidal bulges/.test(lookPics.result.pictures[0].shows), JSON.stringify(lookPics.result?.pictures));
+
   // ---- everything survives a restart of the gateway ----
   const before = (await things()).map((t) => [t.id, t.box.x, t.box.y, t.version, t.pinned, t.removed]);
   gateway.kill();

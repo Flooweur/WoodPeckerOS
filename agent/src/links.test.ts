@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { GivenLinks, normalUrl, pageAnchors, scrubLinks, textLinks } from "./links.js";
+import { GivenLinks, normalUrl, pageAnchors, pageImages, scrubLinks, textLinks } from "./links.js";
 import { createGoalTools } from "./mind/goal-tools.js";
 import { createLifeTools } from "./mind/life-tools.js";
 import { Store } from "./mind/store.js";
@@ -47,6 +47,18 @@ test("the links of a page are found by code", () => {
   assert.deepEqual(textLinks("1. Tides - https://example.org/tides. See also (https://other.net/moon?x=1), and http://plain.example/ too."), [
     "https://example.org/tides",
     "https://other.net/moon?x=1",
+  ]);
+});
+
+test("the pictures of a page are found by code, with what the page says they show", () => {
+  const html = `<p><img src="/img/bulges.png" alt="The two tidal  bulges, seen from above the pole">
+    <img alt='Spring tide' class="x" src='https://cdn.other.net/spring.jpg?w=800&amp;h=600'>
+    <img src="data:image/png;base64,AAAA" alt="inline"> <img src="/icons/logo.svg" alt="logo"> <img src="http://plain.example/a.png" alt="not https">
+    <img src="/img/bulges.png" alt="again"> <img src="/img/spacer.gif"></p>`;
+  assert.deepEqual(pageImages(html, "https://example.org/tides/index.html"), [
+    { text: "The two tidal bulges, seen from above the pole", url: "https://example.org/img/bulges.png" },
+    { text: "Spring tide", url: "https://cdn.other.net/spring.jpg?w=800&h=600" },
+    { text: "", url: "https://example.org/img/spacer.gif" },
   ]);
 });
 

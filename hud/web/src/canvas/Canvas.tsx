@@ -83,6 +83,13 @@ export function Canvas({
           tx({ type: "canvas_op", op: m.op === "state.get" ? "state_get" : "state_set", id, value: m.args?.value, rid: r });
           return;
         }
+        case "picture": {
+          // A picture from the web that this thing was given. The gateway checks that it was.
+          const r = `b${++rid.current}`;
+          waiting.current.set(r, { win, call });
+          tx({ type: "canvas_op", op: "picture", id, picture: String(m.args?.id ?? "").slice(0, 40), rid: r });
+          return;
+        }
         case "emit": {
           // Tell Woody that something happened on this thing. The gateway paces it.
           const r = `b${++rid.current}`;
@@ -283,9 +290,14 @@ function ThingView({
       </div>
       {thing.kind === "pretend" && <span className="thing-mark">pretend</span>}
       {/* An explainer's sources are the frame's to show: the pages that were read, from the record. */}
-      {thing.study && phase === "ready" && (
-        <button className="thing-sources" onPointerDown={(e) => e.stopPropagation()} onClick={onWhy} title={`It explains Woody's study of "${thing.study.subject}". Click for the pages that were read.`}>
-          sources · {thing.study.sources.length}
+      {(thing.study || (thing.pictures?.length ?? 0) > 0) && phase === "ready" && (
+        <button
+          className="thing-sources"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={onWhy}
+          title={`${thing.study ? `It explains Woody's study of "${thing.study.subject}". ` : ""}Click for the pages that were read and where its pictures come from.`}
+        >
+          sources · {(thing.study?.sources.length ?? 0) + (thing.pictures?.length ?? 0)}
         </button>
       )}
       {/* What Woody left without being asked says so, in the frame's own hand, until the operator has read it. */}

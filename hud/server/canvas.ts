@@ -52,7 +52,15 @@ export type Thing = {
    * made; the frame lists them. The thing's own code cannot change them.
    */
   study?: StudyRef;
+  /** Pictures from the web that this thing may show, each with where it came from. The frame lists them. */
+  pictures?: Array<{ id: string; source: string }>;
 };
+/**
+ * A picture from the web, as it is kept: fetched by the executor, decoded
+ * and written out again as WebP. `source` is the address it was fetched
+ * from; `about` is what the quarantined reader said it shows.
+ */
+export type Picture = { id: string; source: string; width: number; height: number; bytes: number; ts: number; about: string };
 export type Source = { url: string; title: string };
 export type StudyRef = { id: number; subject: string; sources: Source[] };
 export type Change = {
@@ -79,7 +87,7 @@ export type Settings = {
 
 export class CanvasError extends Error {}
 
-export const LIMITS = { source: 300_000, state: 256_000, things: 80, title: 80, why: 400, versions: 500, note: 300, uninvited_per_day: 20, sources: 200 };
+export const LIMITS = { source: 300_000, state: 256_000, things: 80, title: 80, why: 400, versions: 500, note: 300, uninvited_per_day: 20, sources: 200, pictures: 200, picture_bytes: 1_600_000, pictures_per_thing: 12 };
 const DEFAULT_SETTINGS: Settings = { uninvited_per_day: 3 };
 const DEFAULT_SIZE = { w: 320, h: 220 };
 const GAP = 16;
@@ -101,6 +109,8 @@ function studyOf(v: unknown): StudyRef | null {
   return { id: s.id as number, subject: text(s.subject, 200), sources };
 }
 
+const PICTURE_ID = /^p-[0-9a-f]{16}$/;
+
 const text = (v: unknown, max: number): string => (typeof v === "string" ? v : "").replace(/[\u0000-\u0008\u000b-\u001f]/g, " ").trim().slice(0, max);
 
 export class Canvas {
@@ -110,6 +120,7 @@ export class Canvas {
   private nextId = 1;
   private nextSeq = 1;
   private settings: Settings = { ...DEFAULT_SETTINGS };
+  private pictures: Picture[] = [];
   /** The size of the screen that last reported it; used to place new things. */
   viewport = { w: 1600, h: 900 };
 
@@ -118,6 +129,13 @@ export class Canvas {
     private readonly now: () => number = Date.now,
   ) {
     fs.mkdirSync(path.join(dir, "things"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "pictures"), { recursive: true });
+    try {
+      const kept = JSON.parse(fs.readFileSync(path.join(dir, "pictures.json"), "utf8"));
+      this.pictures = Array.isArray(kept) ? kept.filter((p) => p && PICTURE_ID.test(p.id) && fs.existsSync(path.join(dir, "pictures", `${p.id}.webp`))) : [];
+    } catch {
+      // no picture yet
+    }
     try {
       const saved = JSON.parse(fs.readFileSync(path.join(dir, "canvas.json"), "utf8"));
       this.things = Array.isArray(saved.things) ? saved.things : [];
@@ -253,7 +271,69 @@ export class Canvas {
 
   // ---- changing ------------------------------------------------------------
 
-  make(by: Actor, input: { title?: unknown; source?: unknown; kind?: unknown; for?: unknown; why?: unknown; box?: Partial<Box>; uninvited?: unknown; note?: unknown; study?: unknown }): Thing {
+  // ---- pictures from the web ---------------------------------------------------
+
+  /**
+   * Keeps a picture the executor fetched and re-encoded. Only Woody's side
+   * hands one over. The bytes must be a WebP file whose name is its own
+   * fingerprint, so what is kept is what was converted.
+   */
+  putPicture(by: Actor, input: { id?: unknown; base64?: unknown; source?: unknown; width?: unknown; height?: unknown; about?: unknown }): Picture {
+    if (by !== "woody") throw new CanvasError("pictures come from the web through the executor, not from a screen");
+    const id = String(input.id ?? "");
+    if (!PICTURE_ID.test(id) || typeof input.base64 !== "string") throw new CanvasError("not a picture as the executor returns it");
+    const bytes = Buffer.from(input.base64, "base64");
+    if (!bytes.length || bytes.length > LIMITS.picture_bytes) throw new CanvasError(`a picture is at most ${LIMITS.picture_bytes} bytes`);
+    if (bytes.subarray(0, 4).toString("latin1") !== "RIFF" || bytes.subarray(8, 12).toString("latin1") !== "WEBP") throw new CanvasError("only re-encoded WebP pictures are kept");
+    if (`p-${crypto.createHash("sha256").update(bytes).digest("hex").slice(0, 16)}` !== id) throw new CanvasError("the picture does not match its name");
+    const source = typeof input.source === "string" && /^https:\/\/[^\s<>"'`]{1,2000}$/.test(input.source) ? input.source : "";
+    if (!source) throw new CanvasError("a picture is kept with the address it came from");
+    const side = (v: unknown) => (Number.isInteger(v) && (v as number) > 0 && (v as number) <= 8000 ? (v as number) : 0);
+    const picture: Picture = { id, source, width: side(input.width), height: side(input.height), bytes: bytes.length, ts: this.now(), about: text(input.about, 800) };
+    const others = this.pictures.filter((p) => p.id !== id);
+    if (others.length >= LIMITS.pictures) {
+      // Room is made by letting go of the oldest picture that no thing shows.
+      const used = new Set(this.things.flatMap((t) => (t.pictures ?? []).map((p) => p.id)));
+      const spare = others.find((p) => !used.has(p.id));
+      if (!spare) throw new CanvasError(`${LIMITS.pictures} pictures are kept and every one is shown by a thing; remove a thing first`);
+      others.splice(others.indexOf(spare), 1);
+      fs.rmSync(path.join(this.dir, "pictures", `${spare.id}.webp`), { force: true });
+    }
+    fs.writeFileSync(path.join(this.dir, "pictures", `${id}.webp`), bytes, { mode: 0o600 });
+    this.pictures = [...others, picture];
+    this.write("pictures.json", JSON.stringify(this.pictures, null, 1));
+    return { ...picture };
+  }
+
+  pictureList(): Picture[] {
+    return this.pictures.map((p) => ({ ...p }));
+  }
+
+  /** The picture as a data address, for the one thing that asks; only if it was declared for that thing. */
+  pictureFor(thingId: string, pictureId: string): string {
+    const thing = this.get(thingId);
+    if (!(thing.pictures ?? []).some((p) => p.id === pictureId)) throw new CanvasError(`picture "${pictureId.slice(0, 40)}" was not given to this thing`);
+    let bytes: Buffer;
+    try {
+      bytes = fs.readFileSync(path.join(this.dir, "pictures", `${pictureId}.webp`));
+    } catch {
+      throw new CanvasError("that picture is no longer kept");
+    }
+    return `data:image/webp;base64,${bytes.toString("base64")}`;
+  }
+
+  /** The pictures a thing is to show, checked against what is kept. */
+  private picturesOf(v: unknown): Array<{ id: string; source: string }> | null {
+    if (v === undefined || v === null) return null;
+    if (!Array.isArray(v) || v.length > LIMITS.pictures_per_thing) throw new CanvasError(`a thing shows at most ${LIMITS.pictures_per_thing} pictures`);
+    return [...new Set(v.map(String))].map((id) => {
+      const p = this.pictures.find((x) => x.id === id);
+      if (!p) throw new CanvasError(`no picture "${id.slice(0, 40)}" is kept. Fetch it first (web_picture) and use the id it returns.`);
+      return { id: p.id, source: p.source };
+    });
+  }
+
+  make(by: Actor, input: { title?: unknown; source?: unknown; kind?: unknown; for?: unknown; why?: unknown; box?: Partial<Box>; uninvited?: unknown; note?: unknown; study?: unknown; pictures?: unknown }): Thing {
     const source = this.checkSource(input.source);
     const title = text(input.title, LIMITS.title);
     if (!title) throw new CanvasError("a thing needs a title");
@@ -284,6 +364,8 @@ export class Canvas {
     // Only Woody studies; what the operator makes has no sources to list.
     const study = by === "woody" ? studyOf(input.study) : null;
     if (study) thing.study = study;
+    const pictures = by === "woody" ? this.picturesOf(input.pictures) : null;
+    if (pictures?.length) thing.pictures = pictures;
     fs.mkdirSync(path.join(this.dir, "things", id), { recursive: true });
     this.write(path.join("things", id, "v1.html"), source);
     this.things.push(thing);
@@ -308,7 +390,9 @@ export class Canvas {
   }
 
   /** A new version of a thing's source, and optionally a new title. */
-  change(by: Actor, input: { id?: unknown; source?: unknown; title?: unknown; why?: unknown; uninvited?: unknown }): Thing {
+  change(by: Actor, input: { id?: unknown; source?: unknown; title?: unknown; why?: unknown; uninvited?: unknown; pictures?: unknown }): Thing {
+    // The pictures are checked before anything is written; given a list, it replaces the thing's own.
+    const pictures = by === "woody" ? this.picturesOf(input.pictures) : null;
     const thing = this.find(input.id);
     const why = text(input.why, LIMITS.why);
     this.guard(by, thing, "change", why);
@@ -324,6 +408,11 @@ export class Canvas {
     const title = text(input.title, LIMITS.title);
     if (title) thing.title = title;
     this.record({ by, op: "change", id: thing.id, title: thing.title, why, before, ...this.own(by, input) });
+    if (pictures) {
+      if (pictures.length) thing.pictures = pictures;
+      else delete thing.pictures;
+      this.save();
+    }
     return structuredClone(thing);
   }
 
@@ -576,6 +665,7 @@ const BRIDGE = `(() => {
     subscribe: (feed, cb) => { if (!feeds.has(feed)) feeds.set(feed, []); feeds.get(feed).push(cb); return call("subscribe", { feed }); },
     state: { get: () => call("state.get", {}), set: (value) => call("state.set", { value }) },
     emit: (name, data) => call("emit", { name, data }),
+    picture: (id) => call("picture", { id }),
   };
 })();`;
 

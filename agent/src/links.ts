@@ -98,3 +98,23 @@ export function scrubLinks(text: string, given: GivenLinks): string {
     return given.has(url) ? found : `${REMOVED}${tail}`;
   });
 }
+
+/** The pictures of an HTML page: where each is, and what the page says it shows (its alternative text). */
+export function pageImages(html: string, pageUrl: string, max = 300): Array<{ text: string; url: string }> {
+  const out: Array<{ text: string; url: string }> = [];
+  const seen = new Set<string>();
+  for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
+    const tag = m[0];
+    const attr = (name: string) => {
+      const a = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i").exec(tag);
+      return a ? decode(a[1] ?? a[2] ?? a[3] ?? "") : "";
+    };
+    const url = normalUrl(attr("src"), pageUrl);
+    // A picture inside the page itself (a data address) or a drawing that is a program (SVG) is not one to fetch.
+    if (!url || seen.has(url) || /\.svg(\?|$)/i.test(url)) continue;
+    seen.add(url);
+    out.push({ text: attr("alt").replace(/\s+/g, " ").trim().slice(0, 100), url });
+    if (out.length >= max) break;
+  }
+  return out;
+}

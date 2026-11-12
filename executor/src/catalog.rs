@@ -89,6 +89,12 @@ pub const ACTIONS: &[ActionDef] = &[
         params: "{url: string}",
     },
     ActionDef {
+        name: "web.picture",
+        tier: Tier::Read,
+        description: "Fetch one picture (JPEG, PNG, GIF or WebP) from a public site that is not blocked, and return it decoded and written out again as WebP by an unprivileged converter: pixels only, no metadata, at most 1280 pixels a side. What it shows is untrusted.",
+        params: "{url: string}",
+    },
+    ActionDef {
         name: "web.blocklist",
         tier: Tier::Read,
         description: "The sites the operator has blocked: Woody never reads them.",
@@ -288,6 +294,14 @@ pub fn classify(action: &str, params: &Value, cfg: &Config) -> Result<Tier, Stri
             let url = map.get("url").and_then(Value::as_str).ok_or("missing parameter: url")?;
             // Refused here, before anything touches the network, and so recorded as a refusal.
             web::check_url(cfg, url)?;
+        }
+        "web.picture" => {
+            only_keys(map, &["url"])?;
+            let url = map.get("url").and_then(Value::as_str).ok_or("missing parameter: url")?;
+            web::check_url(cfg, url)?;
+            if cfg.web.as_ref().is_some_and(|w| w.vipsthumbnail.is_none() || w.prlimit.is_none()) {
+                return Err("pictures are not configured on this system".into());
+            }
         }
         "web.blocklist" => {
             only_keys(map, &[])?;
@@ -647,6 +661,7 @@ pub fn run(action: &str, params: &Value, cfg: &Config) -> Result<Value, String> 
             Ok(json!({ "row_count": total, "truncated": total > MAX_ROWS, "untrusted": true, "rows": rows }))
         }
         "web.fetch" => web::fetch(cfg, map.get("url").and_then(Value::as_str).ok_or("missing parameter: url")?),
+        "web.picture" => web::picture(cfg, map.get("url").and_then(Value::as_str).ok_or("missing parameter: url")?),
         "web.blocklist" => web::blocklist(cfg),
         "screen.capture" => screen_capture(cfg, scale_param(map)?),
         "service.start" | "service.stop" | "service.restart" => {
@@ -780,6 +795,10 @@ mod tests {
         }
         assert!(classify("web.fetch", &json!({"url": "https://nixos.org/", "method": "POST"}), &c).is_err());
         assert_eq!(classify("web.blocklist", &json!({}), &c), Ok(Tier::Read));
+        // A picture goes through the same checks as a page, and needs the converter.
+        assert!(classify("web.picture", &json!({"url": "https://nixos.org/logo.png"}), &c).unwrap_err().contains("not configured"));
+        assert!(classify("web.picture", &json!({"url": "https://blocked.example/a.png"}), &c).unwrap_err().contains("block list"));
+        assert!(classify("web.picture", &json!({"url": "https://192.168.222.1/a.png"}), &c).is_err());
         // Woody has no action that edits the list: that is the human's, on their own channel.
         assert!(classify("web.allow_add", &json!({"domain": "lwn.net", "reason": "kernel news"}), &c).is_err());
         assert!(classify("web.block_remove", &json!({"domain": "blocked.example"}), &c).is_err());

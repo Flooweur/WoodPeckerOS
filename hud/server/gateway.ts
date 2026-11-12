@@ -258,6 +258,15 @@ function canvasOp(by: Actor, m: Record<string, any>): unknown {
         if (by !== "you") throw new CanvasError("only a screen reports that");
         reportHealth(String(m.id), Number(m.version), m.phase === "ready" ? "ready" : "failed", Array.isArray(m.faults) ? m.faults.map(String).slice(-5) : []);
         return true;
+      case "picture_put":
+        // A picture the executor fetched and re-encoded, handed over by the agent to be kept.
+        return canvas.putPicture(by, m);
+      case "pictures":
+        return canvas.pictureList();
+      case "picture":
+        // A thing asks, through the bridge, for a picture it was given. The thing is known by its window, not its word.
+        if (by !== "you") throw new CanvasError("only a thing on a screen asks for that");
+        return canvas.pictureFor(String(m.id), String(m.picture));
       case "emit":
         // A thing tells Woody that something happened on it.
         if (by !== "you") throw new CanvasError("only a thing on a screen sends that");
@@ -369,13 +378,15 @@ async function woodyRequest(m: Record<string, any>): Promise<unknown> {
             running: h ? (h.phase === "ready" ? (h.faults.length ? `yes, with faults: ${h.faults.join(" | ")}` : "yes") : `no: ${h.faults.join(" | ") || "it did not start"}`) : "not reported",
           };
         }),
+      // Pictures from the web that are kept and can be given to a thing by their id.
+      pictures: canvas.pictureList().map((p) => ({ id: p.id, width: p.width, height: p.height, from: p.source, shows: p.about, used_by: all.filter((t) => (t.pictures ?? []).some((x) => x.id === p.id)).map((t) => t.id) })),
       put_away: all.filter((t) => t.removed).map((t) => ({ id: t.id, title: t.title, made_by: t.by, on_its_own: t.uninvited === true })),
       // Things you added today without being asked, and the most the operator allows in a day.
       own_additions: { today: canvas.uninvitedToday(), limit: canvas.limits().uninvited_per_day },
       kit: kitCatalogue(),
     };
   }
-  if (op === "get" || op === "kit_catalogue" || op === "limits" || op === "may_add") return canvasOp("woody", m);
+  if (op === "get" || op === "kit_catalogue" || op === "limits" || op === "may_add" || op === "pictures" || op === "picture_put") return canvasOp("woody", m);
   if (!WOODY_CHANGES.has(op)) throw new CanvasError("that is the operator's alone to do");
   let paused: boolean;
   try {

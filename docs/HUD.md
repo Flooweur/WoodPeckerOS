@@ -43,7 +43,9 @@ Two more records, also in the lattice menu, belong to the canvas: **Things** (ev
 
 **Studies** (in the lattice menu) lists what Woody is learning and has learned, for you or for itself: the stage, the money spent, what it wants to find out next, each finding with where it was read, and every page that was fetched. You start a study there (a subject and a size), give one more money and sessions, or drop it.
 
-A thing that explains a study carries a mark, "sources · N", drawn by the frame. Clicking it opens the thing's record with the list of pages that were read. The list comes from the record of fetches, not from the thing.
+A thing that explains a study, or that shows pictures from the web, carries a mark, "sources · N", drawn by the frame. Clicking it opens the thing's record with the pages that were read and the address each picture came from. Both lists come from the record of fetches, not from the thing.
+
+A thing gets a picture through the bridge (`woody.picture(id)`), and only a picture it was given when it was made. It still loads nothing from the network.
 
 **Its face** (in the lattice menu) shows every design the lattice can play, each as a small live lattice: which ones Woody drew itself, when and why, with a button to put the built-in one or an earlier drawing back. The frame's own signals are listed last with what each one says.
 

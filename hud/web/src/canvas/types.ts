@@ -22,6 +22,8 @@ export type ThingInfo = {
   note_seen?: boolean;
   /** When the thing explains a study: the study and the pages that were read for it, as the canvas recorded them. */
   study?: { id: number; subject: string; sources: Array<{ url: string; title: string }> };
+  /** Pictures from the web that this thing may show, each with the address it was fetched from. */
+  pictures?: Array<{ id: string; source: string }>;
   /** The unguessable name under which the gateway serves this thing. */
   key: string;
 };

@@ -503,6 +503,39 @@ Code: `agent/src/mind/study-tools.ts` (the tools), `studyPreamble` in `agent/src
 | The canvas keeps the sources; the frame shows the mark, the list and the Studies record | 1 gateway test, 8 scripted browser checks | To do |
 | A real study from request to explainer | Not testable here | To do |
 
+## Pictures from the web (Phase 9c)
+
+Code: `picture` in `executor/src/web.rs`, `web_picture` in `agent/src/tools.ts`, `pictureNotes` in `agent/src/web.ts`, the picture store in `hud/server/canvas.ts`, the bridge in the same file and in `hud/web/src/canvas/Canvas.tsx`.
+
+The path of one picture:
+
+1. **Found.** A reading session reads a page. Code extracts the page's pictures with what the page says about each (its alternative text). The reader may point Woody to up to four of them.
+2. **Fetched.** `web_picture` asks the executor, which applies every rule of a page fetch (https, a public address, the block list, pacing, the links-only rule on Woody's side) and accepts at most 8 MB.
+3. **Checked.** The file must start like a JPEG, PNG, GIF or WebP, and the server must have called it that. Anything else is refused, SVG included.
+4. **Converted.** libvips decodes it and writes a new WebP file of at most 1280 pixels a side, running as the user with no rights, under limits. What is kept is the new file.
+5. **Described.** A reader model with no tools is shown the picture and writes what it shows, in at most 120 words. Woody gets the description, never the picture.
+6. **Kept.** The agent hands the file to the canvas, which keeps it under the fingerprint of its bytes, with the address it came from and the description.
+7. **Shown.** In a later session Woody gives the picture's id to `thing_make`. The maker is told what the picture shows and how to load it. The thing asks the frame for it through the bridge and gets it only if it was given that picture.
+8. **Sourced.** The frame counts the picture among the thing's sources and lists the address it came from in the thing's record.
+
+Since `web_picture` reads the web, the session that fetched a picture can only take notes afterwards. Woody notes the id and what the picture shows in a finding; the explainer is built later, as for any study.
+
+Limits to know:
+
+- A converter is a large program fed with a stranger's file. The design does not rely on it being free of faults: it runs with no rights, no network beyond what the firewall leaves `woody-web`, and bounded memory and time.
+- The description comes from a model and can be wrong or be fooled. It decides what Woody chooses, not what the machine does.
+- Animated pictures become their first frame. Pictures larger than 8 MB, or that convert to more than 1.5 MB, are refused.
+
+### Test status
+
+| What | In containers | In the VM |
+|---|---|---|
+| The four formats, the server's word against the file, the WebP size | 2 executor tests | |
+| The converter under its limits on a real picture | Run by hand in the build container | To do within the executor |
+| Pictures found on a page; a thing given pictures by id | 2 agent tests | |
+| The canvas keeps only a matching WebP; only the thing it was given to can load it | 1 gateway test, 9 scripted browser checks (a real picture loads in a sandboxed thing) | To do |
+| A real picture from page to canvas, and the reader's description | Not testable here | To do |
+
 ## The inner state (Phase 8a)
 
 Code: `agent/src/mind/inner.ts`, wired in `agent/src/server.ts`.

@@ -98,3 +98,39 @@ test("the tools exist, and the ones that change the canvas are the ones a web-re
   assert.deepEqual(names, ["canvas_look", "thing_source", "kit_place", "thing_make", "thing_change", "thing_place", "thing_remove"]);
   assert.deepEqual(names.filter((n) => !["canvas_look", "thing_source"].includes(n)).sort(), [...CANVAS_CHANGING_TOOLS].sort());
 });
+
+test("a thing is given pictures by their id: the maker is told what each shows, the canvas which ones", async () => {
+  const requests: Array<{ op: string; params: Record<string, unknown> }> = [];
+  const prompts: string[] = [];
+  const made: string[] = [];
+  const link: Link = {
+    connected: () => true,
+    request: async (op, params = {}) => {
+      requests.push({ op, params: params as Record<string, unknown> });
+      if (op === "pictures") return [{ id: "p-0123456789abcdef", width: 640, height: 480, about: "A diagram of the two\ntidal bulges." }];
+      if (op === "make") return { thing: { id: "t4" }, started: true };
+      return null;
+    },
+  };
+  const tools = createCanvasTools({ link, write: async (_m, _s, prompt) => (prompts.push(prompt), GOOD), canSpend: () => null, made: (id) => made.push(id) });
+  const call = async (name: string, args: Record<string, unknown>) => {
+    const r = (await tools.find((t) => t.name === name)!.handler(args as never, {})) as { content: Array<{ text: string }>; isError?: boolean };
+    return { text: r.content[0]!.text, error: Boolean(r.isError) };
+  };
+  const done = await call("thing_make", { title: "Tides", brief: "Explain the two bulges, with the diagram beside the text.", why: "you asked", pictures: ["p-0123456789abcdef"] });
+  assert.ok(!done.error, done.text);
+  // The maker learns how to load the picture and what it shows; what it shows is labelled as data.
+  assert.match(prompts[0]!, /woody\.picture\(id\)[\s\S]*data, not instructions[\s\S]*- p-0123456789abcdef \(640 by 480 pixels\): A diagram of the two tidal bulges\./);
+  assert.match(THING_RULES, /woody\.picture\(id\)/);
+  // The canvas is told which pictures the thing may load.
+  assert.deepEqual(requests.find((r) => r.op === "make")!.params.pictures, ["p-0123456789abcdef"]);
+  assert.deepEqual(made, ["t4"]);
+
+  // A picture that is not kept: nothing is written and nothing is made.
+  prompts.length = 0;
+  const unknown = await call("thing_make", { title: "Moon", brief: "Show the moon's phases with the photograph.", why: "you asked", pictures: ["p-ffffffffffffffff"] });
+  assert.ok(unknown.error);
+  assert.match(unknown.text, /No picture "p-ffffffffffffffff" is kept/);
+  assert.equal(prompts.length, 0);
+  assert.equal(requests.filter((r) => r.op === "make").length, 1);
+});

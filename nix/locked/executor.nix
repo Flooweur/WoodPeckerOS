@@ -15,6 +15,10 @@ let
     version = "0.1.0";
     src = ../../executor;
     cargoLock.lockFile = ../../executor/Cargo.lock;
+    # Some tests write a small script and run it. Run in parallel, one test can
+    # start a program while another still has its script open, and the build
+    # then fails now and then with "Text file busy". One at a time, it cannot.
+    dontUseCargoParallelTests = true;
     meta.mainProgram = "woody-execd";
   };
 
@@ -68,6 +72,10 @@ let
       setpriv = "${pkgs.util-linux}/bin/setpriv";
       timeout = "${pkgs.coreutils}/bin/timeout";
       ca_bundle = "/etc/ssl/certs/ca-certificates.crt";
+      # Pictures from the web (Phase 9c) are decoded and written out again by
+      # libvips, run as woody-web under limits on memory, time and output.
+      vipsthumbnail = "${pkgs.vips}/bin/vipsthumbnail";
+      prlimit = "${pkgs.util-linux}/bin/prlimit";
     };
 
     # Screenshots of the kiosk display, taken as the kiosk user.

@@ -317,7 +317,7 @@ pub fn check_url(cfg: &Config, url: &str) -> Result<(String, String), String> {
 }
 
 /// One request to one address that has passed every check. Nothing is followed here.
-fn request(cfg: &Config, w: &Web, host: &str, url: &str) -> Result<Response, String> {
+fn request(cfg: &Config, w: &Web, host: &str, url: &str, accept: &str, max_bytes: usize) -> Result<Response, String> {
     // Resolve here, refuse anything that is not a public address, and pin the
     // connection to the address that was checked.
     let deny = net::parse_deny(&cfg.permanent_deny)?;
@@ -342,9 +342,9 @@ fn request(cfg: &Config, w: &Web, host: &str, url: &str) -> Result<Response, Str
         .args(["30", &w.setpriv, "--reuid", &w.user, "--regid", &user.gid.as_raw().to_string(), "--init-groups"])
         .args([
             w.curl.as_str(), "-q", "--silent", "--show-error", "--proto", "=https", "--tlsv1.2", "--noproxy", "*",
-            "--max-redirs", "0", "--max-time", "20", "--max-filesize", &MAX_BODY_BYTES.to_string(),
+            "--max-redirs", "0", "--max-time", "20", "--max-filesize", &max_bytes.to_string(),
             "--resolve", &pin, "--user-agent", "WoodPecker-OS/0.2 (a personal assistant reading for one person)",
-            "--header", "Accept: text/html,application/xhtml+xml,application/json,application/xml;q=0.9,text/plain;q=0.8",
+            "--header", accept,
             "--dump-header", "-", "--output", "-", "--", url,
         ])
         .env_clear()
@@ -356,7 +356,7 @@ fn request(cfg: &Config, w: &Web, host: &str, url: &str) -> Result<Response, Str
     match out.status.code() {
         Some(0) => {}
         Some(124) | Some(28) => return Err("the request timed out".into()),
-        Some(63) => return Err("the page is too large".into()),
+        Some(63) => return Err("what the server sent is too large".into()),
         code => {
             let err = String::from_utf8_lossy(&out.stderr);
             let err: String = err.trim().chars().take(300).collect();
@@ -366,15 +366,16 @@ fn request(cfg: &Config, w: &Web, host: &str, url: &str) -> Result<Response, Str
     split_response(&out.stdout)
 }
 
-pub fn fetch(cfg: &Config, url: &str) -> Result<Value, String> {
+/// Follows a request to its end: the address finally read, the addresses
+/// passed through on the way, and the reply. Every hop passes the same checks.
+fn follow(cfg: &Config, url: &str, accept: &str, max_bytes: usize) -> Result<(String, Vec<String>, Response), String> {
     let w = settings(cfg)?;
     let (mut host, mut url) = check_url(cfg, url)?;
-    // The addresses passed through on the way, in order.
     let mut redirects: Vec<String> = Vec::new();
-    let r = loop {
-        let r = request(cfg, w, &host, &url)?;
+    loop {
+        let r = request(cfg, w, &host, &url, accept, max_bytes)?;
         if !(300..400).contains(&r.status) {
-            break r;
+            return Ok((url, redirects, r));
         }
         if redirects.len() >= MAX_REDIRECTS {
             return Err(format!("{url} redirects again after {MAX_REDIRECTS} redirects; given up"));
@@ -387,7 +388,16 @@ pub fn fetch(cfg: &Config, url: &str) -> Result<Value, String> {
         redirects.push(url);
         host = next_host;
         url = next_url;
-    };
+    }
+}
+
+pub fn fetch(cfg: &Config, url: &str) -> Result<Value, String> {
+    let (url, redirects, r) = follow(
+        cfg,
+        url,
+        "Accept: text/html,application/xhtml+xml,application/json,application/xml;q=0.9,text/plain;q=0.8",
+        MAX_BODY_BYTES,
+    )?;
     if !r.body.is_empty() && !is_text(&r.content_type) {
         return Err(format!("not a text page (content type: {})", if r.content_type.is_empty() { "unknown" } else { &r.content_type }));
     }
@@ -397,6 +407,132 @@ pub fn fetch(cfg: &Config, url: &str) -> Result<Value, String> {
     Ok(json!({
         "url": url, "status": r.status, "content_type": r.content_type, "redirected_from": redirects,
         "bytes": r.body.len(), "truncated": truncated, "untrusted": true, "body": body,
+    }))
+}
+
+// ---- pictures (Phase 9c) -------------------------------------------------
+//
+// A picture from the web is never shown as it came. It is fetched like a
+// page, checked to be one of four plain picture formats, then decoded and
+// written out again as WebP by a converter that runs as the user with no
+// rights, with limits on its memory, time and output. What is kept is the
+// new file: pixels only, no metadata, at most 1280 pixels a side.
+
+const MAX_PICTURE_BYTES: usize = 8_000_000;
+const MAX_PICTURE_OUT: usize = 1_500_000;
+const PICTURE_SIDE: u32 = 1280;
+
+/// The picture format, from what the server says and what the file starts
+/// with. Both must agree. SVG is not accepted: it is a program, not pixels.
+pub fn picture_kind(content_type: &str, body: &[u8]) -> Result<&'static str, String> {
+    let said = content_type.split(';').next().unwrap_or("").trim();
+    let is = if body.starts_with(&[0xff, 0xd8, 0xff]) {
+        "jpeg"
+    } else if body.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
+        "png"
+    } else if body.starts_with(b"GIF87a") || body.starts_with(b"GIF89a") {
+        "gif"
+    } else if body.len() >= 12 && &body[0..4] == b"RIFF" && &body[8..12] == b"WEBP" {
+        "webp"
+    } else {
+        return Err(format!("not a picture this system accepts (JPEG, PNG, GIF or WebP); the server called it {}", if said.is_empty() { "nothing" } else { said }));
+    };
+    let expected = match is {
+        "jpeg" => matches!(said, "image/jpeg" | "image/jpg" | "image/pjpeg"),
+        other => said == format!("image/{other}"),
+    };
+    if !expected {
+        return Err(format!("the server called this {}, but the file is a {is} picture; refused", if said.is_empty() { "nothing" } else { said }));
+    }
+    Ok(is)
+}
+
+/// The width and height of a WebP file, read from its header.
+pub fn webp_size(b: &[u8]) -> Option<(u32, u32)> {
+    if b.len() < 30 || &b[0..4] != b"RIFF" || &b[8..12] != b"WEBP" {
+        return None;
+    }
+    let u24 = |s: &[u8]| u32::from(s[0]) | u32::from(s[1]) << 8 | u32::from(s[2]) << 16;
+    match &b[12..16] {
+        b"VP8X" => Some((1 + u24(&b[24..27]), 1 + u24(&b[27..30]))),
+        b"VP8 " if b[23..26] == [0x9d, 0x01, 0x2a] => Some((
+            u32::from(u16::from_le_bytes([b[26], b[27]]) & 0x3fff),
+            u32::from(u16::from_le_bytes([b[28], b[29]]) & 0x3fff),
+        )),
+        b"VP8L" if b[20] == 0x2f => {
+            let bits = u32::from_le_bytes([b[21], b[22], b[23], b[24]]);
+            Some(((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1))
+        }
+        _ => None,
+    }
+}
+
+/// Decodes the picture and writes it out again, as the user with no rights.
+fn reencode(w: &Web, body: &[u8], kind: &str) -> Result<Vec<u8>, String> {
+    let vips = w.vipsthumbnail.as_deref().ok_or("pictures are not configured on this system")?;
+    let prlimit = w.prlimit.as_deref().ok_or("pictures are not configured on this system")?;
+    let user = User::from_name(&w.user)
+        .map_err(|e| format!("lookup user {}: {e}", w.user))?
+        .ok_or_else(|| format!("user {} does not exist", w.user))?;
+    let (uid, gid) = (user.uid.as_raw(), user.gid.as_raw());
+    // A directory of its own, which only the converting user can enter.
+    let dir = std::env::temp_dir().join(format!("woody-picture-{}-{}", std::process::id(), crate::util::now_ms()));
+    std::fs::create_dir(&dir).map_err(|e| format!("picture work directory: {e}"))?;
+    let result = (|| {
+        let input = dir.join(format!("in.{kind}"));
+        let output = dir.join("out.webp");
+        std::fs::write(&input, body).map_err(|e| format!("write the picture: {e}"))?;
+        for p in [&dir, &input] {
+            std::os::unix::fs::chown(p, Some(uid), Some(gid)).map_err(|e| format!("hand the picture to {}: {e}", w.user))?;
+        }
+        let out = Command::new(&w.timeout)
+            .args(["20", &w.setpriv, "--reuid", &w.user, "--regid", &gid.to_string(), "--init-groups"])
+            .args([prlimit, "--as=3000000000", "--cpu=15", "--fsize=40000000", "--core=0", "--"])
+            .arg(vips)
+            .arg(&input)
+            .args(["--size", &format!("{PICTURE_SIDE}x{PICTURE_SIDE}>"), "-o"])
+            .arg(format!("{}[Q=80,strip]", output.display()))
+            .current_dir(&dir)
+            .env_clear()
+            .env("LC_ALL", "C")
+            .env("HOME", "/")
+            .env("VIPS_CONCURRENCY", "1")
+            .output()
+            .map_err(|e| format!("start the picture converter: {e}"))?;
+        match out.status.code() {
+            Some(0) => {}
+            Some(124) => return Err("the picture took too long to convert".into()),
+            code => {
+                let err = String::from_utf8_lossy(&out.stderr);
+                let err: String = err.trim().chars().take(200).collect();
+                return Err(format!("the picture could not be decoded (converter {}): {err}", code.unwrap_or(-1)));
+            }
+        }
+        let size = std::fs::metadata(&output).map_err(|_| "the converter produced no picture".to_string())?.len();
+        if size == 0 || size as usize > MAX_PICTURE_OUT {
+            return Err(format!("the converted picture is {size} bytes; the most kept is {MAX_PICTURE_OUT}"));
+        }
+        std::fs::read(&output).map_err(|e| format!("read the converted picture: {e}"))
+    })();
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
+/// Fetches one picture and returns it re-encoded. What comes back is untrusted: it is shown, never obeyed.
+pub fn picture(cfg: &Config, url: &str) -> Result<Value, String> {
+    let w = settings(cfg)?;
+    let (url, redirects, r) = follow(cfg, url, "Accept: image/webp,image/png,image/jpeg,image/gif;q=0.9", MAX_PICTURE_BYTES)?;
+    if r.status != 200 {
+        return Err(format!("the server answered {} for this picture", r.status));
+    }
+    let kind = picture_kind(&r.content_type, &r.body)?;
+    let out = reencode(w, &r.body, kind)?;
+    let (width, height) = webp_size(&out).ok_or("the converted picture is not a readable WebP file")?;
+    let id = format!("p-{}", &crate::util::sha256_hex(&out)[..16]);
+    Ok(json!({
+        "id": id, "url": url, "redirected_from": redirects, "original_type": kind, "original_bytes": r.body.len(),
+        "mime": "image/webp", "bytes": out.len(), "width": width, "height": height, "untrusted": true,
+        "base64": crate::util::base64(&out),
     }))
 }
 
@@ -485,6 +621,52 @@ mod tests {
         // The hour's ceiling: not at all.
         assert!(pace_decision(None, MAX_PER_HOUR).unwrap_err().contains("ceiling"));
         assert!(pace_decision(None, MAX_PER_HOUR - 1).is_ok());
+    }
+
+    #[test]
+    fn a_picture_is_one_of_four_formats_and_the_server_must_agree() {
+        let jpeg = [0xff, 0xd8, 0xff, 0xe0, 0, 0x10, b'J', b'F', b'I', b'F'];
+        let png = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d];
+        let webp = *b"RIFF\x24\x00\x00\x00WEBPVP8 ";
+        assert_eq!(picture_kind("image/jpeg", &jpeg), Ok("jpeg"));
+        assert_eq!(picture_kind("image/jpg; q=1", &jpeg), Ok("jpeg"));
+        assert_eq!(picture_kind("image/png", &png), Ok("png"));
+        assert_eq!(picture_kind("image/gif", b"GIF89a\x01\x00\x01\x00"), Ok("gif"));
+        assert_eq!(picture_kind("image/webp", &webp), Ok("webp"));
+        // The server's word and the file must agree.
+        assert!(picture_kind("image/png", &jpeg).unwrap_err().contains("but the file is a jpeg"));
+        assert!(picture_kind("text/html", &png).is_err());
+        assert!(picture_kind("", &png).is_err());
+        // Not pixels: a drawing that is a program, a page, an archive, nothing.
+        for (said, body) in [
+            ("image/svg+xml", b"<svg xmlns=\"http://www.w3.org/2000/svg\"><script>x()</script></svg>".as_slice()),
+            ("image/png", b"<html><body>not a picture</body></html>".as_slice()),
+            ("image/jpeg", b"PK\x03\x04".as_slice()),
+            ("image/png", b"".as_slice()),
+        ] {
+            assert!(picture_kind(said, body).unwrap_err().contains("not a picture this system accepts"), "{said}");
+        }
+    }
+
+    #[test]
+    fn the_size_of_a_webp_file_is_read_from_its_header() {
+        // The extended form: a canvas of 1280 by 720.
+        let mut x = b"RIFF\x00\x00\x00\x00WEBPVP8X\x0a\x00\x00\x00\x00\x00\x00\x00".to_vec();
+        x.extend_from_slice(&[0xff, 0x04, 0x00, 0xcf, 0x02, 0x00]);
+        assert_eq!(webp_size(&x), Some((1280, 720)));
+        // The lossy form: 320 by 200.
+        let mut l = b"RIFF\x00\x00\x00\x00WEBPVP8 \x00\x00\x00\x00".to_vec();
+        l.extend_from_slice(&[0, 0, 0, 0x9d, 0x01, 0x2a, 0x40, 0x01, 0xc8, 0x00]);
+        assert_eq!(webp_size(&l), Some((320, 200)));
+        // The lossless form: 16 by 9.
+        let mut ll = b"RIFF\x00\x00\x00\x00WEBPVP8L\x00\x00\x00\x00".to_vec();
+        let bits: u32 = 15 | (8 << 14);
+        ll.push(0x2f);
+        ll.extend_from_slice(&bits.to_le_bytes());
+        ll.extend_from_slice(&[0; 8]);
+        assert_eq!(webp_size(&ll), Some((16, 9)));
+        assert_eq!(webp_size(b"RIFF\x00\x00\x00\x00WAVEfmt \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"), None);
+        assert_eq!(webp_size(b"short"), None);
     }
 
     #[test]

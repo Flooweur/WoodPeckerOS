@@ -23,6 +23,7 @@ The only root component Woody can talk to. Source in `executor/`, NixOS module i
 | `osquery.query` | read | `sql`: one SELECT over an allow-listed set of tables |
 | `screen.capture` | read | `scale` (0.25–1, default 0.5) |
 | `web.fetch` | read | `url` (https, port 443, any public host that is not on the block list) |
+| `web.picture` | read | `url` (as for `web.fetch`); returns the picture re-encoded as WebP |
 | `web.blocklist` | read | none |
 | `service.start` / `service.stop` / `service.restart` | approval | `unit` (locked-core units are forbidden) |
 | `config.propose` | reversible | `summary`, `files` (`path`, `content`), `delete` |
@@ -43,6 +44,8 @@ The only root component Woody can talk to. Source in `executor/`, NixOS module i
 - runs `curl` as the unprivileged user `woody-web`, which a firewall rule confines to public addresses on port 443.
 
 A redirect is followed three times at most, and each target goes through the same list. Woody has no action that edits the block list. See MIND.md for how the agent handles what comes back.
+
+**Pictures.** `web.picture` fetches one picture under the same rules, 8 MB at most. It accepts JPEG, PNG, GIF and WebP only: the file's first bytes decide, and the server's content type must agree. The picture is then decoded and written out again as WebP by `vipsthumbnail`, run as `woody-web` in a directory of its own under `prlimit` (address space, processor time, output size) and a 20-second timeout. The result has no metadata and at most 1280 pixels a side. It is returned in base64 with its size and a name that is the fingerprint of its bytes; the executor keeps nothing.
 
 **Block list by hand.** `sudo woodyctl web-blocked`, `web-block <domain>` and `web-unblock <domain>` read and edit the block list; the HUD's "Blocked sites" record does the same. Each change is audited.
 

@@ -58,6 +58,20 @@ export function ThingsRecord({ canvas, tx, result, pick }: { canvas: CanvasState
               {thing.note}
             </p>
           )}
+          {(thing.pictures?.length ?? 0) > 0 && (
+            <div className="sources pictures">
+              <h4>
+                Pictures from the web · {thing.pictures!.length}
+              </h4>
+              <p className="dim small">Each was fetched by the executor, decoded and written out again before it was kept. Listed by the frame with the address it came from.</p>
+              {thing.pictures!.map((p) => (
+                <div key={p.id} className="source">
+                  <span>{p.source.replace(/^https:\/\//, "").split("/")[0]}</span>
+                  <span className="dim small url">{p.source}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {thing.study && (
             <div className="sources">
               <h4>
