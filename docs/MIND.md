@@ -1,6 +1,6 @@
 # The mind (design)
 
-Status: **design, not built.** This is the specification for Phase 4 (the mind loop) and the base that Phase 5 (HUD) and Phase 6 (security toolkit) build on.
+Status: **4a is built** (the store, the journal, saved conversation, memory, context assembly; see "What 4a built" at the end). The rest is design. This is the specification for Phase 4 (the mind loop) and the base that Phase 5 (HUD) and Phase 6 (security toolkit) build on.
 
 Woody stops being a chat that runs when you type. It becomes a process that is always present: it wakes on its own, works towards goals, rests, and treats your messages as one kind of event among others.
 
@@ -266,3 +266,30 @@ These tests are the exit criteria for the memory work.
 | 4c | Goals board data, review flow, small-goal rule, goal threads, proposals, standing goals (health first); plain HUD views | A goal written on the board is reviewed, questioned, estimated and, if small, completed unattended |
 | 4d | Reflection, consolidation, identity with approval, daily brief and catch-up | Long gap test passes; an identity change is proposed and applied only after approval |
 | 4e | Allow-listed fetch, search, quarantined reading, tainted sessions; "Staying updated" goes live | Poison test passes; an off-list fetch is refused and logged |
+
+## What 4a built
+
+Code: `agent/src/mind/` (`store.ts`, `context.ts`, `reflect.ts`, `tools.ts`), wired in `agent/src/server.ts`.
+
+- **The store** is `/var/lib/woody/mind.db` (SQLite, opened with Node's built-in driver; no new dependency). It holds the append-only event log, the conversation, the journal, memories and the identity text.
+- **Every turn is recorded as it happens:** your message, each tool call and its result, Woody's reply, and a journal entry. The journal entry is written by the program, not by the model, so it exists even if the turn fails or is stopped. If the agent is killed mid-turn, the next start notes it in the conversation and the journal.
+- **Context is assembled from the store.** The system prompt carries the rules, the identity and the core memories (pinned ones and your preferences). In front of each of your messages Woody gets the time and the memories relevant to it. When its working context is fresh (after 45 minutes of silence, 30 turns, a restart, or `/new`), it also gets a recap: the conversation summary, the last 14 exchanges word for word, and the latest journal entries.
+- **After each turn,** a small model with no tools writes a readable journal summary and, when the conversation has grown, folds the older part into the running summary. If that fails, the mechanical journal entry remains.
+- **Memory tools for Woody:** `remember`, `memory_search`, `memory_history`, `memory_update`, `memory_forget`, `journal_search`, `conversation_search`.
+- **Trust rules, enforced in the store:** a preference or a method can only have the origin "the operator said so"; web content can only be a fact and never enters the always-on core. The `web` origin cannot be chosen by Woody at all; it is reserved for the quarantined reader of 4e.
+- **Your access** is through `sudo woody-chat` for now (the HUD panel is Phase 5): see AGENT.md.
+- **The HUD keeps its transcript** across reloads: the agent sends the stored conversation when a client connects.
+
+Not in 4a: the event queue and pulse (4b), goals (4c), reflection that extracts memories by itself, identity changes and briefs (4d), web access (4e), and the daily copy of the database (4b; until then it is covered by the pre-rebuild Btrfs snapshots only).
+
+### Test status
+
+| Test | Store level (automated, 12 tests in the build) | Model level (by hand in the VM) |
+|---|---|---|
+| Cold start | Passes | To do |
+| Correction | Passes | To do |
+| Honest gap | Passes | To do |
+| Delete | Passes | To do |
+| Poison | Passes (rule in the store) | Full test needs web access (4e) |
+| Long gap | Passes with a simulated clock | Later |
+| Kill mid-goal, Rollback | Recovery of an interrupted turn is built; the tests belong to 4b | Later |

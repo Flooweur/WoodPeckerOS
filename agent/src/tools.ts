@@ -41,7 +41,10 @@ function failure(message: string): ToolResult {
 
 const READ_ONLY = { annotations: { readOnlyHint: true } };
 
-export function createToolServer(exec: ExecutorClient, notify: Notify, files: Files) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyTool = ReturnType<typeof tool<any>>;
+
+export function createToolServer(exec: ExecutorClient, notify: Notify, files: Files, extraTools: AnyTool[] = []) {
   async function settle(reply: ExecReply, action: string): Promise<ToolResult> {
     switch (reply.status) {
       case "ok":
@@ -135,9 +138,12 @@ export function createToolServer(exec: ExecutorClient, notify: Notify, files: Fi
 
   return createSdkMcpServer({
     name: TOOL_SERVER_NAME,
-    version: "0.2.0",
+    version: "0.4.0",
     alwaysLoad: true,
     tools: [
+      // ---- memory (mind/tools.ts) ----------------------------------------
+      ...extraTools,
+
       // ---- observe -------------------------------------------------------
       tool(
         "system_info",

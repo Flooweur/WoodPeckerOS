@@ -5,6 +5,8 @@
 //   sudo woody-chat
 //
 // Commands: /model [id]   /new   /stop   /quit
+//           /memories [words]   /memory <id>   /remember <text>   /correct <id> <text>
+//           /pin <id>   /unpin <id>   /forget <id>   /journal [n]   /mind
 import readline from "node:readline";
 import { WebSocket } from "ws";
 
@@ -106,19 +108,101 @@ ws.on("message", (raw) => {
       console.log(red(`  error: ${msg.error}${msg.detail ? ` (${msg.detail})` : ""}`));
       prompt();
       break;
+    case "mind_result":
+      if (!msg.ok) console.log(red(`  ${msg.error}`));
+      else printMind(msg.op, msg.result);
+      prompt();
+      break;
   }
 });
+
+const ORIGIN: Record<string, string> = { user: "you said so", observed: "observed", inferred: "inferred", web: "web" };
+
+function memoryRow(m: Record<string, any>): string {
+  const flags = [m.pinned ? "pinned" : "", m.superseded_by ? `replaced by #${m.superseded_by}` : ""].filter(Boolean).join(", ");
+  const when = new Date(m.confirmed).toISOString().slice(0, 10);
+  return `  #${m.id} [${m.kind}; ${ORIGIN[m.origin] ?? m.origin}; ${when}${flags ? `; ${flags}` : ""}] ${m.statement}`;
+}
+
+function printMind(op: string, result: any): void {
+  switch (op) {
+    case "memories":
+    case "memory":
+      if (!result.length) console.log(dim("  nothing found"));
+      for (const m of result) console.log(memoryRow(m));
+      break;
+    case "journal":
+      if (!result.length) console.log(dim("  the journal is empty"));
+      for (const j of result) {
+        console.log(amber(`  ${new Date(j.ts).toISOString().slice(0, 16).replace("T", " ")}`));
+        console.log(`    ${j.summary || `${j.wake} ${j.did} ${j.outcome}`}`);
+        if (j.next) console.log(dim(`    next: ${j.next}`));
+      }
+      break;
+    case "forget":
+      console.log(dim(`  deleted ${result.deleted.map((i: number) => `#${i}`).join(", ")}`));
+      break;
+    case "stats":
+      console.log(dim(`  ${Object.entries(result).map(([k, v]) => `${k} ${v}`).join(" · ")}`));
+      break;
+    default:
+      console.log(memoryRow(result));
+  }
+}
+
+function mind(op: string, extra: Record<string, unknown> = {}): void {
+  ws.send(JSON.stringify({ type: "mind", op, ...extra }));
+}
+
+/** Returns true if the line was a memory command. */
+function mindCommand(text: string): boolean {
+  const [cmd, ...rest] = text.split(/\s+/);
+  const arg = rest.join(" ");
+  const id = Number(rest[0]);
+  switch (cmd) {
+    case "/memories":
+      mind("memories", { query: arg });
+      return true;
+    case "/memory":
+      mind("memory", { id });
+      return true;
+    case "/remember":
+      mind("add", { statement: arg });
+      return true;
+    case "/correct":
+      mind("correct", { id, statement: rest.slice(1).join(" ") });
+      return true;
+    case "/pin":
+      mind("pin", { id });
+      return true;
+    case "/unpin":
+      mind("unpin", { id });
+      return true;
+    case "/forget":
+      mind("forget", { id });
+      return true;
+    case "/journal":
+      mind("journal", { n: Number(rest[0]) || 10 });
+      return true;
+    case "/mind":
+      mind("stats");
+      return true;
+    default:
+      return false;
+  }
+}
 
 rl.on("line", (line) => {
   const text = line.trim();
   if (!text) return prompt();
+  if (mindCommand(text)) return;
   if (text === "/quit" || text === "/exit") {
     ws.close();
     return;
   }
   if (text === "/new") {
     ws.send(JSON.stringify({ type: "new_session" }));
-    console.log(dim("started a new conversation"));
+    console.log(dim("cleared Woody's working context (conversation, journal and memory are kept)"));
     return;
   }
   if (text === "/stop") {

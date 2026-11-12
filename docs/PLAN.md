@@ -38,7 +38,7 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 | 1 | Base system and rollback | Done |
 | 2 | Privileged core, agent, thin HUD | Done |
 | 3 | System hands (3a observe and operate; 3b self-modification; 3c screenshots and clipboard) | Done |
-| 4 | **Mind loop**: events, state, memory, goals, journal, alarms, pacer, web access | Designed |
+| 4 | **Mind loop**: events, state, memory, goals, journal, alarms, pacer, web access | 4a built (VM test pending), 4b next |
 | 5 | **Full HUD**, designed around the loop | Planned |
 | 6 | **Security toolkit** | Planned |
 
@@ -82,6 +82,13 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 - Screenshots: the executor runs `grim` as the kiosk user; Woody receives the picture and can look at the HUD.
 - Clipboard, changed from the plan: the kiosk compositor (`cage`) does not offer the clipboard protocol that `wl-clipboard` needs without stealing the screen. Instead Woody offers text through a HUD notice with a Copy button, and cannot read the clipboard. This also works unchanged when the HUD is opened from the Windows host browser (Phase 5).
 - Phase 3 is complete.
+
+## Phase 4a results (2026-11-12)
+
+- The mind's store (`/var/lib/woody/mind.db`): append-only event log, saved conversation, journal, memories with origin, sources and versions, identity. Details at the end of [MIND.md](MIND.md).
+- Each turn's context is assembled from the store; the SDK session is only a short-lived working context.
+- Chosen: Node's built-in SQLite driver (with full-text search), so no native dependency to package.
+- 12 store-level continuity tests run in the build. The model-level tests are done by hand in the VM.
 
 ## Review of the original brief: what changes and why
 

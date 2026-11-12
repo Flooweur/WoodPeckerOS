@@ -98,6 +98,16 @@ export function App() {
         case "agent_down":
           setAgentUp(false);
           break;
+        case "history":
+          // The conversation as stored by the agent: shown again after a reload.
+          setItems(
+            (Array.isArray(msg.items) ? msg.items : []).map((it: Record<string, unknown>) => ({
+              ...it,
+              key: nextKey.current++,
+              ...(it.kind === "assistant" ? { streaming: false } : {}),
+            })) as Item[],
+          );
+          break;
         case "user_text":
           push({ kind: "user", text: msg.text });
           break;

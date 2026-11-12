@@ -2,7 +2,7 @@
   "name": "woody-agent",
   "version": "0.1.0",
   "private": true,
-  "description": "WoodPecker-OS agent service: Claude Agent SDK, typed tools via the executor, chat over WebSocket",
+  "description": "WoodPecker-OS agent service: Claude Agent SDK, typed tools via the executor, a persistent mind store, chat over WebSocket",
   "type": "module",
   "license": "MIT",
   "bin": {
@@ -11,7 +11,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test dist/mind/store.test.js"
   },
   "engines": {
     "node": ">=22"
