@@ -198,7 +198,7 @@ Web pages and tool output are attacker-controllable. If they could write lasting
 
 ### Identity
 
-A short document: character, values, how Woody works with you. It is versioned. After reflection Woody may propose a change, shown as a before-and-after in your inbox; it takes effect only when you approve.
+A short document: character, values, how Woody works with you. It is versioned. Until Phase 8c a change needed your approval. Since then Woody changes it itself after its reflection, by small steps, and you are shown each change: see "Identity and face (Phase 8c)" below.
 
 The safety rules are a separate text, kept in the locked core, and are always placed before the identity in the model's instructions.
 
@@ -371,7 +371,7 @@ Code: `reflectionPrompt` and `briefPreamble` in `agent/src/mind/context.ts`, sch
 - **Daily reflection.** Once a day, at the first quiet moment after 03:00, if you wrote to Woody or it did at least three things since the last one. Woody reads the period's record (its journal and what was said in every thread), stores what is durable, merges duplicates, corrects what is out of date, and may propose a change to its identity. It runs as its own session in its own thread, so nothing of it appears in the conversation; the journal records what it changed.
 - **What reflection does not read:** tool output. Only lines you wrote are marked as yours, and only those can establish a preference or a method.
 - **Merging** marks the duplicate as replaced by the memory that stays. Nothing is deleted, and a memory that came from you is never merged into a weaker one.
-- **Identity.** Woody can propose a new version of its identity text, with its reason. Nothing changes until you approve; you see the current text and the proposal. Only one proposal can wait at a time. You can also rewrite the text yourself. Every version is kept. The identity is placed after the rules and is declared unable to override them.
+- **Identity.** As built in 4d, Woody proposed a new version of its identity text and nothing changed until you approved. Phase 8c replaced the proposal with a change Woody makes itself (see "Identity and face" below); a proposal that was still waiting can still be decided in the identity record. You can also rewrite the text yourself. Every version is kept. The identity is placed after the rules and is declared unable to override them.
 - **Daily brief** at 08:00 local time by default (changeable, or off): what Woody did, what it learned, what is blocked on you, what it plans next. It is built from the journal, the board and what waits on you, so it does not depend on what the model happens to remember.
 - **Catch-up.** The HUD sends a sign of life when you press a key or click (at most once a minute). If that comes after three hours of silence and Woody did things by itself meanwhile, it tells you what happened. If nothing worth telling happened, it says nothing.
 - All three are ordinary queued events: Pause and the pacer apply, and they run in observe-only mode.
@@ -399,7 +399,7 @@ Code: `executor/src/web.rs` (the fetch), `agent/src/web.ts` (the quarantined rea
 - **Adding a site** is an approval-tier action: Woody asks with a reason, you approve in the HUD. You can also edit the file as root.
 - **Search** uses Claude's web search, run by a separate small model whose only tool is the search.
 - **Quarantined reading.** Woody never sees a page or a search result. A small model with no tools reads it and writes notes answering Woody's question; Woody gets the notes, labelled as untrusted. The reader is told to report instruction-like text instead of relaying it.
-- **Tainted sessions.** Once a session has received web notes, it may only observe and take notes for the rest of that session. Refused from then on: service and configuration changes, alarms, identity proposals, corrections, merges and deletions of memory, goal reviews, clipboard offers, and requests to widen the allow-list. This is enforced in code, not left to the model. If it was the main conversation, the model's working context is dropped afterwards, so the next session starts from the store.
+- **Tainted sessions.** Once a session has received web notes, it may only observe and take notes for the rest of that session. Refused from then on: service and configuration changes, alarms, changes to its identity and to its lattice's designs, corrections, merges and deletions of memory, goal reviews, clipboard offers, and requests to widen the allow-list. This is enforced in code, not left to the model. If it was the main conversation, the model's working context is dropped afterwards, so the next session starts from the store.
 - **What may still be written in a tainted session** is marked: a memory is stored as a fact from the web whatever origin Woody claims (so never a preference or a method, and never in the always-on core); a goal checkpoint or proposal carries a line saying it was written after reading the web.
 - **"Stay up to date"** is now on: once a day, $2 a week.
 
@@ -506,13 +506,60 @@ The gateway keeps the rule, because the gateway keeps the canvas:
 - The reflection may store a conclusion as a fact with origin `inferred` and the subject "the operator's canvas". The store still refuses a preference that does not come from your own words.
 - The next daily brief lists those conclusions so that you can correct them.
 
+## Identity and face (Phase 8c)
+
+Code: the limits in `agent/src/mind/self.ts`, the tools in `agent/src/mind/self-tools.ts`, the versions in `agent/src/mind/store.ts`, the frame's side in `hud/web/src/frame/faceData.ts` and `Lattice.tsx`.
+
+### An identity that evolves
+
+Woody rewrites its identity text itself, with the tool `identity_change`. No approval is needed. What bounds it is measured by plain code:
+
+| Limit | Value |
+|---|---|
+| When | Only during the daily reflection |
+| How often | One change, then 20 hours must pass |
+| How much | At most a quarter of the words may differ from the version before |
+| How far | Once less than half of the first version's words remain, changes wait until you say to continue |
+| After you restore or rewrite it | Woody leaves it alone for 3 days |
+| From the web | Never: the tool is refused in a session that read the web |
+
+- **The measure** is in words, in order: the words two versions share (their longest common subsequence) over the length of the longer one. Punctuation and capitals do not count.
+- **The first version is the anchor.** Every later version is compared against it. The record shows how much of it remains.
+- **You are told.** The frame shows a notice by the lattice until you open the identity record. There you see the before and the after side by side with what changed marked, and Woody's reason. The next daily brief says it too.
+- **Restore is one action.** Any version can be put back. The restored text becomes a new version, so nothing is lost. Woody is told at its next reflection that you put a version back, and that this is your answer to that change.
+- **A switch** in the identity record turns Woody's own changes off.
+- The rules stay a separate text placed before the identity, and the identity is declared unable to override them.
+- A restore weighs on Woody's ease as a named cause ("you put my identity back to an earlier version").
+
+### A face of its own
+
+The lattice's designs are data Woody can change with `face_design`, and it may invent expressions.
+
+- **A design is a flip book:** 1 to 16 pictures of 8 by 8 cells, each cell dark or lit at a brightness from 1 to 9, each picture shown for 80 to 5000 milliseconds. One colour per design, from amber, white, green, blue and violet. Cells may fade between pictures.
+- **A state** (answering, working, resting, sleeping, reflecting) loops for as long as it lasts. **A moment or an expression** plays one to four times, 8 seconds at most.
+- **Invented expressions:** up to 12, each with a name and what it expresses.
+- **Showing one:** `express` plays an expression while Woody speaks or works, at most six in a session. The expressions tied to real events still play by themselves.
+- **Every version is kept** (30 per design). The record "Its face" shows each design, which are Woody's own and why, and puts back the built-in one or an earlier drawing.
+- **The frame's own signals** cannot be redrawn or imitated by name, and red is theirs alone: waiting for your approval, paused, the model unreachable or no key, out of allowance, the hour's ceiling, a problem, and the wall shown while Woody reads the web.
+- **Checked twice.** The agent checks a design when Woody writes it. The frame checks it again before drawing a cell, ignores anything that is not well formed, and draws its own signals whatever the data says.
+
+### Test status
+
+| What | In containers | In the VM |
+|---|---|---|
+| Step size, one a day, the pause when far, the switch, restore, the quiet days | 9 tests in `self.test.ts` | To do |
+| `identity_change` only in the reflection; the reflection and the brief say where the identity stands | Tests | To do |
+| Designs checked cell by cell; reserved names and red refused; versions and restore | Tests | To do |
+| The frame plays Woody's designs, ignores bad ones, keeps its own signals | 19 scripted browser checks | To do |
+| What a real model does with its identity and its face | Not testable here | To do |
+
 ## What the redesign will change
 
 Decided on 2026-11-12 and specified in [VISION.md](VISION.md). The last column says what is built; the phases are in [PLAN.md](PLAN.md).
 
 | Today | After the redesign | Phase |
 |---|---|---|
-| Woody's identity changes only when you approve a proposal | Woody rewrites it itself after reflection, in small steps; you are told, every version is kept, any can be restored | 8 |
+| Woody's identity changes only when you approve a proposal | Woody rewrites it itself after reflection, in small steps; you are told, every version is kept, any can be restored | 8c: built, see "Identity and face" above |
 | Acting on its own, Woody is in observe-only mode and must propose a goal for any change | Woody changes the canvas and its own program freely, with undo; only the locked core needs approval | 7 (canvas), 10 (program) |
 | Woody proposes goals of its own and waits | A share of the budget is its own, for interests and projects it chooses | 8b: built, see "A life of its own" above |
 | No inner state beyond Working, Resting and so on | A few slow values with real causes (energy, ease, curiosity, attention, unease) that shape behaviour | 8a: built, see "The inner state" above |

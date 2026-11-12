@@ -29,7 +29,7 @@ Everything the three-column HUD showed is still there, one click or one key away
 | `F4` | Conversation | Everything said, on a time spine. Each line carries the mark of its kind: circle for something said, square for a tool, triangle for a wake-up, diamond for a save, cross for a problem |
 | `F5` | Memory | What Woody remembers, with where each item came from |
 | `F6` | Journal | One entry per wake-up |
-| `F7` | Identity | Who Woody is, and the earlier versions |
+| `F7` | Identity | Who Woody is, how much of the first version remains, each change Woody made with its before and after, and every version with a button to put it back |
 | `F8` | Settings | The model, the daily brief, the small-goal limit, the expressions |
 | `F9` | Machine | Woody's state, next alarm, queue and allowance; how Woody is (energy, ease, curiosity, attention to you, unease) and why; the machine's meters (read by the gateway from `/proc` every two seconds), failed services, and which services answer |
 | `F10` | Activity | The latest events |
@@ -40,6 +40,10 @@ Everything the three-column HUD showed is still there, one click or one key away
 `Esc` lets go of one thing at a time: the line being typed, the menu, the open record and, with nothing open, Woody's current work.
 
 Two more records, also in the lattice menu, belong to the canvas: **Things** (every thing, on the canvas or put away: who made it, why, its versions and its source) and **Changes** (every change to the canvas with who made it and why, the attempts that were refused, and undo).
+
+**Its face** (in the lattice menu) shows every design the lattice can play, each as a small live lattice: which ones Woody drew itself, when and why, with a button to put the built-in one or an earlier drawing back. The frame's own signals are listed last with what each one says.
+
+When Woody has changed its identity and you have not looked yet, a notice appears beside the lattice. Clicking it opens the identity record on the change.
 
 **Its own life** (in the lattice menu) is the record of what Woody does when nothing is asked of it:
 
@@ -118,6 +122,8 @@ These requests are made the way Woody makes them: a pinned thing refuses them, P
 
 The ongoing state moves quicker when Woody is fresh and slower when it is tired. A state that needs you never changes its look.
 
+The table gives the built-in designs. Since Phase 8c Woody may redraw the ones that are its own (answering, working, resting, asleep, reflecting, the moments except "problem", and the expressions) and invent expressions; its drawings are flip books of up to 16 pictures in one of five colours. The rows in red, pacing and the web wall are the frame's: they are drawn as below whatever Woody has drawn. See "A face of its own" in [MIND.md](MIND.md).
+
 | It shows | How |
 |---|---|
 | Answering you | Rings spreading from the centre |
@@ -132,7 +138,7 @@ The ongoing state moves quicker when Woody is fresh and slower when it is tired.
 | Reading the web | Activity behind a wall with one gap |
 | Reflecting | Two halves breathing in turn |
 
-Moments play once over the state: woke up, your message arrived, a tool call, something saved, a goal done, a problem. Expressions are tied to real events: a smile when you come back after hours, a wink when a goal finishes within budget, a yawn after a long rest, three taps when it starts work on a goal, a tilted head when it asks you something, a worried face when it woke for a problem, a sparkle when you accept its proposal, a heart when you thank it, eyes towards the conversation while you type, and closed eyes while it is asleep (its night, with nobody at the screen). They never cover a state that needs you, and Settings can turn them off.
+Moments play once over the state: woke up, your message arrived, a tool call, something saved, a goal done, a problem. Expressions are tied to real events: a smile when you come back after hours, a wink when a goal finishes within budget, a yawn after a long rest, three taps when it starts work on a goal, a tilted head when it asks you something, a worried face when it woke for a problem, a sparkle when you accept its proposal, a heart when you thank it, eyes towards the conversation while you type, and closed eyes while it is asleep (its night, with nobody at the screen). Woody may also show an expression when it chooses, a few times in a session. They never cover a state that needs you, and Settings can turn them off.
 
 ## Before you rebuild: two passwords to set
 

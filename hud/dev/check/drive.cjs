@@ -39,17 +39,39 @@ let linkSeq = 0;
 const linkWaiting = new Map();
 const thingEvents = [];
 const canvasEvents = [];
+// Since Phase 8c it also plays the agent towards the frame: it reports a state,
+// answers for Woody's face and identity, and keeps what the operator asked of it.
+const browsers = new Set();
+const mindCalls = [];
+let agentState = null;
+let faceAnswer = null;
+let identityAnswer = null;
+const agentSay = (msg) => { for (const b of browsers) if (b.readyState === 1) b.send(JSON.stringify(msg)); };
 fs.rmSync(AGENT_SOCK, { force: true });
 const agentHttp = http.createServer();
 new WebSocket.Server({ server: agentHttp }).on("connection", (ws) => {
+  browsers.add(ws);
+  if (agentState) ws.send(JSON.stringify(agentState));
   ws.on("message", (raw) => {
     const m = JSON.parse(raw.toString());
-    if (m.type === "canvas_link") linkSocket = ws;
+    if (m.type === "mind" && (m.op === "face" || m.op === "face_restore" || String(m.op).startsWith("identity"))) {
+      mindCalls.push(m);
+      const result = String(m.op).startsWith("face") ? faceAnswer : identityAnswer;
+      if (!result) return;
+      if (m.op === "identity_seen") {
+        identityAnswer.state.unseen = [];
+        agentState = { ...agentState, identity: { ...agentState.identity, unseen: [] } };
+        agentSay(agentState);
+      }
+      ws.send(JSON.stringify({ type: "mind_result", op: m.op, ok: true, result }));
+      return;
+    }
+    if (m.type === "canvas_link") { linkSocket = ws; browsers.delete(ws); }
     else if (m.type === "canvas_reply") { linkWaiting.get(m.rid)?.(m); linkWaiting.delete(m.rid); }
     else if (m.type === "thing_event") thingEvents.push(m);
     else if (m.type === "canvas_event") canvasEvents.push(m.change);
   });
-  ws.on("close", () => { if (linkSocket === ws) linkSocket = null; });
+  ws.on("close", () => { browsers.delete(ws); if (linkSocket === ws) linkSocket = null; });
 });
 agentHttp.listen(AGENT_SOCK);
 /** One request as Woody. Resolves to { ok, result | error }. */
@@ -343,6 +365,94 @@ function startGateway() {
   check("its own refused attempts are part of that record", told((c) => c.by === "woody" && c.refused === "pinned by the operator"));
   check("and so is a thing of its own that was taken back", told((c) => c.by === "woody" && c.op === "undo" && /did not start/.test(c.why)));
   check("each change is told once, in order", new Set(canvasEvents.map((c) => c.seq)).size === canvasEvents.length && canvasEvents.every((c, i) => i === 0 || c.seq > canvasEvents[i - 1].seq), `${canvasEvents.length} events`);
+
+  // ---- Woody's face and its identity (Phase 8c) ----
+  // The frame plays the designs Woody drew, checks each one itself, and never
+  // lets Woody's data stand in for one of its own signals.
+  const LIT = ["........", "........", "..9999..", "..9..9..", "..9..9..", "..9999..", "........", "........"];
+  const DARK = Array.from({ length: 8 }, () => "........");
+  const drawn = (colour, extra = {}) => ({ colour, fade: false, repeat: 1, frames: [{ rows: LIT, ms: 400 }, { rows: DARK, ms: 400 }], ...extra });
+  const entry = (name, kind, design, builtin = true) => ({ name, kind, about: "for the check", builtin, looks: "as built in", design, version: 1, ts: Date.now(), reason: "for the check" });
+  faceAnswer = {
+    version: 1,
+    history: {},
+    designs: [
+      entry("resting", "state", drawn("blue")),
+      entry("shrug", "expression", drawn("green", { frames: [{ rows: LIT, ms: 1500 }] }), false),
+      entry("paused", "state", drawn("green")), // one of the frame's signals, by name
+      entry("problem", "moment", drawn("green")), // another
+      entry("smile", "expression", drawn("red")), // red is the frame's
+      entry("wink", "expression", { colour: "amber", frames: [{ rows: [...LIT.slice(0, 7), "<script>"], ms: 400 }] }), // not a picture
+      entry("heart", "expression", drawn("blue", { frames: Array.from({ length: 40 }, () => ({ rows: LIT, ms: 400 })) })), // too many frames
+    ],
+  };
+  const ID1 = "You are somewhat playful: observant, at ease, and fond of the small detail that gives the game away. You are also exact. You never bluff.";
+  const ID3 = `${ID1} With this operator you give times in Paris time.`;
+  identityAnswer = {
+    current: { version: 3, text: ID3 },
+    pending: [],
+    history: [
+      { version: 3, ts: Date.now() - 3_600_000, text: ID3, note: "changed by Woody after its reflection", author: "woody", reason: "They asked for Paris time three times this week.", seen: false },
+      { version: 2, ts: Date.now() - 86_400_000, text: ID1, note: "written by the operator", author: "operator", reason: "", seen: true },
+      { version: 1, ts: Date.now() - 9 * 86_400_000, text: ID1.replace(" You never bluff.", ""), note: "initial character", author: "initial", reason: "", seen: true },
+    ],
+    state: { version: 3, remaining: 0.9, paused: false, frozen: false, blocked: null, unseen: [3] },
+  };
+  identityAnswer.anchor = identityAnswer.history[2];
+  agentState = {
+    type: "state", model: "m", models: [], busy: false, has_credential: true,
+    budget: { month: "2026-11", spent_usd: 1, cap_usd: 100, remaining_usd: 99, exhausted: false, daily_usd: 3.33, autonomous_usd: 3, own: { share_usd: 25, spent_usd: 0, available_usd: 1 } },
+    mind: { identity_version: 3 },
+    mind_state: { state: "resting", focus: "", since: Date.now(), mode: null, tainted: false, failed_units: [], paused: false, queue: { operator: 0, autonomous: 0 }, next_alarm: null, waiting_on_operator: 0 },
+    face: 1,
+    identity: { version: 3, unseen: [3], paused: false, remaining: 0.9 },
+  };
+  agentSay(agentState);
+  const lat = (what) => js(`(() => { const l = document.querySelector(".lattice-button .lattice"); const lit = [...l.querySelectorAll("i")].find((i) => Number(getComputedStyle(i).opacity) > 0.5); return ${what}; })()`);
+  const label = (name) => `document.querySelector(".lattice-button .lattice")?.getAttribute("aria-label") === "Woody: ${name}"`;
+  check("the lattice shows the design Woody drew for resting", (await until(`document.querySelector(".lattice-button .lattice")?.dataset.own === "1"`)) && (await js(label("resting"))));
+  check("in the colour Woody chose from its palette", (await js(`getComputedStyle(document.querySelector(".lattice-button .lattice i")).backgroundColor`)) === "rgb(127, 178, 245)");
+  const flipped = await js(`(async () => { const seen = new Set(); for (let i = 0; i < 14; i++) { seen.add(getComputedStyle(document.querySelectorAll(".lattice-button .lattice i")[18]).opacity); await new Promise((r) => setTimeout(r, 90)); } return [...seen].sort().join(" "); })()`);
+  check("its pictures follow one another", flipped === "0.1 1", flipped);
+  agentSay({ type: "moment", name: "shrug" });
+  check("an expression Woody invented plays when Woody shows it", (await until(label("shrug"), 3000)) && (await lat(`getComputedStyle(lit).backgroundColor`)) === "rgb(127, 207, 149)");
+  check("and then the lattice goes back to its state", await until(label("resting"), 5000));
+  agentSay({ type: "moment", name: "no-such-thing" });
+  await sleep(500);
+  check("a name the frame does not know plays nothing", await js(label("resting")));
+  for (const [name, why] of [["smile", "in red"], ["wink", "that is not a picture"], ["heart", "with too many frames"]]) {
+    agentSay({ type: "moment", name });
+    check(`a design ${why} is ignored: the built-in "${name}" plays`, (await until(label(name), 3000)) && (await lat(`l.dataset.own === undefined`)));
+    await until(label("resting"), 6000);
+  }
+  agentSay({ type: "moment", name: "problem" });
+  check("a problem is the frame's to show, in red, whatever Woody drew under that name", (await until(label("problem"), 3000)) && (await lat(`l.dataset.own === undefined && getComputedStyle(lit).backgroundColor`)) === "rgb(255, 90, 77)");
+  await until(label("resting"), 6000);
+  paused = true;
+  check("Pause is the frame's to show too", (await until(label("paused"), 15000)) && (await lat(`l.dataset.own === undefined && getComputedStyle(lit).backgroundColor`)) === "rgb(255, 90, 77)");
+  paused = false;
+  await until(label("resting"), 15000);
+
+  check("the frame says by the lattice that Woody changed its identity", await until(`document.querySelector(".voice-note")?.textContent.includes("changed its identity")`));
+  await shot("7-identity-notice");
+  await js(`document.querySelector(".voice-note").click()`);
+  check("the record shows the before, the after and the reason", (await until(`document.querySelector('.notice-box[data-change="3"] mark.diff-new')?.textContent.includes("Paris time")`)) && (await js(`document.querySelector(".notice-box").textContent.includes("three times this week") && document.querySelectorAll(".notice-box pre.diff").length === 2`)));
+  check("opening it is looking: the notice goes, the change stays in the record", (await until(`!document.querySelector(".voice-note")`)) && mindCalls.some((m) => m.op === "identity_seen") && (await js(`!!document.querySelector('.notice-box[data-change="3"]')`)));
+  await shot("8-identity-change");
+  await js(`[...document.querySelectorAll(".notice-box button")].find((b) => b.textContent.includes("put version 2 back")).click()`);
+  await sleep(400);
+  check("one action puts the earlier version back", mindCalls.some((m) => m.op === "identity_restore" && m.id === 2));
+  await js(`document.querySelector(".lattice-button").click()`);
+  await until(`!!document.querySelector(".menu-list")`);
+  await js(`[...document.querySelectorAll(".menu-list button")].find((b) => b.textContent.includes("ITS FACE")).click()`);
+  check("the record of its face lists every design and shows which are Woody's own", (await until(`document.querySelectorAll(".face-entry").length >= 12`)) && (await js(`document.querySelectorAll(".face-entry .lattice[data-own]").length`)) === 2, `${await js(`document.querySelectorAll(".face-entry").length`)} entries`);
+  check("a design under one of the frame's names is not listed as Woody's", await js(`![...document.querySelectorAll(".face-entry")].some((e) => /^(paused|problem)$/.test(e.querySelector("b").textContent) && e.textContent.includes("for the check"))`));
+  check("a design that is not well formed is said to be so", await js(`[...document.querySelectorAll(".face-entry")].find((e) => e.querySelector("b").textContent === "smile").textContent.includes("not well formed")`));
+  await shot("9-face");
+  await js(`[...document.querySelectorAll(".face-entry")].find((e) => e.querySelector("b").textContent === "resting").querySelector("button").click()`);
+  await sleep(400);
+  check("the operator can put a built-in design back", mindCalls.some((m) => m.op === "face_restore" && m.name === "resting" && m.id === undefined));
+  await js(`document.querySelector(".panel-head button.ghost").click()`);
 
   // ---- everything survives a restart of the gateway ----
   const before = (await things()).map((t) => [t.id, t.box.x, t.box.y, t.version, t.pinned, t.removed]);

@@ -75,6 +75,7 @@ input[type="checkbox"] { accent-color: var(--amber); }
 .voice-state.alert { color: var(--red-soft); }
 .voice-state .state-mark { width: 10px; height: 10px; border-width: 2px; }
 .voice-needs { min-height: 24px; padding: 0 8px; background: var(--red-bg); color: var(--red-soft); border-color: var(--red-line); font-size: 11px; }
+.voice-note { min-height: 24px; padding: 0 8px; background: var(--bg); color: var(--amber); border-color: var(--amber); font-size: 11px; }
 .voice-said { display: block; max-width: 100%; min-height: 0; padding: 0; border: 0; background: transparent; text-align: left; text-transform: none; letter-spacing: 0; font-size: 14px; line-height: 1.5; color: var(--text); }
 .voice-said:hover:not(:disabled) { background: transparent; }
 .voice-you { display: block; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -225,6 +226,7 @@ pre { font: 12px/1.45 var(--font); color: var(--soft); background: var(--bg); bo
 /* ---- the lattice's cells ---- */
 .lattice { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; }
 .lattice i { display: block; aspect-ratio: 1; }
+.lattice.mini { flex: none; width: 60px; gap: 2px; }
 
 @keyframes lat-sweep { 0% { opacity: .12 } 18% { opacity: 1 } 55% { opacity: .12 } 100% { opacity: .12 } }
 @keyframes lat-pop { 0% { opacity: .12 } 6% { opacity: 1 } 22% { opacity: .12 } 100% { opacity: .12 } }
@@ -266,6 +268,23 @@ pre { font: 12px/1.45 var(--font); color: var(--soft); background: var(--bg); bo
 textarea { resize: vertical; }
 
 .stack.wide { max-width: none; }
+/* Woody's face, and the steps of its identity */
+.face-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 0 22px; }
+.face-entry { display: flex; align-items: flex-start; gap: 12px; padding: 9px 0; border-top: 1px solid var(--faint); }
+.face-text { display: grid; gap: 3px; min-width: 0; }
+.face-text .one b { color: var(--amber); letter-spacing: 0.06em; }
+.face .row-actions { margin: 2px 0 0; }
+.face .row-actions button { min-height: 24px; padding: 0 8px; font-size: 11px; }
+.notice-box { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--amber); }
+.notice-box.alert { border-color: var(--red-line); background: var(--red-bg); }
+.notice-box h4 { margin: 0; }
+.notice-box p { margin: 0; }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.pair .label { font-size: 11px; letter-spacing: 0.12em; color: var(--dim); margin-bottom: 3px; }
+pre.diff { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+mark.diff-gone { background: transparent; color: var(--red-soft); text-decoration: line-through; }
+mark.diff-new { background: var(--amber); color: var(--bg); }
+label.check { display: block; font-size: 13px; line-height: 1.5; }
 .search.three { grid-template-columns: minmax(0, 1fr) auto auto; }
 .record.interest > summary { display: grid; gap: 2px; cursor: pointer; list-style: none; }
 .record.interest > summary::-webkit-details-marker { display: none; }

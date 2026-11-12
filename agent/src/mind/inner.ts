@@ -97,6 +97,9 @@ export function innerState(f: InnerFacts): Inner {
       case "interrupted_by_restart":
         add(ease, "I was restarted in the middle of something", -0.08 * w);
         break;
+      case "identity_restored":
+        add(ease, "you put my identity back to an earlier version", -0.1 * w);
+        break;
       case "user_message":
         if (/\b(thanks|thank you|thx|merci|well done|nice|bravo)\b/i.test(String(d.text ?? ""))) add(ease, "you thanked me", 0.15 * w);
         break;

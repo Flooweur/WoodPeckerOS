@@ -66,6 +66,10 @@ export type AgentState = {
   mind_state?: MindState;
   inner?: Inner;
   life?: LifeNow;
+  /** Changes whenever Woody redraws its lattice. */
+  face?: number;
+  /** Where the identity stands: versions Woody wrote that the operator has not looked at, and whether its changes wait. */
+  identity?: { version: number; unseen: number[]; paused: boolean; remaining: number };
   mind?: Record<string, number>;
 };
 
@@ -133,10 +137,15 @@ export type Goal = {
 
 export type InboxItem = { kind: "plan" | "blocked" | "proposal"; goal: Goal };
 export type IdentityProposal = { id: number; ts: number; text: string; reason: string };
+export type IdentityVersion = { version: number; ts: number; text: string; note: string; author?: "initial" | "woody" | "operator"; reason?: string; seen?: boolean };
+export type IdentityState = { version: number; remaining: number; paused: boolean; frozen: boolean; blocked: string | null; unseen: number[] };
 export type Identity = {
   current: { version: number; text: string };
   pending: IdentityProposal[];
-  history?: Array<{ version: number; ts: number; text: string; note: string }>;
+  history?: IdentityVersion[];
+  /** The first version, kept as the anchor every later one is compared against. */
+  anchor?: IdentityVersion;
+  state?: IdentityState;
 };
 export type JournalEntry = { id: number; ts: number; wake: string; did: string; outcome: string; next: string; summary: string };
 export type Memory = {

@@ -826,7 +826,7 @@ test("an older store loses the lab duty and keeps the others", () => {
   assert.deepEqual(standing.map((g) => g.title), ["Keep this machine healthy", "Keep improving yourself", "Stay up to date"]);
   assert.doesNotMatch(standing[2]!.description, /\blab\b/);
   // The migrations after it ran too (Phase 8b added the interests).
-  assert.equal(store.getMeta("schema_version"), "7");
+  assert.equal(store.getMeta("schema_version"), "8");
   assert.deepEqual(store.interests(), []);
   store.close();
 });

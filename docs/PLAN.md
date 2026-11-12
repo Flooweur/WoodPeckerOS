@@ -39,7 +39,7 @@ Superseded on 2026-11-12: the security toolkit and its lab; "no voice" (Woody ma
 | 5 | The first full HUD | Built; awaits the VM test |
 | 6 | Change of goal: security material removed, documents rewritten | Done (2026-11-12); awaits the VM rebuild |
 | 7 | **The canvas**: the frame, things, the kit, making | Done (7a to 7d), tested in the VM |
-| 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | 8a (inner state) done, tested in the VM. 8b (a life of its own) built; awaits the VM test. 8c (identity and face) is next |
+| 8 | **Somebody home**: inner state, own life, initiative, identity that evolves | 8a (inner state) done, tested in the VM. 8b (a life of its own) and 8c (identity and face) built; they await the VM test |
 | 9 | **Learning and showing**: open reading, studies, explainers, web pictures | Planned |
 | 10 | **Reshaping itself**: free change of its own program | Planned |
 | 11 | **Sound and voice** | Planned |
@@ -254,6 +254,18 @@ Built and run in a container with the VM's own Chromium build (157), headless, t
 - Tested: 11 tests of the rhythm, the decision, the share, the interests, the digest and the prompts (61 agent tests in all); a test of the daily limit and the note in the gateway (12); the scripted browser check now covers the note on the screen, the limit, and what Woody is told (80 checks). The record "Its own life" was looked at in a browser against the mock.
 - Not tested: what a real model does with a moment of its own, and whether three additions a day and two hours between moments feel right. That is for the VM.
 
+## Phase 8c results (2026-11-12): identity and face
+
+Decided with the operator before building: one identity change a day of at most a quarter of the words; a notice by the lattice; a pause once less than half of the first version remains; Woody may redraw designs and invent expressions; it may show an expression when it chooses; a small palette without red; designs as flip books.
+
+- **Identity.** `identity_change` replaces `identity_propose`. It works only during the daily reflection, takes effect without approval, and is bounded by code: the step size, one a day, the pause when far from the first version, three quiet days after you restore or rewrite the text, and never from a session that read the web. You get a notice by the lattice, the before and the after with the changed words marked, the reason, and one button to put the earlier version back. A switch turns Woody's own changes off.
+- **Face.** The lattice's designs are versioned data in the mind's store. Woody redraws them with `face_design` as flip books of up to 16 pictures, invents up to 12 expressions, and shows one with `express`. The record "Its face" shows all of them and restores any.
+- **The frame's signals stay the frame's.** Waiting, paused, model unreachable, out of allowance, the hour's ceiling, a problem and the web wall are drawn by the frame whatever Woody's data says, and red is refused in a design. The frame checks every design again before drawing it.
+- **Schema 8** of the mind's store: the `face` table, and who wrote each identity version.
+- **Tests:** 70 agent tests (9 new), 12 gateway tests, and 99 scripted browser checks (19 new) pass in containers; the Nix builds succeed. Both records were looked at in a browser against the mock.
+- **Not tested:** what a real model does with its identity and its lattice. Whether a quarter of the words is the right step can only be judged over days in the VM.
+- **Not in 8c:** the lattice's colour does not follow the inner state by itself. Woody is told its inner state and chooses colours in its own designs.
+
 ## Architecture
 
 Today:
@@ -349,7 +361,7 @@ Built in three steps:
 
 - **8a. Inner state.** Built: see "Phase 8a results". The five values, what Woody is told, the true "why", the lattice's pace, the negotiation rule, and Woody being told what changes on the canvas.
 - **8b. A life of its own.** Built: see "Phase 8b results". The interests list, the budget share (the cap is $100), time of its own, things left for you with a note, a daily limit, the rhythm of day and night, and noticing how you use the canvas.
-- **8c. Identity and face.** The identity that evolves with versions and restore, and the lattice's states and expressions as data Woody can redesign.
+- **8c. Identity and face.** Built: see "Phase 8c results". The identity that evolves by small steps with versions and restore, and the lattice's states, moments and expressions as data Woody can redraw.
 
 The whole of it:
 

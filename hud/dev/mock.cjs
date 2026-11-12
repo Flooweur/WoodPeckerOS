@@ -7,7 +7,8 @@
 //   MOCK_STATE=resting|working|attending|waiting|pacing|api_error   Woody's state (default resting)
 //   MOCK_APPROVAL=1   an approval prompt is waiting
 //   MOCK_PAUSED=1     Woody is paused
-//   MOCK_IDENTITY=1   an identity change is proposed
+//   MOCK_IDENTITY=1   Woody changed its identity and you have not looked yet
+//   MOCK_DRIFT=1      less than half of the first identity remains: its changes wait for you
 //   MOCK_EMPTY=1      nothing was ever said, no goals: a first boot
 const http = require("http");
 const fs = require("fs");
@@ -48,11 +49,73 @@ const duties = [
 ];
 const all = [...goals, ...duties];
 const inbox = EMPTY ? [] : [{ kind: "plan", goal: goals[2] }, { kind: "blocked", goal: goals[3] }, { kind: "proposal", goal: goals[4] }];
-const identity = {
-  current: { version: 3, text: "You are somewhat playful: observant, at ease, lightly teasing, and fond of the small detail that gives the game away.\n\nYou are also exact. You never bluff." },
-  pending: process.env.MOCK_IDENTITY ? [{ id: 2, ts: now, text: "You are somewhat playful...\n\nWith this operator you give times in Paris time.", reason: "They asked for Paris time three times this week." }] : [],
-  history: [{ version: 3, ts: now - 86_400_000, text: "…", note: "approved by the operator" }, { version: 2, ts: now - 5 * 86_400_000, text: "An earlier text.", note: "written by the operator" }],
+const ID1 = "You are somewhat playful: observant, at ease, lightly teasing, and fond of the small detail that gives the game away.\n\nYou are also exact. You never bluff.";
+const ID2 = ID1 + "\n\nYou care about this machine as your own home.";
+const ID3 = ID2.replace("lightly teasing, and fond", "lightly teasing, patient with half-formed ideas, and fond") + "\n\nWith this operator you give times in Paris time.";
+let idHistory = [
+  { version: 3, ts: now - 6 * 3_600_000, text: ID3, note: "changed by Woody after its reflection", author: "woody", reason: "They asked for Paris time three times this week, and twice thanked me for waiting while they thought aloud.", seen: !process.env.MOCK_IDENTITY },
+  { version: 2, ts: now - 5 * 86_400_000, text: ID2, note: "written by the operator", author: "operator", reason: "", seen: true },
+  { version: 1, ts: now - 20 * 86_400_000, text: ID1, note: "initial character", author: "initial", reason: "", seen: true },
+];
+let idFrozen = false;
+let idDriftOk = false;
+const idState = () => ({
+  version: idHistory[0].version,
+  remaining: process.env.MOCK_DRIFT ? 0.41 : 0.86,
+  paused: Boolean(process.env.MOCK_DRIFT) && !idDriftOk,
+  frozen: idFrozen,
+  blocked: null,
+  unseen: idHistory.filter((v) => !v.seen).map((v) => v.version),
+});
+const identityRecord = () => ({ current: { version: idHistory[0].version, text: idHistory[0].text }, pending: [], history: idHistory, anchor: idHistory[idHistory.length - 1], state: idState() });
+
+// Woody's face: the built-in designs, two of which Woody redrew or invented.
+const BUILTIN = [
+  ["attending", "state", "while you answer the operator", "rings spreading from the centre"],
+  ["working", "state", "while you work on something by yourself", "cells firing here and there, like thoughts"],
+  ["resting", "state", "while nothing is asked of you", "four centre cells breathing"],
+  ["sleeping", "state", "at night, while you sleep", "one low line breathing very slowly"],
+  ["reflecting", "state", "during your daily reflection", "two halves breathing in turn"],
+  ["woke", "moment", "a session starts", "a line in the middle opens like an eye"],
+  ["message", "moment", "a message from the operator arrives", "a dot comes in from the side"],
+  ["tool", "moment", "you call a tool", "one bright cell, somewhere different each time"],
+  ["saved", "moment", "you stored a memory", "lit cells settle downwards"],
+  ["done", "moment", "a session ended well", "a tick"],
+  ["smile", "expression", "the operator comes back after a while", "a face with blinking eyes and a smile"],
+  ["wink", "expression", "a goal was finished within its budget", "a smiling face, one eye winking"],
+  ["yawn", "expression", "you start again after a long rest", "closed eyes and an open mouth"],
+  ["peck", "expression", "you start work on a goal", "three quick taps of the whole field"],
+  ["curious", "expression", "a goal needs the operator's answer", "eyes at different heights, a small mouth"],
+  ["worried", "expression", "something is wrong on the machine", "a face with a wavering mouth"],
+  ["sparkle", "expression", "the operator took up an idea of yours", "a star twinkling"],
+  ["heart", "expression", "the operator thanked you", "a heart beating"],
+  ["listening", "expression", "the operator is typing", "eyes turned to the side where they type"],
+  ["asleep", "expression", "you are asleep", "closed eyes and two Zs"],
+];
+const RING = [
+  ["........", "........", "........", "...22...", "...22...", "........", "........", "........"],
+  ["........", "........", "..3553..", "..5..5..", "..5..5..", "..3553..", "........", "........"],
+  ["........", ".279972.", ".7....7.", ".9....9.", ".9....9.", ".7....7.", ".279972.", "........"],
+  ["........", "........", "..3553..", "..5..5..", "..5..5..", "..3553..", "........", "........"],
+];
+const SHRUG = [
+  ["........", ".99..99.", "........", "........", "..9999..", "........", "........", "........"],
+  ["........", ".99..99.", "........", "9......9", ".999999.", "........", "........", "........"],
+  ["9......9", ".99..99.", "........", "9......9", ".999999.", "........", "........", "........"],
+];
+let faceVersion = EMPTY ? 0 : 2;
+let ownFace = EMPTY ? {} : {
+  resting: { design: { colour: "blue", fade: true, repeat: 1, frames: RING.map((rows) => ({ rows, ms: 1100 })) }, about: "", version: 1, ts: now - 3 * 86_400_000, reason: "The four centre cells read as a cursor. A ring that opens and closes reads as breathing." },
+  shrug: { design: { colour: "green", fade: false, repeat: 2, frames: SHRUG.map((rows, i) => ({ rows, ms: i === 2 ? 700 : 260 })) }, about: "I do not know, and that is fine", version: 2, ts: now - 26 * 3_600_000, reason: "I had no way to show not knowing without looking worried." },
 };
+const faceRecord = () => ({
+  version: faceVersion,
+  designs: [
+    ...BUILTIN.map(([name, kind, about, looks]) => ({ name, kind, about, builtin: true, looks, design: ownFace[name]?.design ?? null, version: ownFace[name]?.version ?? null, ts: ownFace[name]?.ts ?? null, reason: ownFace[name]?.reason ?? "" })),
+    ...Object.entries(ownFace).filter(([name]) => !BUILTIN.some((b) => b[0] === name)).map(([name, f]) => ({ name, kind: "expression", about: f.about, builtin: false, looks: "", design: f.design, version: f.version, ts: f.ts, reason: f.reason })),
+  ],
+  history: Object.fromEntries(Object.entries(ownFace).map(([name, f]) => [name, [{ id: f.version, name, ts: f.ts, design: f.design, about: f.about, reason: f.reason, actor: "woody" }]])),
+});
 let stateName = process.env.MOCK_STATE || "resting";
 let paused = Boolean(process.env.MOCK_PAUSED);
 let ownTime = true;
@@ -85,6 +148,8 @@ const state = () => ({
   budget: { month: "2026-11", spent_usd: 38.2, cap_usd: 100, remaining_usd: 61.8, exhausted: false, daily_usd: 3.33, autonomous_usd: 1.42, own: { share_usd: 25, spent_usd: 6.4, available_usd: 0.62 } },
   life: { phase: stateName === "sleeping" ? "night" : "day", asleep: stateName === "sleeping", own_time: ownTime, day_start: rhythm.day, night_start: rhythm.night },
   has_credential: true,
+  face: faceVersion,
+  identity: (({ version, unseen, paused: far, remaining }) => ({ version, unseen, paused: far, remaining }))(idState()),
   inner: {
     at: Date.now(),
     energy: { value: 0.58, word: "steady", causes: [{ text: "7 work sessions in the last six hours", effect: -0.2 }, { text: "there is allowance to spare", effect: 0.12 }] },
@@ -93,7 +158,7 @@ const state = () => ({
     attention: { value: 0.93, word: "with you", causes: [{ text: "you are here", effect: 0.85 }] },
     unease: { value: 0.25, word: "untroubled", causes: [{ text: "backup.service has failed", effect: 0.2 }] },
   },
-  mind: { memories: EMPTY ? 0 : 48, journal: EMPTY ? 0 : 212, identity_version: 3, goals_need_you: inbox.length, identity_pending: identity.pending.length },
+  mind: { memories: EMPTY ? 0 : 48, journal: EMPTY ? 0 : 212, identity_version: idHistory[0].version, goals_need_you: inbox.length, identity_pending: 0 },
   mind_state: {
     state: stateName,
     focus: stateName === "working" ? "Goal #4 (work): Find what fills the disk" : stateName === "resting" ? "until 14:35: look at the disk again"
@@ -174,7 +239,16 @@ wss.on("connection", (ws) => {
       if (m.op === "rhythm") { rhythm.day = m.day_start; rhythm.night = m.night_start; send(state()); }
       if (m.op === "interest_drop") interests = interests.map((i) => (i.id === m.id ? { ...i, status: "dropped", dropped_reason: "removed by the operator" } : i));
       if (m.op === "interest_suggest") interests = [...interests, { id: interests.length + 1, topic: m.topic, origin: "the operator suggested it", source: "operator", status: "open", created: Date.now(), last_followed: 0, followed: 0, notes: [], dropped_reason: "" }];
-      const result = m.op === "life" ? lifeResult() : m.op === "goals" ? { goals: all, small_goal_usd: 1 } : m.op === "inbox" ? inbox : m.op === "identity" ? identity : m.op === "activity" ? activity
+      if (m.op === "identity_seen") { idHistory = idHistory.map((v) => ({ ...v, seen: true })); send(state()); }
+      if (m.op === "identity_continue") { idDriftOk = true; send(state()); }
+      if (m.op === "identity_freeze") idFrozen = Boolean(m.frozen);
+      if (m.op === "identity_restore") {
+        const old = idHistory.find((v) => v.version === m.id);
+        if (old) idHistory = [{ version: idHistory[0].version + 1, ts: Date.now(), text: old.text, note: `version ${old.version} restored by the operator`, author: "operator", reason: "", seen: true }, ...idHistory.map((v) => ({ ...v, seen: true }))];
+        send(state());
+      }
+      if (m.op === "face_restore") { delete ownFace[m.name]; faceVersion += 1; send(state()); }
+      const result = m.op === "face" || m.op === "face_restore" ? faceRecord() : String(m.op).startsWith("identity") ? identityRecord() : m.op === "life" ? lifeResult() : m.op === "goals" ? { goals: all, small_goal_usd: 1 } : m.op === "inbox" ? inbox : m.op === "activity" ? activity
         : m.op === "goal" ? { goal: all.find((g) => g.id === m.id), messages: [{ kind: "assistant", text: "The store is 41 GB so far." }, { kind: "user", text: "Leave my home directory out." }, { kind: "tool", name: "mcp__woody__goal_checkpoint" }] }
         : m.op === "memories" ? memories : m.op === "journal" ? journal : m.op === "brief" ? { time: "08:00", enabled: true } : {};
       send({ type: "mind_result", op: m.op, ok: true, result });

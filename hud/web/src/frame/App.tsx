@@ -12,6 +12,8 @@ import { ApprovalModal } from "./Approval";
 import { ChangesRecord, ThingsRecord } from "./CanvasRecords";
 import { Lattice, type MindStateName, type Overlay, type Play } from "./Lattice";
 import { LifeRecord } from "./Life";
+import { FaceRecord } from "./Face";
+import { ownDesigns, type Design } from "./faceData";
 import { PanelView, type Panel } from "./Panels";
 import type {
   ActivityRow, AgentState, Approval, GatewayResult, Goal, Identity, Inner, InboxItem, Item, Mark, Meters, MindResult,
@@ -131,6 +133,8 @@ export function App() {
   const [session, setSession] = useState<{ steps: number; cost: number | null }>({ steps: 0, cost: null });
   const [typing, setTyping] = useState(false);
   const [menu, setMenu] = useState(false);
+  /** The lattice designs Woody drew itself, checked (faceData.ts). */
+  const [designs, setDesigns] = useState<Record<string, Design>>({});
   const [canvas, setCanvas] = useState<CanvasState>({ things: [], undo: null });
   const [canvasResult, setCanvasResult] = useState<CanvasResult | null>(null);
   /** The thing Woody is making right now, shown in the voice line until it is on the canvas. */
@@ -150,6 +154,9 @@ export function App() {
   const nextKey = useRef(1);
   const playSeq = useRef(0);
   const mindSeq = useRef(0);
+  /** The versions of Woody's face and identity this page has asked for. */
+  const faceSeen = useRef(-1);
+  const identitySeen = useRef(-1);
   const mainThread = useRef<number | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
   const stick = useRef(true);
@@ -226,6 +233,15 @@ export function App() {
         case "state":
           setState(msg as unknown as AgentState);
           setAgentUp(true);
+          // Woody redrew its lattice, or its identity changed: ask for the new one.
+          if (typeof msg.face === "number" && msg.face !== faceSeen.current) {
+            faceSeen.current = msg.face;
+            tx({ type: "mind", op: "face" });
+          }
+          if (typeof msg.identity?.version === "number" && msg.identity.version !== identitySeen.current) {
+            identitySeen.current = msg.identity.version;
+            tx({ type: "mind", op: "identity" });
+          }
           break;
         case "hello":
           setDoor({ kiosk: Boolean(msg.kiosk), terminal: Boolean(msg.terminal) });
@@ -260,7 +276,8 @@ export function App() {
             setGoals(msg.result.goals);
             setSmallLimit(msg.result.small_goal_usd);
           } else if (msg.op === "inbox") setInbox(msg.result);
-          else if (msg.op === "identity" || msg.op === "identity_decide" || msg.op === "identity_set") setIdentity((prev) => ({ ...prev, ...msg.result }));
+          else if (msg.op === "identity" || String(msg.op).startsWith("identity_")) setIdentity((prev) => ({ ...prev, ...msg.result }));
+          else if (msg.op === "face" || msg.op === "face_restore") setDesigns(ownDesigns(msg.result));
           else if (msg.op === "activity") setActivity(msg.result);
           else if (msg.op === "small_goal_limit") setSmallLimit(msg.result.small_goal_usd);
           break;
@@ -504,6 +521,8 @@ export function App() {
   const open = useMemo(() => goals.filter((g) => !g.standing && g.status !== "done" && g.status !== "dropped"), [goals]);
   const duties = useMemo(() => goals.filter((g) => g.standing), [goals]);
   const needs = approvals.length + inbox.length + (identity?.pending.length ?? 0);
+  /** Changes Woody made to its identity that have not been looked at: the frame says so by the lattice until the record is opened. */
+  const changedSelf = state?.identity?.unseen?.length ?? 0;
 
   if (link === "no-token") {
     return (
@@ -784,6 +803,7 @@ export function App() {
     things: <ThingsRecord canvas={canvas} tx={tx} result={canvasResult} pick={panel?.kind === "things" ? panel.id : undefined} />,
     changes: <ChangesRecord canvas={canvas} tx={tx} result={canvasResult} />,
     life: <LifeRecord tx={tx} incoming={mindResult} version={version} canvas={canvas} />,
+    face: <FaceRecord tx={tx} incoming={mindResult} faceVersion={state?.face ?? 0} />,
   };
   const count = (n: number, width = 2) => String(n).padStart(width, "0");
 
@@ -796,7 +816,7 @@ export function App() {
       )}
 
       {/* ---- the voice line ---- */}
-      {(showState || you || reply || needs > 0) && (
+      {(showState || you || reply || needs > 0 || changedSelf > 0) && (
         <div className="voice" aria-live="polite">
           {showState && (
             <div className={`voice-state ${alertState || trouble ? "alert" : ""}`}>
@@ -807,6 +827,11 @@ export function App() {
           {needs > 0 && (
             <button className="voice-needs" onClick={() => openRecord({ kind: "needs" })}>
               needs you · {count(needs)}
+            </button>
+          )}
+          {changedSelf > 0 && (
+            <button className="voice-note" title="See the before and the after" onClick={() => openRecord({ kind: "identity" })}>
+              Woody changed its identity · see
             </button>
           )}
           {(you || reply) && (
@@ -831,7 +856,7 @@ export function App() {
         title="Woody. Click for Pause, Stop and the records."
         onClick={() => setMenu((m) => !m)}
       >
-        <Lattice state={mindName} overlay={overlay} play={play} hold={hold} expressions={expressions} pace={latticePace} />
+        <Lattice state={mindName} overlay={overlay} play={play} hold={hold} expressions={expressions} pace={latticePace} designs={designs} />
         {needs > 0 && <span className="badge">{needs}</span>}
       </button>
       {menu && (
@@ -880,6 +905,9 @@ export function App() {
               <button onClick={() => openRecord({ kind: "life" })}>
                 <span className="code" /> ITS OWN LIFE <span className="n">{state?.life?.asleep ? "zz" : ""}</span>
               </button>
+              <button onClick={() => openRecord({ kind: "face" })}>
+                <span className="code" /> ITS FACE <span className="n">{Object.keys(designs).length ? count(Object.keys(designs).length) : ""}</span>
+              </button>
               <button onClick={() => openRecord({ kind: "memory" })}>
                 <span className="code">F5</span> MEMORY <span className="n">{count(state?.mind?.memories ?? 0, 3)}</span>
               </button>
@@ -887,7 +915,7 @@ export function App() {
                 <span className="code">F6</span> JOURNAL <span className="n">{count(state?.mind?.journal ?? 0, 3)}</span>
               </button>
               <button onClick={() => openRecord({ kind: "identity" })}>
-                <span className="code">F7</span> IDENTITY <span className="n">v{count(identity?.current.version ?? state?.mind?.identity_version ?? 1)}</span>
+                <span className="code">F7</span> IDENTITY <span className="n">{changedSelf > 0 ? "new · " : ""}v{count(identity?.current.version ?? state?.mind?.identity_version ?? 1)}</span>
               </button>
               <button onClick={() => openRecord({ kind: "machine" })}>
                 <span className="code">F9</span> MACHINE

@@ -7,6 +7,7 @@
 //   memories  individual facts, preferences, methods and lessons, each with
 //             its origin and its sources; never overwritten, only superseded
 //   identity  who Woody is, versioned
+//   face      the designs of Woody's lattice that Woody drew itself, versioned
 //   queue     everything that can wake Woody, waiting to be handled
 //   alarms    wake-ups Woody set for itself
 //   watches   things in progress elsewhere whose outcome Woody is waiting for
@@ -15,6 +16,7 @@
 // The model's context is assembled from here on every turn (context.ts), so
 // nothing important exists only in a model conversation. See docs/MIND.md.
 import { DatabaseSync } from "node:sqlite";
+import { BUILTIN, FACE, IDENTITY, changedShare, checkDesign, nameProblem, remainingShare, type Design, type FaceKind } from "./self.js";
 
 export type Origin = "user" | "observed" | "inferred" | "web";
 export type MemoryKind = "fact" | "preference" | "method" | "lesson";
@@ -143,11 +145,45 @@ export type Interest = {
   dropped_reason: string;
 };
 
+/** One version of who Woody is. `author` says who wrote it; `seen` is false until the operator has looked at a change Woody made. */
+export type IdentityVersion = { version: number; ts: number; text: string; note: string; author: "initial" | "woody" | "operator"; reason: string; seen: boolean };
+/** Where the identity stands: how far it is from the first version, and whether Woody may change it now. */
+export type IdentityState = {
+  version: number;
+  /** The share of the first version's words still in the current one, 0 to 1. */
+  remaining: number;
+  /** Far from the first version: Woody's changes wait until the operator says to continue. */
+  paused: boolean;
+  /** The operator switched Woody's changes off. */
+  frozen: boolean;
+  /** Null when Woody may change its identity now; otherwise the reason it may not. */
+  blocked: string | null;
+  /** Versions written by Woody that the operator has not looked at yet. */
+  unseen: number[];
+};
+
+/** One version of one lattice design. A null design means "back to the built-in one" (or gone, for an expression Woody invented). */
+export type FaceVersion = { id: number; name: string; ts: number; design: Design | null; about: string; reason: string; actor: string };
+export type FaceEntry = { name: string; kind: FaceKind; about: string; builtin: boolean; looks: string; design: Design | null; version: number | null; ts: number | null; reason: string };
+
 const MAX_OPEN_PROPOSALS = 10;
 const MAX_OPEN_INTERESTS = 12;
 const MAX_INTEREST_NOTES = 12;
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
+
+const SCHEMA_V8 = `
+CREATE TABLE IF NOT EXISTS face (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  design TEXT,
+  about TEXT NOT NULL DEFAULT '',
+  reason TEXT NOT NULL DEFAULT '',
+  actor TEXT NOT NULL DEFAULT 'woody'
+);
+CREATE INDEX IF NOT EXISTS face_name ON face (name, id);
+`;
 
 const SCHEMA_V7 = `
 CREATE TABLE IF NOT EXISTS interests (
@@ -553,6 +589,19 @@ export class Store {
       this.tx(() => {
         this.db.exec(SCHEMA_V7);
         this.setMeta("schema_version", "7");
+      });
+    }
+    if (version < 8) {
+      // Phase 8c: Woody changes its identity itself, and draws its own lattice.
+      this.tx(() => {
+        this.db.exec(SCHEMA_V8);
+        const columns = (this.db.prepare("PRAGMA table_info(identity)").all() as Row[]).map((r) => String(r.name));
+        if (!columns.includes("author")) this.db.exec("ALTER TABLE identity ADD COLUMN author TEXT NOT NULL DEFAULT 'operator'");
+        if (!columns.includes("reason")) this.db.exec("ALTER TABLE identity ADD COLUMN reason TEXT NOT NULL DEFAULT ''");
+        if (!columns.includes("seen")) this.db.exec("ALTER TABLE identity ADD COLUMN seen INTEGER NOT NULL DEFAULT 1");
+        this.db.exec("UPDATE identity SET author = 'initial' WHERE version = (SELECT min(version) FROM identity)");
+        this.db.exec("UPDATE identity SET author = 'woody' WHERE note LIKE 'proposed by Woody%'");
+        this.setMeta("schema_version", "8");
       });
     }
   }
@@ -1583,9 +1632,124 @@ export class Store {
     return { version: Number(row.version), text: String(row.text) };
   }
 
-  identityHistory(): Array<{ version: number; ts: number; text: string; note: string }> {
-    const rows = this.db.prepare("SELECT * FROM identity ORDER BY version DESC LIMIT 30").all() as Row[];
-    return rows.map((r) => ({ version: Number(r.version), ts: Number(r.ts), text: String(r.text), note: String(r.note) }));
+  private toIdentity(r: Row): IdentityVersion {
+    return {
+      version: Number(r.version),
+      ts: Number(r.ts),
+      text: String(r.text),
+      note: String(r.note),
+      author: r.author as IdentityVersion["author"],
+      reason: String(r.reason ?? ""),
+      seen: Number(r.seen) === 1,
+    };
+  }
+
+  /** The latest versions, newest first. */
+  identityHistory(limit = 30): IdentityVersion[] {
+    return (this.db.prepare("SELECT * FROM identity ORDER BY version DESC LIMIT ?").all(limit) as Row[]).map((r) => this.toIdentity(r));
+  }
+
+  identityVersion(version: number): IdentityVersion | null {
+    const row = this.db.prepare("SELECT * FROM identity WHERE version = ?").get(version) as Row | undefined;
+    return row ? this.toIdentity(row) : null;
+  }
+
+  /** The first identity: the anchor every later version is compared against. */
+  identityAnchor(): IdentityVersion {
+    return this.toIdentity(this.db.prepare("SELECT * FROM identity ORDER BY version LIMIT 1").get() as Row);
+  }
+
+  /** Where the identity stands, and whether Woody may change it now (with the reason when it may not). */
+  identityState(): IdentityState {
+    const current = this.identity();
+    const remaining = remainingShare(this.identityAnchor().text, current.text);
+    const frozen = this.getMeta("identity_frozen") === "1";
+    const paused = remaining < IDENTITY.anchorFloor && this.getMeta("identity_drift_ok") !== "1";
+    const now = this.now();
+    const when = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + " UTC";
+    const lastWoody = this.db.prepare("SELECT ts FROM identity WHERE author = 'woody' ORDER BY version DESC LIMIT 1").get() as Row | undefined;
+    const lastOperator = this.db.prepare("SELECT ts FROM identity WHERE author = 'operator' ORDER BY version DESC LIMIT 1").get() as Row | undefined;
+    let blocked: string | null = null;
+    if (frozen) blocked = "the operator has switched off changes to your identity";
+    else if (paused)
+      blocked = `less than half of your first identity remains (${Math.round(remaining * 100)}%), so further changes wait until the operator has looked and said to continue`;
+    else if (lastOperator && now - Number(lastOperator.ts) < IDENTITY.quietDaysAfterOperator * 86_400_000)
+      blocked = `the operator set your identity themselves on ${when(Number(lastOperator.ts))}; leave it as they put it for ${IDENTITY.quietDaysAfterOperator} days`;
+    else if (lastWoody && now - Number(lastWoody.ts) < IDENTITY.hoursBetween * 3_600_000) blocked = `you already changed it on ${when(Number(lastWoody.ts))}; one step a day`;
+    const unseen = (this.db.prepare("SELECT version FROM identity WHERE seen = 0 ORDER BY version").all() as Row[]).map((r) => Number(r.version));
+    return { version: current.version, remaining, paused, frozen, blocked, unseen };
+  }
+
+  /**
+   * Woody rewrites who it is, by one small step. No approval is needed: the
+   * limits are measured here, every version is kept, and the operator is
+   * shown the change and can restore any version.
+   */
+  changeIdentity(text: string, reason: string): IdentityVersion {
+    const clean = text.trim();
+    if (clean.length < IDENTITY.minChars || clean.length > IDENTITY.maxChars) {
+      throw new PolicyError(`the identity text must be between ${IDENTITY.minChars} and ${IDENTITY.maxChars} characters`);
+    }
+    if (reason.trim().length < 10) throw new PolicyError("say what you observed that justifies the change");
+    const current = this.identity();
+    if (clean === current.text.trim()) throw new PolicyError("that is already your identity");
+    const state = this.identityState();
+    if (state.blocked) throw new PolicyError(`Your identity is unchanged: ${state.blocked}.`);
+    const changed = changedShare(current.text, clean);
+    if (changed > IDENTITY.stepShare) {
+      throw new PolicyError(
+        `That changes ${Math.round(changed * 100)}% of the words; one step may change at most ${Math.round(IDENTITY.stepShare * 100)}%. Keep what is still true and change less. A larger change takes several days.`,
+      );
+    }
+    return this.tx(() => {
+      const r = this.db
+        .prepare("INSERT INTO identity (ts, text, note, author, reason, seen) VALUES (?, ?, 'changed by Woody after its reflection', 'woody', ?, 0)")
+        .run(this.now(), clean, reason.trim().slice(0, 2000));
+      const version = Number(r.lastInsertRowid);
+      this.event("identity_changed", {
+        version,
+        from: current.version,
+        changed: Number(changed.toFixed(3)),
+        remaining: Number(remainingShare(this.identityAnchor().text, clean).toFixed(3)),
+        reason: reason.trim().slice(0, 300),
+      });
+      return this.identityVersion(version)!;
+    });
+  }
+
+  /** The operator goes back to an earlier version, in one action. It becomes a new version, so nothing is lost. */
+  restoreIdentity(version: number): IdentityVersion {
+    const old = this.identityVersion(version);
+    if (!old) throw new PolicyError(`no identity version ${version}`);
+    const current = this.identity();
+    if (old.version === current.version) throw new PolicyError("that is the current version");
+    return this.tx(() => {
+      const r = this.db
+        .prepare("INSERT INTO identity (ts, text, note, author, reason, seen) VALUES (?, ?, ?, 'operator', '', 1)")
+        .run(this.now(), old.text, `version ${old.version} restored by the operator`);
+      this.db.prepare("UPDATE identity SET seen = 1 WHERE seen = 0").run();
+      // Back near the first version: the pause applies again if it drifts away once more.
+      if (remainingShare(this.identityAnchor().text, old.text) >= IDENTITY.anchorFloor) this.setMeta("identity_drift_ok", null);
+      this.event("identity_restored", { version: Number(r.lastInsertRowid), restored: old.version, from: current.version }, { actor: "operator" });
+      return this.identityVersion(Number(r.lastInsertRowid))!;
+    });
+  }
+
+  /** The operator has looked at Woody's changes. */
+  seeIdentity(): void {
+    this.db.prepare("UPDATE identity SET seen = 1 WHERE seen = 0").run();
+  }
+
+  /** The operator has looked at how far the identity went and lets it continue. */
+  continueIdentity(): void {
+    this.setMeta("identity_drift_ok", "1");
+    this.event("identity_continue", { remaining: Number(this.identityState().remaining.toFixed(3)) }, { actor: "operator" });
+  }
+
+  /** The operator switches Woody's own changes to its identity off or on. */
+  freezeIdentity(frozen: boolean): void {
+    this.setMeta("identity_frozen", frozen ? "1" : null);
+    this.event("identity_frozen", { frozen }, { actor: "operator" });
   }
 
   private toProposal(r: Row): IdentityProposal {
@@ -1626,7 +1790,9 @@ export class Store {
     return this.tx(() => {
       this.db.prepare("UPDATE identity_proposals SET status = ?, decided_ts = ? WHERE id = ?").run(approve ? "approved" : "rejected", this.now(), id);
       if (approve) {
-        this.db.prepare("INSERT INTO identity (ts, text, note) VALUES (?, ?, ?)").run(this.now(), String(row.text), `proposed by Woody, approved by the operator: ${String(row.reason).slice(0, 300)}`);
+        this.db
+          .prepare("INSERT INTO identity (ts, text, note, author, reason, seen) VALUES (?, ?, 'proposed by Woody, approved by the operator', 'woody', ?, 1)")
+          .run(this.now(), String(row.text), String(row.reason).slice(0, 2000));
       }
       this.event("identity_decided", { id, approved: approve }, { actor: "operator" });
       return this.identity();
@@ -1637,9 +1803,99 @@ export class Store {
   setIdentity(text: string): { version: number; text: string } {
     const clean = text.trim();
     if (clean.length < 40 || clean.length > 3000) throw new PolicyError("the identity text must be between 40 and 3000 characters");
-    this.db.prepare("INSERT INTO identity (ts, text, note) VALUES (?, ?, 'written by the operator')").run(this.now(), clean);
+    this.db.prepare("INSERT INTO identity (ts, text, note, author, seen) VALUES (?, ?, 'written by the operator', 'operator', 1)").run(this.now(), clean);
+    this.db.prepare("UPDATE identity SET seen = 1 WHERE seen = 0").run();
     this.event("identity_set", {}, { actor: "operator" });
     return this.identity();
+  }
+
+  // ---- the lattice's designs ------------------------------------------------
+
+  private toFace(r: Row): FaceVersion {
+    let design: Design | null = null;
+    if (typeof r.design === "string") {
+      try {
+        design = JSON.parse(r.design) as Design;
+      } catch {
+        /* a damaged design counts as none */
+      }
+    }
+    return { id: Number(r.id), name: String(r.name), ts: Number(r.ts), design, about: String(r.about), reason: String(r.reason), actor: String(r.actor) };
+  }
+
+  /** The latest version of each design that was ever redrawn or invented. */
+  private faceLatest(): FaceVersion[] {
+    return (this.db.prepare("SELECT * FROM face WHERE id IN (SELECT max(id) FROM face GROUP BY name) ORDER BY name").all() as Row[]).map((r) => this.toFace(r));
+  }
+
+  /** Changes each time a design changes: the frame asks for the designs again when it does. */
+  faceVersion(): number {
+    return Number((this.db.prepare("SELECT coalesce(max(id), 0) AS n FROM face").get() as Row).n);
+  }
+
+  /** Every design: the built-in ones, as redrawn or not, then the expressions Woody invented. */
+  face(): FaceEntry[] {
+    const latest = new Map(this.faceLatest().map((f) => [f.name, f]));
+    const out: FaceEntry[] = Object.entries(BUILTIN).map(([name, b]) => {
+      const f = latest.get(name);
+      return { name, kind: b.kind, about: b.about, builtin: true, looks: b.looks, design: f?.design ?? null, version: f?.design ? f.id : null, ts: f?.design ? f.ts : null, reason: f?.design ? f.reason : "" };
+    });
+    for (const f of latest.values()) {
+      if (f.name in BUILTIN || !f.design) continue;
+      out.push({ name: f.name, kind: "expression", about: f.about, builtin: false, looks: "", design: f.design, version: f.id, ts: f.ts, reason: f.reason });
+    }
+    return out;
+  }
+
+  /** Every name that was ever drawn, including designs since put back and expressions since removed. */
+  faceNames(): string[] {
+    return (this.db.prepare("SELECT DISTINCT name FROM face ORDER BY name").all() as Row[]).map((r) => String(r.name));
+  }
+
+  faceHistory(name: string, limit = 20): FaceVersion[] {
+    return (this.db.prepare("SELECT * FROM face WHERE name = ? ORDER BY id DESC LIMIT ?").all(name, limit) as Row[]).map((r) => this.toFace(r));
+  }
+
+  /** Woody redraws one of its designs, or invents an expression. The design is checked here, whoever wrote it. */
+  setFace(input: { name: string; design: unknown; about?: string; reason: string; actor?: string }): FaceEntry {
+    const name = input.name.trim();
+    const wrong = nameProblem(name);
+    if (wrong) throw new PolicyError(wrong);
+    const existing = this.face().find((f) => f.name === name);
+    const builtin = BUILTIN[name];
+    const about = (input.about ?? existing?.about ?? "").trim().slice(0, 200);
+    if (!builtin && !existing) {
+      if (about.length < 5) throw new PolicyError("a new expression needs 'about': what it expresses, in a few words");
+      const invented = this.face().filter((f) => !f.builtin).length;
+      if (invented >= FACE.maxInvented) throw new PolicyError(`you have ${FACE.maxInvented} expressions of your own, which is the most; remove one first (face_reset)`);
+    }
+    const kind: FaceKind = builtin?.kind ?? "expression";
+    const checked = checkDesign(input.design, kind);
+    if ("error" in checked) throw new PolicyError(`The design was not accepted: ${checked.error}.`);
+    return this.tx(() => {
+      this.db
+        .prepare("INSERT INTO face (name, ts, design, about, reason, actor) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(name, this.now(), JSON.stringify(checked.design), builtin ? "" : about, input.reason.trim().slice(0, 300), input.actor ?? "woody");
+      this.db.prepare("DELETE FROM face WHERE name = ? AND id NOT IN (SELECT id FROM face WHERE name = ? ORDER BY id DESC LIMIT ?)").run(name, name, FACE.keepVersions);
+      this.event("face_changed", { name, kind, invented: !builtin, new: !existing, reason: input.reason.trim().slice(0, 300) }, { actor: input.actor ?? "woody" });
+      return this.face().find((f) => f.name === name)!;
+    });
+  }
+
+  /** Back to the built-in design, or, for an expression Woody invented, gone. The versions are kept. */
+  resetFace(name: string, reason: string, actor = "woody"): void {
+    const entry = this.face().find((f) => f.name === name);
+    if (!entry || !entry.design) throw new PolicyError(BUILTIN[name] ? `"${name}" already has its built-in design` : `no design named "${name}"`);
+    this.db.prepare("INSERT INTO face (name, ts, design, about, reason, actor) VALUES (?, ?, NULL, ?, ?, ?)").run(name, this.now(), entry.builtin ? "" : entry.about, reason.trim().slice(0, 300), actor);
+    this.event("face_reset", { name, invented: !entry.builtin, reason: reason.trim().slice(0, 300) }, { actor });
+  }
+
+  /** The operator goes back to an earlier version of a design. */
+  restoreFace(name: string, id: number): FaceEntry {
+    const row = this.db.prepare("SELECT * FROM face WHERE id = ? AND name = ?").get(id, name) as Row | undefined;
+    const old = row ? this.toFace(row) : null;
+    if (!old?.design) throw new PolicyError(`no version ${id} of "${name}" with a design`);
+    return this.setFace({ name, design: old.design, about: old.about, reason: `version ${id} restored by the operator`, actor: "operator" });
   }
 
   stats(): Record<string, number> {

@@ -12,7 +12,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test dist/mind/store.test.js dist/canvas.test.js dist/mind/inner.test.js dist/mind/life.test.js"
+    "test": "node --test dist/mind/store.test.js dist/canvas.test.js dist/mind/inner.test.js dist/mind/life.test.js dist/mind/self.test.js"
   },
   "engines": {
     "node": ">=22"

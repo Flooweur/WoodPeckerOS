@@ -4,7 +4,8 @@
 // which holds their data (what needs you, the conversation, the goals, the
 // activity, the machine).
 import { useEffect, useState } from "react";
-import type { AgentState, GatewayResult, Goal, Identity, JournalEntry, LogEntry, Memory, MindResult, Send } from "./types";
+import { diffWords, type DiffPart } from "./faceData";
+import type { AgentState, GatewayResult, Goal, Identity, IdentityVersion, JournalEntry, LogEntry, Memory, MindResult, Send } from "./types";
 import { TOOL_PREFIX, day, money, until } from "./types";
 
 export type Panel =
@@ -24,7 +25,8 @@ export type Panel =
   | { kind: "machine" }
   | { kind: "things"; id?: string }
   | { kind: "changes" }
-  | { kind: "life" };
+  | { kind: "life" }
+  | { kind: "face" };
 
 const STATUS: Record<string, string> = {
   inbox: "to be reviewed",
@@ -96,6 +98,7 @@ export function PanelView({
     : panel.kind === "things" ? "THINGS ON THE CANVAS"
     : panel.kind === "changes" ? "CHANGES TO THE CANVAS"
     : panel.kind === "life" ? "WOODY'S OWN LIFE"
+    : panel.kind === "face" ? "WOODY'S FACE"
     : "SETTINGS";
   // The conversation scrolls by itself, like the terminal: it gets no padded body.
   const bare = panel.kind === "terminal" || panel.kind === "talk";
@@ -523,16 +526,97 @@ function MemoryView({ mind, incoming, version }: { mind: MindFn; incoming: MindR
   );
 }
 
+const WHO: Record<string, string> = { initial: "the first version", woody: "by Woody", operator: "by you" };
+
+function Diff({ parts, kind }: { parts: DiffPart[]; kind: "gone" | "new" }) {
+  return <pre className="diff">{parts.map((p, i) => (p.changed ? <mark key={i} className={`diff-${kind}`}>{p.text}</mark> : <span key={i}>{p.text}</span>))}</pre>;
+}
+
+/** One change Woody made to its identity: the reason, the before and the after, and the way back. */
+function IdentityChange({ before, after, current, mind }: { before: IdentityVersion; after: IdentityVersion; current: number; mind: MindFn }) {
+  const diff = diffWords(before.text, after.text);
+  return (
+    <div className="notice-box" data-change={after.version}>
+      <h4>
+        Woody changed its identity · version {after.version} · {day(after.ts)}
+      </h4>
+      <p className="pre">{after.reason || after.note}</p>
+      <div className="pair">
+        <div>
+          <div className="label">BEFORE · VERSION {before.version}</div>
+          <Diff parts={diff.before} kind="gone" />
+        </div>
+        <div>
+          <div className="label">AFTER · VERSION {after.version}</div>
+          <Diff parts={diff.after} kind="new" />
+        </div>
+      </div>
+      {after.version === current && (
+        <div className="row-actions">
+          <button onClick={() => mind("identity_restore", { id: before.version })}>put version {before.version} back</button>
+          <span className="dim small">Nothing is lost: the change stays in the versions below.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function IdentityView({ mind, identity }: { mind: MindFn; identity: Identity | null }) {
+  // The changes Woody made that had not been looked at when this record was opened. Opening it is looking.
+  const [fresh, setFresh] = useState<number[]>([]);
+  const unseen = (identity?.state?.unseen ?? []).join(",");
+  useEffect(() => {
+    if (!unseen) return;
+    setFresh((f) => [...new Set([...f, ...unseen.split(",").map(Number)])]);
+    mind("identity_seen");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unseen]);
+
   if (!identity) return <p className="dim">Loading…</p>;
+  const history = identity.history ?? [];
+  const st = identity.state;
+  const current = identity.current.version;
+  const remaining = st ? Math.round(st.remaining * 100) : null;
+  const previous = (v: number) => history.find((h) => h.version < v);
+  const changes = history.filter((h) => fresh.includes(h.version) && previous(h.version));
+  const anchorShown = identity.anchor && !history.some((h) => h.version === identity.anchor!.version);
+
   return (
     <div className="stack">
-      <p className="dim small">Version {identity.current.version}. This text describes Woody's character. It cannot change its rules.</p>
+      {changes.map((after) => (
+        <IdentityChange key={after.version} before={previous(after.version)!} after={after} current={current} mind={mind} />
+      ))}
+      {st?.paused && (
+        <div className="notice-box alert">
+          <h4>Woody's changes wait for you</h4>
+          <p>
+            Only {remaining}% of the first version's words remain in the current one. Small steps have added up, so Woody changes nothing more until you have looked.
+          </p>
+          <div className="row-actions">
+            <button onClick={() => mind("identity_continue")}>let it continue</button>
+            {identity.anchor && identity.anchor.version !== current && <button onClick={() => mind("identity_restore", { id: identity.anchor!.version })}>put the first version back</button>}
+          </div>
+        </div>
+      )}
+      <p className="dim small">
+        Version {current}. This text describes Woody's character. It comes after its rules and cannot change them.
+        {remaining !== null && ` ${remaining}% of the first version's words remain in it.`}
+      </p>
+      {remaining !== null && (
+        <span className="bar small" title="How much of the first version remains">
+          <span className={remaining < 50 ? "red" : "amber"} style={{ width: `${remaining}%` }} />
+        </span>
+      )}
       <pre>{identity.current.text}</pre>
-      {identity.pending.length === 0 && <p className="dim small">No change is proposed.</p>}
+      {st && (
+        <label className="check">
+          <input type="checkbox" checked={!st.frozen} onChange={(e) => mind("identity_freeze", { frozen: !e.target.checked })} /> Woody may change this text itself, after its daily reflection: one small
+          step a day, at most a quarter of the words. You are shown each change and can put any version back.
+        </label>
+      )}
       {identity.pending.map((p) => (
         <div key={p.id} className="stack">
-          <h4>Woody proposes this instead</h4>
+          <h4>Woody proposed this before it could change the text itself</h4>
           <pre>{p.text}</pre>
           <h4>Its reason</h4>
           <p className="pre">{p.reason}</p>
@@ -542,15 +626,21 @@ function IdentityView({ mind, identity }: { mind: MindFn; identity: Identity | n
           </div>
         </div>
       ))}
-      {(identity.history ?? []).length > 1 && (
+      {history.length > 1 && (
         <>
-          <h4>Earlier versions</h4>
-          {(identity.history ?? []).slice(1).map((h) => (
+          <h4>Versions</h4>
+          {[...history.slice(1), ...(anchorShown ? [identity.anchor!] : [])].map((h) => (
             <details key={h.version} className="record">
               <summary className="small dim">
-                version {h.version} · {day(h.ts)} · {h.note}
+                version {h.version} · {day(h.ts)} · {WHO[h.author ?? ""] ?? ""}
+                {h.author === "woody" && h.reason ? `: ${h.reason}` : h.author === "operator" ? ` (${h.note})` : ""}
               </summary>
               <pre>{h.text}</pre>
+              <div className="row-actions">
+                <button className="ghost" onClick={() => mind("identity_restore", { id: h.version })}>
+                  put this version back
+                </button>
+              </div>
             </details>
           ))}
         </>
