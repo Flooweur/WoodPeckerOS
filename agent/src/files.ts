@@ -11,6 +11,7 @@ import path from "node:path";
 const READ_ROOTS = ["/etc", "/nix/store"];
 const MAX_READ = 256 * 1024;
 const MAX_WRITE = 1024 * 1024;
+const MAX_WRITE_BINARY = 8 * 1024 * 1024;
 const MAX_ENTRIES = 500;
 
 export class FileError extends Error {}
@@ -147,13 +148,13 @@ export class Files {
     return out;
   }
 
-  write(input: string, content: string): { path: string; bytes: number } {
+  write(input: string, content: string | Buffer): { path: string; bytes: number } {
     const target = this.absolute(input);
     if (!inside(target, this.workspace) || target === this.workspace) {
       throw new FileError(`writes are only allowed inside the workspace (${this.workspace})`);
     }
-    const bytes = Buffer.byteLength(content, "utf8");
-    if (bytes > MAX_WRITE) throw new FileError(`content too large (${bytes} bytes, limit ${MAX_WRITE})`);
+    const bytes = typeof content === "string" ? Buffer.byteLength(content, "utf8") : content.length;
+    if (bytes > (typeof content === "string" ? MAX_WRITE : MAX_WRITE_BINARY)) throw new FileError(`content too large (${bytes} bytes, limit ${MAX_WRITE})`);
 
     // Walk up to the deepest directory that already exists and make sure its
     // real location is still inside the workspace, so a symlink planted in

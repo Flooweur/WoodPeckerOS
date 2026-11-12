@@ -37,7 +37,7 @@ type Item =
   | { kind: "meta"; key: number; text: string }
   | { kind: "error"; key: number; text: string };
 
-type Notice = { key: number; title: string; body: string; level: "info" | "warn" | "alert" };
+type Notice = { key: number; title: string; body: string; level: "info" | "warn" | "alert"; copy?: string; copied?: boolean };
 
 type Link = "connecting" | "open" | "closed" | "no-token";
 
@@ -152,9 +152,10 @@ export function App() {
         case "notify": {
           const key = nextKey.current++;
           const level = msg.level === "alert" || msg.level === "warn" ? msg.level : "info";
-          setNotices((prev) => [...prev.slice(-4), { key, title: String(msg.title ?? ""), body: String(msg.body ?? ""), level }]);
-          // Alerts stay until dismissed; the rest clear themselves.
-          if (level !== "alert") window.setTimeout(() => setNotices((prev) => prev.filter((n) => n.key !== key)), 15000);
+          const copy = typeof msg.copy === "string" && msg.copy ? msg.copy : undefined;
+          setNotices((prev) => [...prev.slice(-4), { key, title: String(msg.title ?? ""), body: String(msg.body ?? ""), level, copy }]);
+          // Alerts and copy offers stay until dismissed; the rest clear themselves.
+          if (level !== "alert" && !copy) window.setTimeout(() => setNotices((prev) => prev.filter((n) => n.key !== key)), 15000);
           break;
         }
         case "decide_result":
@@ -324,11 +325,28 @@ export function App() {
       {notices.length > 0 && (
         <div className="notices" aria-live="polite">
           {notices.map((n) => (
-            <button key={n.key} className={`notice ${n.level}`} onClick={() => setNotices((prev) => prev.filter((x) => x.key !== n.key))}>
+            <div key={n.key} className={`notice ${n.level}`}>
               <strong>{n.title}</strong>
               {n.body && <span>{n.body}</span>}
-              <em>click to dismiss</em>
-            </button>
+              {n.copy && <span className="copy-text">{n.copy.length > 300 ? `${n.copy.slice(0, 300)}…` : n.copy}</span>}
+              <div className="notice-actions">
+                {n.copy && (
+                  <button
+                    onClick={() => {
+                      navigator.clipboard
+                        .writeText(n.copy!)
+                        .then(() => setNotices((prev) => prev.map((x) => (x.key === n.key ? { ...x, copied: true } : x))))
+                        .catch(() => setNotices((prev) => prev.map((x) => (x.key === n.key ? { ...x, body: "Copy failed: the browser refused clipboard access." } : x))));
+                    }}
+                  >
+                    {n.copied ? "copied" : "copy"}
+                  </button>
+                )}
+                <button className="ghost" onClick={() => setNotices((prev) => prev.filter((x) => x.key !== n.key))}>
+                  dismiss
+                </button>
+              </div>
+            </div>
           ))}
         </div>
       )}

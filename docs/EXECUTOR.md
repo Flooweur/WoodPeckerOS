@@ -22,6 +22,7 @@ The only root component Woody can talk to. Source in `executor/`, NixOS module i
 | `journal.query` | read | `unit`, `priority` (0–7), `since` (-15m, -2h, -1d), `grep` (plain phrase), `lines` |
 | `osquery.query` | read | `sql`: one SELECT over an allow-listed set of tables |
 | `scope.check` | read | `target` |
+| `screen.capture` | read | `scale` (0.25–1, default 0.5) |
 | `service.start` / `service.stop` / `service.restart` | approval | `unit` (locked-core units are forbidden) |
 | `config.propose` | reversible | `summary`, `files` (`path`, `content`), `delete` |
 | `config.apply` | approval if the locked core is touched, otherwise reversible | `candidate` |
@@ -30,6 +31,8 @@ The only root component Woody can talk to. Source in `executor/`, NixOS module i
 **Configuration changes.** See [SELFMOD.md](SELFMOD.md). The audit log records the hash and size of each proposed file, not its content, and the final outcome of each change.
 
 **osquery.** The query must be a single SELECT. Which tables it can read is enforced by osquery itself (`--enable_tables`), set in `nix/locked/executor.nix`. Tables that expose secrets or reach the network (`shadow`, `process_envs`, `curl`, `file`, `shell_history`, `augeas` and others) are not in the list, so they do not exist for a query. Queries are stopped after 20 seconds and results capped at 500 rows.
+
+**Screenshots.** `screen.capture` runs `grim` as the kiosk user against that user's display and returns a JPEG. The audit log records its size and hash, not the picture.
 
 **Files are not an executor action.** The agent reads world-readable files under `/etc` and `/nix/store` and writes only in its own workspace, using its own unprivileged process (see AGENT.md).
 
@@ -113,4 +116,4 @@ sudo woodyctl audit-verify
 
 ## Tests
 
-`cargo test` runs in the Nix build (46 tests: scope rules, audit chain, parameter validation, configuration changes). The build fails if any test fails.
+`cargo test` runs in the Nix build (48 tests: scope rules, audit chain, parameter validation, configuration changes). The build fails if any test fails.

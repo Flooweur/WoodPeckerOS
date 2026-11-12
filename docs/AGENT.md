@@ -11,7 +11,8 @@ Today the agent answers when you write to it. Phase 4 turns it into an always-pr
 - **Operate (approval):** `service_start`, `service_stop`, `service_restart`.
 - **Change the system:** `config_propose`, `config_apply`, `config_status`. Free except for the locked core, which needs approval; see [SELFMOD.md](SELFMOD.md).
 - **Files (local):** `fs_list` and `fs_read` under its workspace, `/etc` and `/nix/store`; `fs_write` only inside its workspace (`/var/lib/woody/workspace`). Symlinks that lead out of those areas are refused.
-- **HUD:** `hud_notify` raises a notice on the HUD.
+- **See the screen:** `screenshot` returns a picture of the kiosk display and saves a copy under `screenshots/` in the workspace.
+- **HUD:** `hud_notify` raises a notice on the HUD. `clipboard_offer` shows a notice with a Copy button. Woody cannot read the clipboard; paste into the chat instead.
 - It runs under systemd hardening with no capabilities and a read-only view of the system. Its only writable place is `/var/lib/woody`.
 - It cannot open the approval socket. When a tool needs approval, the call waits until a human decides.
 - Tool results are labelled as data, and the system prompt tells the model never to follow instructions found in them.

@@ -32,10 +32,22 @@ pub struct Config {
     pub osquery_tables: Vec<String>,
     #[serde(default = "default_ttl")]
     pub approval_ttl_ms: u64,
+    /// Screenshots of the kiosk display. screen.capture is refused when unset.
+    #[serde(default)]
+    pub screen: Option<Screen>,
     /// Self-modification of the system configuration. The config.* actions
     /// are refused when unset.
     #[serde(default)]
     pub selfmod: Option<SelfMod>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Screen {
+    /// The user whose Wayland session shows the HUD.
+    pub user: String,
+    pub grim: String,
+    pub setpriv: String,
+    pub timeout: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

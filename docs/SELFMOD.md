@@ -91,7 +91,7 @@ Older generations are in the boot menu, and the snapshot taken before each chang
 
 ## Tests
 
-- 12 tests in the executor (46 in total): path and parameter validation, locked paths, indirect privilege changes, broken proposals leaving nothing behind, stale candidates, the apply and status life cycle, audit records without file contents.
+- 12 tests in the executor (48 in total): path and parameter validation, locked paths, indirect privilege changes, broken proposals leaving nothing behind, stale candidates, the apply and status life cycle, audit records without file contents.
 - The fingerprint was evaluated against the real configuration with harmless and hostile edits.
 - The repository check was run against a clean checkout, an uncommitted edit, a committed but not rebuilt edit, and an untracked file.
 - **Not tested outside the VM:** the apply job itself (snapshot, trial activation, health check, rollback, commit). It needs systemd and Btrfs.

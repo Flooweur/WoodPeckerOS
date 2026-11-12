@@ -56,6 +56,14 @@ let
       "users" "groups" "logged_in_users" "last" "systemd_units"
     ];
 
+    # Screenshots of the kiosk display, taken as the kiosk user.
+    screen = {
+      user = "kiosk";
+      grim = "${pkgs.grim}/bin/grim";
+      setpriv = "${pkgs.util-linux}/bin/setpriv";
+      timeout = "${pkgs.coreutils}/bin/timeout";
+    };
+
     # Self-modification (see docs/SELFMOD.md). Woody may propose changes to
     # this repository. A change to any path below, or one that alters the
     # privilege fingerprint (./fingerprint.nix), waits for human approval.

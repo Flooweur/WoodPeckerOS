@@ -131,6 +131,9 @@ pre {
   border: 1px solid var(--line-strong); border-left: 4px solid var(--amber);
 }
 .notice strong { color: var(--amber); }
+.notice .copy-text { font-size: 12px; color: var(--amber-soft); background: var(--bg); border: 1px solid var(--line); padding: 6px; max-height: 120px; overflow: auto; }
+.notice-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.notice-actions button { padding: 3px 10px; font-size: 12px; }
 .notice span { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
 .notice em { font-style: normal; font-size: 11px; color: var(--amber-dim); }
 .notice.warn { border-left-color: #ff8a00; }

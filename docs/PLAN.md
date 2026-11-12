@@ -37,7 +37,7 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 | 0 | Spikes | Done |
 | 1 | Base system and rollback | Done |
 | 2 | Privileged core, agent, thin HUD | Done |
-| 3 | System hands (3a observe and operate; 3b self-modification; 3c screenshots and clipboard) | 3a done, 3b built (VM test pending), 3c next |
+| 3 | System hands (3a observe and operate; 3b self-modification; 3c screenshots and clipboard) | Done |
 | 4 | **Mind loop**: events, state, memory, goals, journal, alarms, pacer, web access | Designed |
 | 5 | **Full HUD**, designed around the loop | Planned |
 | 6 | **Security toolkit** | Planned |
@@ -75,7 +75,13 @@ The remaining phases were reordered around the mind loop. The old "Phase 6 — P
 - The locked core is enforced two ways: a list of locked paths, and a privilege fingerprint of the evaluated system that catches indirect changes.
 - Changed from the plan: Woody does not keep a git clone. It sends file contents to the executor, which works on its own root-owned copy. No path supplied by the agent is ever read by root.
 - Known limit: the fingerprint is a tripwire, not a proof (see SELFMOD.md).
-- The apply job is untested outside the VM.
+- Tested in the VM on 2026-11-12, including the apply job.
+
+## Phase 3c results (2026-11-12)
+
+- Screenshots: the executor runs `grim` as the kiosk user; Woody receives the picture and can look at the HUD.
+- Clipboard, changed from the plan: the kiosk compositor (`cage`) does not offer the clipboard protocol that `wl-clipboard` needs without stealing the screen. Instead Woody offers text through a HUD notice with a Copy button, and cannot read the clipboard. This also works unchanged when the HUD is opened from the Windows host browser (Phase 5).
+- Phase 3 is complete.
 
 ## Review of the original brief: what changes and why
 
